@@ -64,12 +64,23 @@ static int load_font(void) {
     return -1;
 }
 
+static int reimport;  /* SCREENLOG_REIMPORT=1: scan out via a dma-buf export/import round trip */
+
 static int make_buf(struct out *o, struct buf *b) {
     struct drm_mode_create_dumb cd = { .width = o->w, .height = o->h, .bpp = 32 };
     if (xioctl(DRM_IOCTL_MODE_CREATE_DUMB, &cd)) return -1;
     b->handle = cd.handle; b->pitch = cd.pitch; b->size = cd.size;
+    uint32_t fb_handle = cd.handle;
+    if (reimport) {  /* what compositors do: export as dma-buf, import, make the FB from that */
+        struct drm_prime_handle ph = { .handle = cd.handle, .flags = DRM_CLOEXEC | DRM_RDWR };
+        if (xioctl(DRM_IOCTL_PRIME_HANDLE_TO_FD, &ph)) { perror("prime export"); return -1; }
+        struct drm_prime_handle ih = { .fd = ph.fd };
+        if (xioctl(DRM_IOCTL_PRIME_FD_TO_HANDLE, &ih)) { perror("prime import"); return -1; }
+        fb_handle = ih.handle;
+        fprintf(stderr, "screenlog: reimported handle %u -> %u\n", cd.handle, ih.handle);
+    }
     struct drm_mode_fb_cmd fc = { .width = o->w, .height = o->h, .pitch = cd.pitch,
-                                  .bpp = 32, .depth = 24, .handle = cd.handle };
+                                  .bpp = 32, .depth = 24, .handle = fb_handle };
     if (xioctl(DRM_IOCTL_MODE_ADDFB, &fc)) return -1;
     b->fb = fc.fb_id;
     struct drm_mode_map_dumb md = { .handle = cd.handle };
@@ -180,6 +191,7 @@ static char lines[MAX_LINES][LINE_LEN];
 int main(int argc, char **argv) {
     if (argc < 2) { fprintf(stderr, "usage: %s <logfile> [scale]\n", argv[0]); return 2; }
     if (argc > 2) scale = atoi(argv[2]) > 0 ? atoi(argv[2]) : 2;
+    reimport = getenv("SCREENLOG_REIMPORT") != NULL;
     if (load_font()) { fprintf(stderr, "screenlog: bad font\n"); return 1; }
     for (int i = 0; i < 900; i++) {  /* the display driver may still be probing (up to 3 min) */
         fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);

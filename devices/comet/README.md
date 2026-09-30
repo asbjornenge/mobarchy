@@ -1,6 +1,8 @@
 # comet: Google Pixel 9 Pro Fold
 
-Status: **v0.1 boots** (2026-09-30). Our init runs as PID 1 on the stock kernel and loads all vendor modules. It shows its log on both panels via KMS and exposes USB NCM and ACM. The host gets 172.16.42.2 over DHCP, and `telnet 172.16.42.1` gives a root shell. This is the porting notebook, and it records what we know.
+Status: **v0.2 boots to Arch Linux + systemd + Hyprland** (2026-09-30), with ssh over USB.
+The compositor's output is not displayed correctly yet (blue screen; see "Open: compositor scanout" below).
+**v0.1 boots** (2026-09-30). Our init runs as PID 1 on the stock kernel and loads all vendor modules. It shows its log on both panels via KMS and exposes USB NCM and ACM. The host gets 172.16.42.2 over DHCP, and `telnet 172.16.42.1` gives a root shell. This is the porting notebook, and it records what we know.
 
 Analysis source: factory image `cp3a.260905.009` (Android 17, September 2026 patch, bootloader `ripcurrentpro-17.0`), unpacked with `tools/android-images/unpack`. There are no binaries in this repo. Everything is reproducible from Google's download.
 
@@ -97,6 +99,26 @@ The boot flow is:
 If anything before switch_root fails, the debug shell from v0.1 stays up. `mobarchy.debug` on the kernel command line always stops at the debug shell.
 
 Flashing commands are generated in `<v0.2-dir>/FLASHING.md` and need sign-off. `vendor_dlkm` and `system_dlkm` are logical partitions, so they are flashed from fastbootd.
+
+What works (2026-09-30):
+- our kernel (6.1.145 + Mobarchy config) with 213 modules
+- switch_root to Arch Linux on userdata and systemd
+- USB NCM + networkd + ssh as `mob`
+- Hyprland (llvmpipe, `MESA_LOADER_DRIVER_OVERRIDE=kms_swrast`) drives both panels, and `grim` screenshots are correct
+- Goodix touch shows up as an input device once `goodix_brl_touch` is loaded
+
+Fixes found on the device, now in the repo:
+- The fold (hall sensor) is a lid switch, so logind must ignore it or the phone suspends.
+- There are no VTs, so the session is a systemd service (`mobarchy-session`) instead of getty autologin.
+- The late modules from `init.insmod.comet.cfg` (touch, haptics, audio, wifi) must be loaded.
+- The locale must be set to UTF-8.
+
+**Open: compositor scanout.** With Hyprland (and sway/pixman), both panels show solid blue with thin line artifacts. That is the DPU's pattern for a failed or underrun fetch. The compositor's own screenshots are correct. Our KMS client `mobarchy-screenlog` displays correctly on both panels, including through a dma-buf export/import round trip. That rules out plain dumb buffers and dma-buf import as the cause. Remaining suspects:
+- continuous atomic page flips on command-mode panels (HWC uses explicit frame triggers, BTS and self-refresh handling)
+- per-plane properties the compositor sets differently from legacy SETCRTC
+- 120 Hz on the inner panel
+
+Next step: reproduce with screenlog variants (atomic commits, repeated flips, 120 Hz) until it turns blue.
 
 Open points for v0.2:
 - **Display setup:** which DRM connector belongs to which panel (inner/outer), and the panel power sequencing without Android's HWC.

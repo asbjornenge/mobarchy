@@ -22,6 +22,8 @@ if [ -d /extra/kernel ]; then
             | xargs -n1 basename | sed 's/\.ko$//' \
             | grep -vxF -f <(sed -n 's/^blocklist //p' $k/vendor_dlkm.modules.blocklist $k/system_dlkm.modules.blocklist 2>/dev/null | sed 's/-/_/g; s/\.ko$//') \
             || true
+        # Device modules Android loads late from init.insmod.<device>.cfg (touch, wifi, haptics, audio).
+        sed -n 's/^modprobe|\(.*\)\.ko$/\1/p' $k/init.insmod.comet.cfg 2>/dev/null
     } > /etc/modules-load.d/mobarchy-comet.conf
     echo "comet: installed $(ls "$dst/extra" | wc -l) modules for $kver"
 fi

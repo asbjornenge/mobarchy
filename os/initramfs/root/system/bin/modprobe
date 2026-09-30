@@ -3,30 +3,42 @@
 # CONFIG_MODPROBE_PATH (/system/bin/modprobe) themselves, very early, before /init
 # runs, to load pKVM hypervisor modules (kvm-arm.protected_modules). That has to work,
 # or the modules that depend on them (IOMMUs, UFS inline crypto, ...) fail later.
-# It resolves /lib/modules/modules.dep like the real thing. /proc may not be mounted.
+#
+# It resolves modules.dep like the real thing, in both layouts: flat /lib/modules
+# with absolute paths (Android factory ramdisks) and /lib/modules/<release>/ with
+# relative paths (standard kernel builds). /proc may not be mounted yet.
 PATH=/bin:/sbin
 dir=/lib/modules
+[ -f $dir/modules.dep ] || dir=/lib/modules/$(uname -r)
 names=""
 for a in "$@"; do
     case "$a" in -*) ;; *) names="$names $a" ;; esac
 done
 
-load() {  # load <file.ko>: dependencies first (last listed = most basic), then the module
-    local m=$1 d
-    for d in $(sed -n "s|^\(.*/\)\{0,1\}$m:||p" $dir/modules.dep 2>/dev/null | tr ' ' '\n' | tac); do
-        load "$(basename "$d")"
+norm() { basename "$1" .ko | tr '-' '_'; }
+file_of() { case "$1" in /*) echo "$1" ;; *) echo "$dir/$1" ;; esac; }
+
+seen=" "
+load() {  # load <key from modules.dep>: dependencies first (last listed = most basic)
+    local key=$1 d n
+    # Visit each module once: without this, shared dependencies get re-resolved over and
+    # over (thousands of forks), which delays /init by seconds.
+    case "$seen" in *" $key "*) return 0 ;; esac
+    seen="$seen$key "
+    for d in $(grep -m1 "^$key:" $dir/modules.dep 2>/dev/null | cut -d: -f2 | tr ' ' '\n' | tac); do
+        load "$d"
     done
-    n=$(basename "$m" .ko | tr '-' '_')
-    insmod "$dir/$m" $(tr ' ' '\n' < /proc/cmdline 2>/dev/null | sed -n "s/^$n\.//p") 2>/dev/null
+    n=$(norm "$key")
+    insmod "$(file_of "$key")" $(tr ' ' '\n' < /proc/cmdline 2>/dev/null | sed -n "s/^$n\.//p") 2>/dev/null
     return 0
 }
 
 rc=0
-for n in $names; do
-    f=""
-    for c in "$n" "$(echo "$n" | tr '_' '-')" "$(echo "$n" | tr '-' '_')"; do
-        [ -f "$dir/$c.ko" ] && { f="$c.ko"; break; }
+for want in $names; do
+    w=$(norm "$want") key=""
+    for k in $(sed -n 's/:.*//p' $dir/modules.dep 2>/dev/null); do
+        [ "$(norm "$k")" = "$w" ] && { key=$k; break; }
     done
-    if [ -n "$f" ]; then load "$f"; else rc=1; fi
+    if [ -n "$key" ]; then load "$key"; else rc=1; fi
 done
 exit $rc

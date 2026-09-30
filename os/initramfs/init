@@ -97,32 +97,49 @@ insmod_timed() {  # insmod with a time budget; a module stuck in probe must not 
 # Dependency-aware loading, like modprobe: a module's dependencies (modules.dep) and
 # pre-softdeps (modules.softdep) are loaded before the module itself. The vendor's
 # modules.load gives the order of the top-level modules only.
-module_path() { echo "/lib/modules/$(basename "$1")"; }
+#
+# Two layouts exist: Android factory ramdisks keep everything flat in /lib/modules with
+# absolute paths in modules.dep; kernels we build (Kleaf) use the standard
+# /lib/modules/<release>/ tree with relative paths. MODDIR is whichever has modules.load.
+MODDIR=/lib/modules
+[ -f $MODDIR/modules.load ] || MODDIR=/lib/modules/$(uname -r)
+
 module_name() { basename "$1" .ko | tr '-' '_'; }
 is_loaded() { grep -q "^$(module_name "$1") " /proc/modules; }
+module_file() {  # path as written in modules.dep/modules.load -> file on disk
+    case "$1" in /*) echo "$1" ;; *) echo "$MODDIR/$1" ;; esac
+}
+module_key() {  # module name or file name -> its path key in modules.dep
+    local n
+    n=$(module_name "$1")
+    sed -n 's/:.*//p' $MODDIR/modules.dep 2>/dev/null \
+        | while read -r k; do [ "$(module_name "$k")" = "$n" ] && { echo "$k"; break; }; done
+}
 
-load_module() {  # load_module <file.ko>: load dependencies first, then the module
-    local m ko d
-    m=$(basename "$1")
+load_module() {  # load_module <path from modules.load/dep, or a bare file name>
+    local key m ko d
+    case "$1" in */*) key=$1 ;; *) key=$(module_key "$1") ;; esac
+    [ -n "$key" ] || { log "module $1 not found"; return 1; }
+    m=$(basename "$key")
     case " $MODULE_SKIP " in *" ${m%.ko} "*) return 0 ;; esac
     is_loaded "$m" && return 0
     grep -qx "$m" /run/mobarchy-modules.visiting 2>/dev/null && return 0  # dependency cycle guard
     echo "$m" >> /run/mobarchy-modules.visiting
     # Like modprobe: the last listed dependency is the most basic one, so start there.
-    for d in $(sed -n "s|^\(.*/\)\{0,1\}$m:||p" /lib/modules/modules.dep 2>/dev/null | tr ' ' '\n' | tac); do
+    for d in $(grep -m1 "^$key:" $MODDIR/modules.dep 2>/dev/null | cut -d: -f2 | tr ' ' '\n' | tac); do
         load_module "$d"
     done
-    for d in $(sed -n "s/^softdep $(module_name "$m") pre: //p" /lib/modules/modules.softdep 2>/dev/null); do
-        [ -f "$(module_path "$d.ko")" ] && load_module "$d.ko"
+    for d in $(sed -n "s/^softdep $(module_name "$m") pre: //p" $MODDIR/modules.softdep 2>/dev/null); do
+        load_module "$d.ko" 2>/dev/null
     done
-    ko=$(module_path "$m")
+    ko=$(module_file "$key")
     [ -f "$ko" ] || { log "module $m not found"; return 1; }
     echo "$(cut -d' ' -f1 /proc/uptime) $m" >> /run/mobarchy-modules.log
     insmod_timed "$ko"
 }
 
 load_modules() {  # load_modules <first line> <last line|$>: a slice of modules.load
-    local list=/lib/modules/modules.load ok=0 fail=0 m
+    local list=$MODDIR/modules.load ok=0 fail=0 m
     [ -f "$list" ] || { log "no $list, skipping module loading"; return; }
     for m in $(sed -n "$1,$2p" "$list"); do
         [ -c /dev/dri/card0 ] || { [ -e /sys/class/drm/card0 ] && mdev -s; }  # let screenlog start early
@@ -133,8 +150,8 @@ load_modules() {  # load_modules <first line> <last line|$>: a slice of modules.
 
 early_modules_end() {  # line in modules.load after which USB can come up (EARLY_MODULES_UNTIL)
     local n
-    [ -n "$EARLY_MODULES_UNTIL" ] && [ -f /lib/modules/modules.load ] || { echo '$'; return; }
-    n=$(grep -n "$EARLY_MODULES_UNTIL" /lib/modules/modules.load | head -n1 | cut -d: -f1)
+    [ -n "$EARLY_MODULES_UNTIL" ] && [ -f $MODDIR/modules.load ] || { echo '$'; return; }
+    n=$(grep -n "$EARLY_MODULES_UNTIL" $MODDIR/modules.load | head -n1 | cut -d: -f1)
     echo "${n:-\$}"
 }
 
