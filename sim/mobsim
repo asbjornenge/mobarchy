@@ -170,7 +170,8 @@ write_files:
       fi
 runcmd:
   - [bash, -c, "pacman-key --init && pacman-key --populate archlinux"]
-  - [pacman, -Syu, --noconfirm, --needed, hyprland, foot, mesa, grim, wtype, jq, python, uv, rsync, ttf-dejavu, noto-fonts]
+  - [pacman, -Syu, --noconfirm, --needed, hyprland, foot, mesa, grim, wtype, jq, python, uv, rsync, ttf-dejavu, noto-fonts,
+       gtk4, gtk4-layer-shell, python-gobject, squeekboard]
   - [chown, -R, "{GUEST_USER}:{GUEST_USER}", /home/{GUEST_USER}]
   - [mkdir, -p, /var/lib/mobarchy]
   - [touch, /var/lib/mobarchy/provisioned]
@@ -355,9 +356,12 @@ def cmd_sync(args) -> None:
     """Deploy the working tree into the guest: rootfs overlays, user config, and the agent layer."""
     dev_dir = DEVICE.parent
     # System files: generic overlay first, then the device overlay on top.
-    rsync(f"{REPO}/os/rootfs/", "/", sudo=True)
+    # System overlays: root-owned (no -o), without group/other write, and --omit-dir-times.
+    # --no-perms plus --chmod keeps existing system directories (/, /etc, ...) at their own modes.
+    sysopts = ("--no-perms", "--executability", "--chmod=Dgo-w,Fgo-w", "--omit-dir-times")
+    rsync(f"{REPO}/os/rootfs/", "/", *sysopts, sudo=True)
     if (dev_dir / "rootfs").is_dir():
-        rsync(f"{dev_dir}/rootfs/", "/", sudo=True)
+        rsync(f"{dev_dir}/rootfs/", "/", *sysopts, sudo=True)
     rsync(str(DEVICE), "/etc/mobarchy/device.toml", sudo=True)
     # Session config.
     rsync(f"{REPO}/os/config/", ".config/")
@@ -370,15 +374,20 @@ def cmd_sync(args) -> None:
     ssh(["sudo install -d -o $(id -u) -g $(id -g) /opt/mobarchy/agent"])
     rsync(f"{REPO}/agent/", "/opt/mobarchy/agent/", "--delete-after",
           "--exclude", ".venv", "--exclude", "__pycache__", "--exclude", ".pytest_cache")
-    ssh(["set -e; cd /opt/mobarchy/agent/mobarchy-mcp && uv sync -q --no-dev"])
+    ssh(["set -e; for p in /opt/mobarchy/agent/*/pyproject.toml; do (cd $(dirname $p) && uv sync -q --no-dev); done"])
+    # Agent credentials live on the host outside the repo; copy them in if present.
+    host_env = Path.home() / ".config" / "mobarchy" / "agent.env"
+    if host_env.is_file():
+        ssh(["install -d -m 700 ~/.config/mobarchy"])
+        rsync(str(host_env), ".config/mobarchy/agent.env", "--chmod=F600")
     # Activate: uinput access, units, compositor config, MCP server.
-    ssh(["set -e; sudo udevadm control --reload; sudo modprobe uinput; sudo udevadm trigger -s misc;"
+    ssh(["set -e; sudo glib-compile-schemas /usr/share/glib-2.0/schemas; sudo udevadm control --reload; sudo modprobe uinput; sudo udevadm trigger -s misc;"
          " systemctl --user daemon-reload;"
          " if pgrep -x Hyprland >/dev/null; then " + WAYLAND_ENV +
          " hyprctl -i 0 reload >/dev/null;"
          " export HYPRLAND_INSTANCE_SIGNATURE=$(hyprctl -i 0 -j instances | jq -r '.[0].instance');"
          " systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE;"
-         " systemctl --user restart mobarchy-mcp;"
+         " systemctl --user restart mobarchy-mcp mobarchy-bar;"
          " for i in $(seq 50); do curl -s -o /dev/null localhost:8765/mcp && break; sleep 0.2; done; fi"])
     print("synced")
 

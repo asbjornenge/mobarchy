@@ -9,9 +9,12 @@ Status: early development. Nothing boots on real hardware yet.
 
 ```
 agent/     Agent runtime and the OS tool layer (MCP servers). This is Mobarchy's core.
-os/        Generic userspace. Device-agnostic. config/ = session config, rootfs/ = system files.
+os/        Generic userspace. Device-agnostic. config/ = session config, rootfs/ = system files,
+           initramfs/ = debug init for first boots, kernel/ = kernel config fragment,
+           image/ = device rootfs image builder (Arch Linux ARM).
 devices/   One directory per device (boot, kernel, hardware adaptation). Kept thin.
 sim/       The simulator: a QEMU/KVM VM that acts as a device, plus tools to drive it.
+tools/     Containerized helpers: Android image unpacking, kernel builds.
 docs/      Brief, architecture, and decision records (docs/decisions/).
 ```
 
@@ -24,6 +27,8 @@ Requirements: Linux host with KVM, `qemu-system-x86_64`, OVMF, `xorriso`, Python
 ```sh
 sim/mobsim create      # download base image, build disk + cloud-init seed
 sim/mobsim up          # boot, wait for the shell (first boot provisions, ~5 min), deploy the tree
+
+# On the phone: tap "✦ Ask" in the bottom bar and type a task (needs an API key, see agent/mobarchy-agent).
 
 # Drive the phone through its MCP server, like an agent would:
 cd agent/mobarchy-mcp

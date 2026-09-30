@@ -9,7 +9,7 @@
 ├──────────────────────────────────────────────┤
 │ Compositor adapter (Hyprland today)           │  agent/  (backend behind the tool API)
 ├──────────────────────────────────────────────┤
-│ Mobile shell / UX                             │  os/config, later os/shell
+│ Mobile shell / UX                             │  os/config, os/rootfs (mobarchy-bar)
 ├──────────────────────────────────────────────┤
 │ Userspace rootfs                              │  os/
 ├──────────────────────────────────────────────┤
@@ -26,6 +26,15 @@ Mobarchy's own value lives in the top two layers. Everything below is reused, an
 2. **Compositor-agnostic tool API.** The MCP tool schemas describe phone concepts (apps, windows, screens, touch, text), not Hyprland concepts. Hyprland is one backend. See [ADR 0004](decisions/0004-compositor-agnostic-tool-api.md).
 3. **Risk levels in the tool API.** Every tool declares a risk level from day one: read, act, or confirm. See [ADR 0004](decisions/0004-compositor-agnostic-tool-api.md).
 4. **Everything testable by agents.** Every feature must be verifiable on the simulator using `sim/mobsim`, with no human in the loop.
+
+## On-device assistant
+
+`mobarchy-bar` is a layer-shell panel with a status line, **✦ Ask** and **⌨**. **✦ Ask** opens a composer window with a text field, and squeekboard is the on-screen keyboard. Submitting runs `mobarchy-agent --json`, and the agent talks to `mobarchy-mcp`. See [ADR 0006](decisions/0006-assistant-bar-and-keyboard.md).
+
+```
+owner ── mobarchy-bar/composer ──(JSON events)── mobarchy-agent ──(MCP)── mobarchy-mcp ── compositor/uinput/...
+                                                      └── Claude API
+```
 
 ## Development loop
 

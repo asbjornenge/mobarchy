@@ -28,6 +28,7 @@ State lives outside the repo in `~/.cache/mobarchy/sim` (override with `MOBARCHY
 
 ## Notes
 
+- Agent credentials: if `~/.config/mobarchy/agent.env` exists on the host (outside the repo), `sync` copies it into the guest (mode 600). See `agent/mobarchy-agent/README.md`.
 - Host ports: ssh on `127.0.0.1:2222`, MCP (`mobarchy-mcp`) on `http://127.0.0.1:8765/mcp`.
 - `mobsim tap/swipe` coordinates are physical display pixels (1080x2424). Hyprland runs at scale 2.4, so the logical size is 450x1010. (The MCP tools use logical pixels.)
 - Touch injection uses QMP `input-send-event` with multitouch (`mtt`) events. Each contact gets a fresh tracking id, and release sends tracking id -1. Do not pass `device=` to `input-send-event`: it names a display console, and passing the touch device crashes QEMU.

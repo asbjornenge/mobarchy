@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""mobarchy-bar: the assistant bar at the bottom of the screen.
+
+Two parts in one process:
+  - the bar: a layer-shell panel with agent status, an "Ask" button and a
+    keyboard toggle;
+  - the composer: a normal app window with a text field, opened by "Ask".
+
+Text entry lives in a normal window on purpose. Hyprland neither gives
+on-demand layer surfaces keyboard focus on touch nor delivers input-method
+text to them. Regular windows get both, so the on-screen keyboard (squeekboard)
+works as it does in any app.
+
+The agent runs as a subprocess (mobarchy-agent --json) and its events are shown
+in the bar.
+
+gtk4-layer-shell must be loaded before libwayland-client, so the script re-execs
+itself with LD_PRELOAD set.
+"""
+
+import json
+import os
+import subprocess
+import sys
+
+LAYER_SHELL_LIB = "/usr/lib/libgtk4-layer-shell.so"
+if LAYER_SHELL_LIB not in os.environ.get("LD_PRELOAD", "") and os.path.exists(LAYER_SHELL_LIB):
+    os.environ["LD_PRELOAD"] = f"{LAYER_SHELL_LIB} {os.environ.get('LD_PRELOAD', '')}".strip()
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import Gio, GLib, Gtk, Pango, Gtk4LayerShell as LayerShell  # noqa: E402
+
+AGENT = os.environ.get("MOBARCHY_AGENT_BIN", "/opt/mobarchy/agent/mobarchy-agent/.venv/bin/mobarchy-agent")
+
+CSS = b"""
+window.mobarchy-bar { background: #15161a; color: #e8e8ea; }
+window.mobarchy-bar .status { font-size: 14px; color: #c9cbd3; }
+window.mobarchy-bar .status.error { color: #ff7a7a; }
+window.mobarchy-bar .status.done { color: #9be39b; }
+window.mobarchy-ask { background: #15161a; color: #e8e8ea; }
+window.mobarchy-ask .title { font-size: 20px; font-weight: bold; }
+window.mobarchy-ask entry { min-height: 48px; font-size: 18px; border-radius: 24px; padding: 0 16px; }
+button.round { min-width: 44px; min-height: 44px; border-radius: 22px; padding: 0 12px; font-size: 16px; }
+"""
+
+
+class Assistant(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="org.mobarchy.Bar")
+        self.proc: subprocess.Popen | None = None
+        self.bar = None
+        self.composer = None
+
+    def do_activate(self):
+        if self.bar:  # already running: a second launch just activates us
+            return
+        self.build_bar()
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_display(self.bar.get_display(), provider,
+                                                  Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    # --- the bar (layer surface) ------------------------------------------------------
+
+    def build_bar(self):
+        bar = self.bar = Gtk.ApplicationWindow(application=self)
+        bar.add_css_class("mobarchy-bar")
+        LayerShell.init_for_window(bar)
+        LayerShell.set_namespace(bar, "mobarchy-bar")
+        LayerShell.set_layer(bar, LayerShell.Layer.TOP)
+        for edge in (LayerShell.Edge.BOTTOM, LayerShell.Edge.LEFT, LayerShell.Edge.RIGHT):
+            LayerShell.set_anchor(bar, edge, True)
+        LayerShell.auto_exclusive_zone_enable(bar)
+
+        row = Gtk.Box(spacing=8, margin_start=8, margin_end=8, margin_top=6, margin_bottom=6)
+        kbd = Gtk.Button(label="⌨")
+        kbd.add_css_class("round")
+        kbd.connect("clicked", self.toggle_keyboard)
+        self.status = Gtk.Label(label="", xalign=0, hexpand=True, wrap=True, lines=3,
+                                ellipsize=Pango.EllipsizeMode.END)
+        self.status.add_css_class("status")
+        self.action = Gtk.Button(label="✦ Ask")
+        self.action.add_css_class("round")
+        self.action.add_css_class("suggested-action")
+        self.action.connect("clicked", self.on_action)
+        for w in (kbd, self.status, self.action):
+            row.append(w)
+        bar.set_child(row)
+        bar.present()
+
+    def on_action(self, _button):
+        if self.proc:
+            self.proc.terminate()
+            self.show_status("Stopped.", "error")
+        else:
+            self.open_composer()
+
+    # --- the composer (normal window) ---------------------------------------------------
+
+    def open_composer(self):
+        if self.composer is None:
+            win = self.composer = Gtk.ApplicationWindow(application=self, title="Ask Mobarchy")
+            win.add_css_class("mobarchy-ask")
+            win.set_hide_on_close(True)
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16, margin_start=16,
+                          margin_end=16, margin_top=24, margin_bottom=16)
+            title = Gtk.Label(label="What should I do?", xalign=0)
+            title.add_css_class("title")
+            row = Gtk.Box(spacing=8)
+            self.entry = Gtk.Entry(hexpand=True, placeholder_text="e.g. open a terminal and show the uptime")
+            self.entry.connect("activate", self.submit)
+            send = Gtk.Button(label="➤")
+            send.add_css_class("round")
+            send.add_css_class("suggested-action")
+            send.connect("clicked", self.submit)
+            cancel = Gtk.Button(label="Cancel", halign=Gtk.Align.START)
+            cancel.connect("clicked", lambda _b: self.composer.close())
+            row.append(self.entry)
+            row.append(send)
+            box.append(title)
+            box.append(row)
+            box.append(cancel)
+            win.set_child(box)
+        self.entry.set_text("")
+        self.composer.present()
+        self.entry.grab_focus()
+
+    def submit(self, *_args):
+        task = self.entry.get_text().strip()
+        if not task or self.proc:
+            return
+        self.composer.close()
+        self.set_keyboard(False)
+        self.run_agent(task)
+
+    # --- agent ------------------------------------------------------------------------
+
+    def run_agent(self, task: str):
+        self.show_status("Thinking…", "")
+        self.action.set_label("■ Stop")
+        try:
+            self.proc = subprocess.Popen([AGENT, "--json", task], stdout=subprocess.PIPE,
+                                         stderr=subprocess.STDOUT, text=True, bufsize=1)
+        except OSError as e:
+            self.proc = None
+            self.action.set_label("✦ Ask")
+            self.show_status(f"Cannot start agent: {e}", "error")
+            return
+        channel = GLib.IOChannel.unix_new(self.proc.stdout.fileno())
+        GLib.io_add_watch(channel, GLib.PRIORITY_DEFAULT, GLib.IOCondition.IN | GLib.IOCondition.HUP,
+                          self.on_agent_output)
+
+    def on_agent_output(self, _channel, _condition):
+        if not self.proc:
+            return False
+        line = self.proc.stdout.readline()
+        if line:
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                event = {"kind": "text", "text": line.strip()}
+            kind, text = event.get("kind"), event.get("text", "")
+            if kind == "tool":
+                self.show_status(f"→ {text}", "")
+            elif kind in ("text", "done") and text:
+                self.show_status(text, "done" if kind == "done" else "")
+            elif kind == "error":
+                self.show_status(text, "error")
+            return True
+        code = self.proc.wait()  # EOF: the agent exited
+        self.proc = None
+        self.action.set_label("✦ Ask")
+        if code != 0 and not self.status.has_css_class("error"):
+            self.show_status(f"Agent exited with code {code}", "error")
+        return False
+
+    def show_status(self, text: str, kind: str):
+        for c in ("error", "done"):
+            self.status.remove_css_class(c)
+        if kind:
+            self.status.add_css_class(kind)
+        self.status.set_text(text)
+
+    # --- keyboard ---------------------------------------------------------------------
+    # squeekboard shows itself when a text field gets focus. The ⌨ button toggles it
+    # by hand, for apps without text-input support.
+
+    def toggle_keyboard(self, _button):
+        visible = self.osk_call("org.freedesktop.DBus.Properties", "Get",
+                                GLib.Variant("(ss)", ("sm.puri.OSK0", "Visible")))
+        self.set_keyboard(not (visible and visible.unpack()[0]))
+
+    def set_keyboard(self, visible: bool):
+        self.osk_call("sm.puri.OSK0", "SetVisible", GLib.Variant("(b)", (visible,)))
+
+    def osk_call(self, iface, method, params):
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+            return bus.call_sync("sm.puri.OSK0", "/sm/puri/OSK0", iface, method, params, None,
+                                 Gio.DBusCallFlags.NONE, 1000, None)
+        except GLib.Error as e:
+            self.show_status(f"Keyboard unavailable: {e.message}", "error")
+            return None
+
+
+if __name__ == "__main__":
+    sys.exit(Assistant().run([]))
