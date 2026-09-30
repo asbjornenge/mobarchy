@@ -1,0 +1,27 @@
+# Google Pixel 9 Pro Fold. Primary hardware target.
+# Status: not ported yet. Values are reference data for the port (Track A).
+
+[device]
+codename = "comet"
+name = "Google Pixel 9 Pro Fold"
+arch = "aarch64"
+kind = "hardware"
+soc = "Google Tensor G4 (zumapro)"
+gpu = "Mali-G715"
+memory = "16G"
+boot = "halium"     # Android vendor kernel + blobs via Halium/libhybris
+baseline = "lineageos-23.2"
+
+[[display]]
+id = "outer"
+width = 1080
+height = 2424
+
+[[display]]
+id = "inner"
+width = 2076
+height = 2152
+
+[input]
+touch = "vendor"
+fold_sensor = true

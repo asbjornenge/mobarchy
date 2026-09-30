@@ -1,0 +1,12 @@
+# Mobarchy agent permission policy (see docs/decisions/0004).
+# Levels: read (observe), act (reversible local change), confirm (irreversible/outward-facing).
+# There is no on-device confirmation UI yet, so "confirm" tools are denied by default.
+
+[risk]
+read = "allow"
+act = "allow"
+confirm = "deny"
+
+[tools]
+# Per-tool overrides, e.g.:
+# run_shell = "allow"

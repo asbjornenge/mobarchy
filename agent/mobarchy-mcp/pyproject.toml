@@ -1,0 +1,23 @@
+[project]
+name = "mobarchy-mcp"
+version = "0.1.0"
+description = "Mobarchy OS tool layer: the phone exposed as MCP tools"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=2.2,<3",
+]
+
+[project.scripts]
+mobarchy-mcp = "mobarchy_mcp.server:main"
+mobarchy-mcp-call = "mobarchy_mcp.client:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mobarchy_mcp"]

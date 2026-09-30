@@ -1,0 +1,28 @@
+# Mobarchy simulator: an x86_64 QEMU/KVM VM that stands in for a phone.
+# It follows the same device contract as real hardware (see devices/README.md).
+
+[device]
+codename = "sim-x86_64"
+name = "Mobarchy Simulator (QEMU/KVM)"
+arch = "x86_64"
+kind = "virtual"
+boot = "qemu"
+
+# Pixel 9 Pro Fold outer screen: 1080x2424. A single display for now.
+# virtio-gpu supports several outputs, so the fold's inner screen can be added later.
+[[display]]
+id = "main"
+width = 1080
+height = 2424
+scale = 2.4  # must divide the resolution cleanly; Hyprland rounds 2.5 to 2.4 anyway
+
+[input]
+touch = "virtio-multitouch"
+keyboard = true
+
+[qemu]
+memory = "4G"
+cpus = 4
+disk_size = "16G"
+ssh_port = 2222
+mcp_port = 8765

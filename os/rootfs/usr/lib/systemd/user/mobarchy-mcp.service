@@ -1,0 +1,11 @@
+[Unit]
+Description=Mobarchy MCP server (OS tool layer)
+PartOf=graphical-session.target
+
+[Service]
+# The Wayland session imports WAYLAND_DISPLAY etc. into the user manager before starting this unit.
+Environment=MOBARCHY_MCP_HOST=127.0.0.1
+EnvironmentFile=-/etc/mobarchy/mcp.env
+ExecStart=/opt/mobarchy/agent/mobarchy-mcp/.venv/bin/mobarchy-mcp --host ${MOBARCHY_MCP_HOST} --port 8765
+Restart=on-failure
+RestartSec=2
