@@ -1,0 +1,76 @@
+diff --git a/display/samsung/exynos_drm_format.c b/display/samsung/exynos_drm_format.c
+index 9361b28..b54eaaf 100644
+--- a/display/samsung/exynos_drm_format.c
++++ b/display/samsung/exynos_drm_format.c
+@@ -31,7 +31,7 @@ static const struct dpu_fmt dpu_formats_list[] = {
+ 	}, {
+ 		.name = "ARGB8888",
+ 		.fmt = DRM_FORMAT_ARGB8888,
+-		.dma_fmt = IDMA_IMG_FORMAT_ARGB8888,
++		.dma_fmt = IDMA_IMG_FORMAT_BGRA8888,
+ 		.dpp_fmt = DPP_IMG_FORMAT_ARGB8888,
+ 		.bpp = 32,
+ 		.padding = 0,
+@@ -42,7 +42,7 @@ static const struct dpu_fmt dpu_formats_list[] = {
+ 	}, {
+ 		.name = "ABGR8888",
+ 		.fmt = DRM_FORMAT_ABGR8888,
+-		.dma_fmt = IDMA_IMG_FORMAT_ABGR8888,
++		.dma_fmt = IDMA_IMG_FORMAT_RGBA8888,
+ 		.dpp_fmt = DPP_IMG_FORMAT_ARGB8888,
+ 		.bpp = 32,
+ 		.padding = 0,
+@@ -53,7 +53,7 @@ static const struct dpu_fmt dpu_formats_list[] = {
+ 	}, {
+ 		.name = "RGBA8888",
+ 		.fmt = DRM_FORMAT_RGBA8888,
+-		.dma_fmt = IDMA_IMG_FORMAT_RGBA8888,
++		.dma_fmt = IDMA_IMG_FORMAT_ABGR8888,
+ 		.dpp_fmt = DPP_IMG_FORMAT_ARGB8888,
+ 		.bpp = 32,
+ 		.padding = 0,
+@@ -64,7 +64,7 @@ static const struct dpu_fmt dpu_formats_list[] = {
+ 	}, {
+ 		.name = "BGRA8888",
+ 		.fmt = DRM_FORMAT_BGRA8888,
+-		.dma_fmt = IDMA_IMG_FORMAT_BGRA8888,
++		.dma_fmt = IDMA_IMG_FORMAT_ARGB8888,
+ 		.dpp_fmt = DPP_IMG_FORMAT_ARGB8888,
+ 		.bpp = 32,
+ 		.padding = 0,
+@@ -75,7 +75,7 @@ static const struct dpu_fmt dpu_formats_list[] = {
+ 	}, {
+ 		.name = "XRGB8888",
+ 		.fmt = DRM_FORMAT_XRGB8888,
+-		.dma_fmt = IDMA_IMG_FORMAT_XRGB8888,
++		.dma_fmt = IDMA_IMG_FORMAT_BGRX8888,
+ 		.dpp_fmt = DPP_IMG_FORMAT_ARGB8888,
+ 		.bpp = 24,
+ 		.padding = 8,
+@@ -86,7 +86,7 @@ static const struct dpu_fmt dpu_formats_list[] = {
+ 	}, {
+ 		.name = "XBGR8888",
+ 		.fmt = DRM_FORMAT_XBGR8888,
+-		.dma_fmt = IDMA_IMG_FORMAT_XBGR8888,
++		.dma_fmt = IDMA_IMG_FORMAT_RGBX8888,
+ 		.dpp_fmt = DPP_IMG_FORMAT_ARGB8888,
+ 		.bpp = 24,
+ 		.padding = 8,
+@@ -97,7 +97,7 @@ static const struct dpu_fmt dpu_formats_list[] = {
+ 	}, {
+ 		.name = "RGBX8888",
+ 		.fmt = DRM_FORMAT_RGBX8888,
+-		.dma_fmt = IDMA_IMG_FORMAT_RGBX8888,
++		.dma_fmt = IDMA_IMG_FORMAT_XBGR8888,
+ 		.dpp_fmt = DPP_IMG_FORMAT_ARGB8888,
+ 		.bpp = 24,
+ 		.padding = 8,
+@@ -108,7 +108,7 @@ static const struct dpu_fmt dpu_formats_list[] = {
+ 	}, {
+ 		.name = "BGRX8888",
+ 		.fmt = DRM_FORMAT_BGRX8888,
+-		.dma_fmt = IDMA_IMG_FORMAT_BGRX8888,
++		.dma_fmt = IDMA_IMG_FORMAT_XRGB8888,
+ 		.dpp_fmt = DPP_IMG_FORMAT_ARGB8888,
+ 		.bpp = 24,
+ 		.padding = 8,

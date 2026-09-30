@@ -65,6 +65,17 @@ static int load_font(void) {
 }
 
 static int reimport;  /* SCREENLOG_REIMPORT=1: scan out via a dma-buf export/import round trip */
+static uint32_t fourcc;  /* SCREENLOG_FORMAT=XR24|XB24|RX24|BX24: use ADDFB2 with that format */
+
+static uint32_t pack(uint32_t rgb) {  /* 0xRRGGBB -> pixel in the chosen format */
+    uint32_t r = rgb >> 16 & 0xff, g = rgb >> 8 & 0xff, b = rgb & 0xff;
+    switch (fourcc) {
+    case 0x34324258: return b << 16 | g << 8 | r;              /* XB24 */
+    case 0x34325852: return r << 24 | g << 16 | b << 8;        /* RX24 */
+    case 0x34325842: return b << 24 | g << 16 | r << 8;        /* BX24 */
+    default: return rgb;                                       /* XR24 */
+    }
+}
 
 static int make_buf(struct out *o, struct buf *b) {
     struct drm_mode_create_dumb cd = { .width = o->w, .height = o->h, .bpp = 32 };
@@ -79,10 +90,17 @@ static int make_buf(struct out *o, struct buf *b) {
         fb_handle = ih.handle;
         fprintf(stderr, "screenlog: reimported handle %u -> %u\n", cd.handle, ih.handle);
     }
-    struct drm_mode_fb_cmd fc = { .width = o->w, .height = o->h, .pitch = cd.pitch,
-                                  .bpp = 32, .depth = 24, .handle = fb_handle };
-    if (xioctl(DRM_IOCTL_MODE_ADDFB, &fc)) return -1;
-    b->fb = fc.fb_id;
+    if (fourcc) {
+        struct drm_mode_fb_cmd2 f2 = { .width = o->w, .height = o->h, .pixel_format = fourcc };
+        f2.handles[0] = fb_handle; f2.pitches[0] = cd.pitch;
+        if (xioctl(DRM_IOCTL_MODE_ADDFB2, &f2)) { perror("addfb2"); return -1; }
+        b->fb = f2.fb_id;
+    } else {
+        struct drm_mode_fb_cmd fc = { .width = o->w, .height = o->h, .pitch = cd.pitch,
+                                      .bpp = 32, .depth = 24, .handle = fb_handle };
+        if (xioctl(DRM_IOCTL_MODE_ADDFB, &fc)) return -1;
+        b->fb = fc.fb_id;
+    }
     struct drm_mode_map_dumb md = { .handle = cd.handle };
     if (xioctl(DRM_IOCTL_MODE_MAP_DUMB, &md)) return -1;
     b->map = mmap(0, cd.size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, md.offset);
@@ -188,10 +206,104 @@ static void render(struct out *o, char lines[][LINE_LEN], int n) {
 
 static char lines[MAX_LINES][LINE_LEN];
 
+/* --- bring-up experiments -------------------------------------------------
+ * SCREENLOG_TEST=1   draw a test pattern (gray ramp, primaries) instead of the log
+ * SCREENLOG_PROPS    "crtc:dqe_enabled=0 plane:transfer=3 ..." set KMS properties on every
+ *                    output's CRTC / primary plane with an atomic commit
+ */
+static uint32_t prop_id(uint32_t obj, uint32_t type, const char *name, uint64_t *cur) {
+    struct drm_mode_obj_get_properties op = { .obj_id = obj, .obj_type = type };
+    if (ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &op)) return 0;
+    uint32_t ids[128]; uint64_t vals[128];
+    if (op.count_props > 128) op.count_props = 128;
+    op.props_ptr = (uintptr_t)ids; op.prop_values_ptr = (uintptr_t)vals;
+    if (ioctl(fd, DRM_IOCTL_MODE_OBJ_GETPROPERTIES, &op)) return 0;
+    for (uint32_t i = 0; i < op.count_props; i++) {
+        struct drm_mode_get_property p = { .prop_id = ids[i] };
+        if (!ioctl(fd, DRM_IOCTL_MODE_GETPROPERTY, &p) && !strcmp(p.name, name)) {
+            if (cur) *cur = vals[i];
+            return ids[i];
+        }
+    }
+    return 0;
+}
+
+static uint32_t primary_plane(uint32_t crtc) {
+    struct drm_mode_crtc c = { .crtc_id = crtc };
+    ioctl(fd, DRM_IOCTL_MODE_GETCRTC, &c);
+    struct drm_mode_get_plane_res pr = {0};
+    ioctl(fd, DRM_IOCTL_MODE_GETPLANERESOURCES, &pr);
+    uint32_t planes[64];
+    if (pr.count_planes > 64) pr.count_planes = 64;
+    pr.plane_id_ptr = (uintptr_t)planes;
+    ioctl(fd, DRM_IOCTL_MODE_GETPLANERESOURCES, &pr);
+    for (uint32_t i = 0; i < pr.count_planes; i++) {
+        struct drm_mode_get_plane gp = { .plane_id = planes[i] };
+        if (!ioctl(fd, DRM_IOCTL_MODE_GETPLANE, &gp) && gp.crtc_id == crtc) return planes[i];
+    }
+    return 0;
+}
+
+static void apply_props(const char *spec) {
+    struct drm_set_client_cap cap = { .capability = DRM_CLIENT_CAP_UNIVERSAL_PLANES, .value = 1 };
+    ioctl(fd, DRM_IOCTL_SET_CLIENT_CAP, &cap);
+    cap.capability = DRM_CLIENT_CAP_ATOMIC;
+    ioctl(fd, DRM_IOCTL_SET_CLIENT_CAP, &cap);
+    for (int i = 0; i < nouts; i++) {
+        uint32_t objs[16], counts[16], props[16]; uint64_t vals[16]; int n = 0;
+        char buf[512]; strncpy(buf, spec, sizeof buf - 1); buf[sizeof buf - 1] = 0;
+        for (char *tok = strtok(buf, " "); tok && n < 16; tok = strtok(NULL, " ")) {
+            char *colon = strchr(tok, ':'), *eq = strchr(tok, '=');
+            if (!colon || !eq) continue;
+            *colon = *eq = 0;
+            int is_plane = !strcmp(tok, "plane");
+            uint32_t obj = is_plane ? primary_plane(outs[i].crtc) : outs[i].crtc;
+            uint64_t cur = 0;
+            uint32_t pid = prop_id(obj, is_plane ? DRM_MODE_OBJECT_PLANE : DRM_MODE_OBJECT_CRTC, colon + 1, &cur);
+            if (!pid) { fprintf(stderr, "screenlog: no property %s on %u\n", colon + 1, obj); continue; }
+            objs[n] = obj; counts[n] = 1; props[n] = pid; vals[n] = strtoull(eq + 1, 0, 0);
+            fprintf(stderr, "screenlog: %s %u %s: %llu -> %llu\n", tok, obj, colon + 1,
+                    (unsigned long long)cur, (unsigned long long)vals[n]);
+            n++;
+        }
+        if (!n) continue;
+        struct drm_mode_atomic a = { .flags = DRM_MODE_ATOMIC_ALLOW_MODESET, .count_objs = n,
+            .objs_ptr = (uintptr_t)objs, .count_props_ptr = (uintptr_t)counts,
+            .props_ptr = (uintptr_t)props, .prop_values_ptr = (uintptr_t)vals };
+        if (ioctl(fd, DRM_IOCTL_MODE_ATOMIC, &a)) perror("screenlog: atomic commit");
+    }
+}
+
+static void test_pattern(struct out *o) {
+    struct buf *b = &o->b[!o->front];
+    static const uint32_t colors[] = { 0xff0000, 0x00ff00, 0x0000ff, 0xffffff, 0x3584e4, 0x242424 };
+    for (uint32_t y = 0; y < o->h; y++) {
+        uint32_t *row = (uint32_t *)(b->map + y * b->pitch);
+        for (uint32_t x = 0; x < o->w; x++) {
+            uint32_t c;
+            if (y < o->h / 2) {  /* top half: 16-step gray ramp */
+                uint32_t g = (x * 16 / o->w) * 17;
+                c = g << 16 | g << 8 | g;
+            } else {  /* bottom half: red, green, blue, white, Mobarchy blue, dark gray */
+                c = colors[x * 6 / o->w];
+            }
+            row[x] = pack(c);
+        }
+    }
+    struct drm_mode_crtc sc = { .crtc_id = o->crtc, .fb_id = b->fb, .set_connectors_ptr = (uintptr_t)&o->conn,
+                                .count_connectors = 1, .mode = o->mode, .mode_valid = 1 };
+    xioctl(DRM_IOCTL_MODE_SETCRTC, &sc);
+    o->front = !o->front;
+}
+
 int main(int argc, char **argv) {
     if (argc < 2) { fprintf(stderr, "usage: %s <logfile> [scale]\n", argv[0]); return 2; }
     if (argc > 2) scale = atoi(argv[2]) > 0 ? atoi(argv[2]) : 2;
     reimport = getenv("SCREENLOG_REIMPORT") != NULL;
+    if (getenv("SCREENLOG_FORMAT") && strlen(getenv("SCREENLOG_FORMAT")) == 4) {
+        const char *f = getenv("SCREENLOG_FORMAT");
+        fourcc = (uint32_t)f[0] | (uint32_t)f[1] << 8 | (uint32_t)f[2] << 16 | (uint32_t)f[3] << 24;
+    }
     if (load_font()) { fprintf(stderr, "screenlog: bad font\n"); return 1; }
     for (int i = 0; i < 900; i++) {  /* the display driver may still be probing (up to 3 min) */
         fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
@@ -201,6 +313,9 @@ int main(int argc, char **argv) {
         usleep(200000);
     }
     if (fd < 0) { fprintf(stderr, "screenlog: no usable display\n"); return 1; }
+    if (getenv("SCREENLOG_TEST")) for (int i = 0; i < nouts; i++) test_pattern(&outs[i]);
+    if (getenv("SCREENLOG_PROPS")) apply_props(getenv("SCREENLOG_PROPS"));
+    if (getenv("SCREENLOG_TEST")) for (;;) pause();
 
     off_t last_size = -1;
     for (;;) {

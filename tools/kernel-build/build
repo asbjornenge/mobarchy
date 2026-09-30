@@ -8,6 +8,8 @@
 #   --stock   build without the Mobarchy fragment (for comparing against the factory kernel)
 #   --detach  run in a detached container named mobarchy-kbuild-<device>; follow <src>/build-<variant>.log
 #
+# Mobarchy builds also apply devices/<device>/kernel/patches (see below).
+#
 # Output: <src>/out/<device>-<variant>/ with boot.img, vendor_kernel_boot.img, vendor_dlkm.img,
 # system_dlkm.img, dtb/dtbo and the modules.
 set -euo pipefail
@@ -32,6 +34,20 @@ if [ ! -d "$src/.repo" ]; then
     run 'git config --global user.name mobarchy; git config --global user.email mobarchy@localhost
          repo init -q -u https://github.com/LineageOS/android_kernel_google_gs-6.1_manifest -b lineage-23.2 --depth=1 --git-lfs
          repo sync -q -c -j16 --no-tags --optimized-fetch'
+fi
+
+# Device kernel patches: devices/<device>/kernel/patches/<path in the source tree>/*.patch,
+# applied with git in that subtree (skipped if already applied).
+patches="$repo/devices/$device/kernel/patches"
+if [ $variant = mobarchy ] && [ -d "$patches" ]; then
+    find "$patches" -name '*.patch' | sort | while read -r p; do
+        sub=$(dirname "${p#$patches/}")
+        if git -C "$src/$sub" apply --reverse --check "$p" 2>/dev/null; then
+            echo "patch already applied: ${p#$repo/}"
+        else
+            git -C "$src/$sub" apply "$p" && echo "applied: ${p#$repo/}"
+        fi
+    done
 fi
 
 flags=""
