@@ -14,6 +14,10 @@ if [ ! -d $g ] || [ -z "$(cat $g/UDC 2>/dev/null)" ]; then
     echo Mobarchy > $g/strings/0x409/product
     echo mobarchy > $g/strings/0x409/serialnumber
     echo "NCM + ACM" > $g/configs/c.1/strings/0x409/configuration
+    mkdir -p $g/functions/ncm.usb0
+    # Fixed MACs (same as the debug initramfs): a stable host interface name, enx026d6f620001.
+    echo 02:6d:6f:62:00:01 > $g/functions/ncm.usb0/host_addr
+    echo 02:6d:6f:62:00:02 > $g/functions/ncm.usb0/dev_addr
     for f in ncm.usb0 acm.GS0; do
         mkdir -p $g/functions/$f
         [ -e $g/configs/c.1/$f ] || ln -s $g/functions/$f $g/configs/c.1/

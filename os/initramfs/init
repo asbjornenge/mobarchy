@@ -26,6 +26,9 @@ USB_PRODUCT_NAME="Mobarchy debug"
 USB_SERIAL=mobarchy
 USB_IP=172.16.42.1
 HOST_IP=172.16.42.2
+# Fixed NCM MAC addresses, so the host sees the same interface (enx02...) on every boot.
+USB_HOST_MAC=02:6d:6f:62:00:01
+USB_DEV_MAC=02:6d:6f:62:00:02
 ROOT_PARTNAME=""
 EARLY_MODULES_UNTIL=""     # load modules.load up to this module before USB; the rest after
 USB_UDC=""                 # UDC to bind (default: the first one)
@@ -176,6 +179,10 @@ setup_usb_gadget() {
     mkdir -p $g/configs/c.1/strings/0x409
     echo "NCM + ACM" > $g/configs/c.1/strings/0x409/configuration
 
+    mkdir -p $g/functions/ncm.usb0 && {
+        echo "$USB_HOST_MAC" > $g/functions/ncm.usb0/host_addr
+        echo "$USB_DEV_MAC" > $g/functions/ncm.usb0/dev_addr
+    } 2>/dev/null
     mkdir -p $g/functions/ncm.usb0 && ln -s $g/functions/ncm.usb0 $g/configs/c.1/ \
         || log "ncm function unavailable"
     mkdir -p $g/functions/acm.GS0 && ln -s $g/functions/acm.GS0 $g/configs/c.1/ \

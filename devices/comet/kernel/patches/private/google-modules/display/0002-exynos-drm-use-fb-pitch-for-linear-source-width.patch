@@ -1,0 +1,20 @@
+diff --git a/display/samsung/exynos_drm_dpp.c b/display/samsung/exynos_drm_dpp.c
+index 793241a..e2e9bb6 100644
+--- a/display/samsung/exynos_drm_dpp.c
++++ b/display/samsung/exynos_drm_dpp.c
+@@ -474,6 +474,15 @@ static int dpp_convert_plane_state_to_config(struct dpp_params_info *config,
+ 	config->src.h = drm_rect_height(&state->base.src) >> 16;
+ 	config->src.f_w = fb->width;
+ 	config->src.f_h = fb->height;
++	/*
++	 * The DMA engine reads rows f_w pixels apart. Generic KMS clients (GBM,
++	 * dumb buffers) pad rows to an alignment, so for linear single-plane
++	 * buffers derive the row length from the pitch instead of the width.
++	 */
++	if (fb->format->num_planes == 1 && fb->format->cpp[0] &&
++	    (fb->modifier == DRM_FORMAT_MOD_LINEAR || fb->modifier == DRM_FORMAT_MOD_INVALID) &&
++	    fb->pitches[0] % fb->format->cpp[0] == 0)
++		config->src.f_w = fb->pitches[0] / fb->format->cpp[0];
+ 
+ 	config->dst.x = state->base.dst.x1;
+ 	config->dst.y = state->base.dst.y1;
