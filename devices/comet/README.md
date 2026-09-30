@@ -1,6 +1,6 @@
 # comet: Google Pixel 9 Pro Fold
 
-Status: **not booted yet.** The v0.1 images are built and ready. This is the porting notebook, and it records what we know.
+Status: **v0.1 boots** (2026-09-30). Our init runs as PID 1 on the stock kernel and loads all vendor modules. It shows its log on both panels via KMS and exposes USB NCM and ACM. The host gets 172.16.42.2 over DHCP, and `telnet 172.16.42.1` gives a root shell. This is the porting notebook, and it records what we know.
 
 Analysis source: factory image `cp3a.260905.009` (Android 17, September 2026 patch, bootloader `ripcurrentpro-17.0`), unpacked with `tools/android-images/unpack`. There are no binaries in this repo. Everything is reproducible from Google's download.
 
@@ -32,6 +32,29 @@ These are missing from the stock kernel and matter for a normal Linux userspace:
 
 - **v0.1** works with the stock kernel: the busybox init uses `mdev` instead of devtmpfs.
 - **v0.2** (systemd rootfs) needs our own kernel build. See [ADR 0007](../../docs/decisions/0007-comet-kernel.md). It builds today with `tools/kernel-build/build --device comet --src <dir>`, which produces `boot`, `vendor_kernel_boot`, `vendor_dlkm`, `system_dlkm` and dtbo. It has not been booted yet.
+
+## Bring-up lessons (v0.1)
+
+Each of these cost a boot loop to find:
+
+1. **`fastboot boot` only accepts a kernel-only boot image.** Any boot.img with a ramdisk bounces back to fastboot, even with Google's own ramdisk. Our ramdisk therefore goes into `init_boot` via `fastboot flash init_boot_<slot>`.
+2. **`modules.load` is not a safe insmod order.** Load like `modprobe`: dependencies from `modules.dep` first (last listed = most basic), plus `modules.softdep` pre-deps.
+3. **Module parameters come from the kernel command line** (`<module>.<param>=...`), and the loader must pass them the way modprobe does. Without them:
+   - UFS inline crypto's FIPS self test panics the kernel ("KP: FMP self test failed"), because the `ufs_pixel_fips140.fips_*` LBAs are missing.
+   - exynos-drm doesn't know the panels (`exynos_drm.panel_name=dsim1:google-ct3b…`, `sec_panel_name=dsim0:google-ct3d…`).
+4. **The kernel runs `/system/bin/modprobe` itself** (CONFIG_MODPROBE_PATH) before `/init`, to load the pKVM modules in `kvm-arm.protected_modules=exynos-pd,pkvm_s2mpu-v9`. The ramdisk must provide it (`os/initramfs/root/system/bin/modprobe`). Otherwise the S2MPU/IOMMUs fail later.
+5. **The watchdog.** Load `s3c2410_wdt` with its dependencies first (`PRELOAD_MODULES`). Its probe stops the bootloader-armed watchdog. We pet `/dev/watchdog0` from userspace, as Android's `gs_watchdogd` does.
+6. **USB device mode.** Bind the gadget to `11210000.dwc3` after *all* modules are loaded, then set `/sys/devices/platform/11210000.usb/dwc3_exynos_otg_b_sess` to 1, as `init.recovery.comet.rc` does.
+7. **Displays.** DSI-0 is the inner panel at 2152x2076 (`google-ct3d`). DSI-1 is the outer panel at 1080x2424 (`google-ct3b`). Plain KMS dumb buffers with SETCRTC and page flip work on both (`mobarchy-screenlog`).
+
+Debug tooling that made this possible:
+- **The on-screen log.** `mobarchy-screenlog` draws the log on both panels, which is readable with the webcam.
+- **Magisk-rooted stock Android.** It lets us read `/sys/fs/pstore/console-ramoops-0`, the previous boot's kernel log, including our `mobarchy:` lines. Panics are preserved; some reset types clear it.
+- **`dmesg` from stock Android.** It shows exactly which modules first-stage init loads, with which arguments.
+
+Open issues:
+- The early pKVM `modprobe` is a slow shell script, so `/init` only starts at about 11 s.
+- `hardlockup-watchdog` and `ehld` are skipped for now.
 
 ## v0.1: debug shell over USB
 

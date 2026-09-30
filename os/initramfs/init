@@ -27,11 +27,21 @@ USB_SERIAL=mobarchy
 USB_IP=172.16.42.1
 HOST_IP=172.16.42.2
 ROOT_PARTNAME=""
+EARLY_MODULES_UNTIL=""     # load modules.load up to this module before USB; the rest after
+USB_UDC=""                 # UDC to bind (default: the first one)
+DIAG_TIMEOUT=""            # if set: seconds to wait for a USB host; then log diagnostics and
+                           # reboot to the bootloader, so the log can be read from pstore
+MODULE_TIMEOUT=10          # seconds per insmod before moving on
+MODULE_SKIP=""             # module basenames (without .ko) never loaded by the debug init
+PRELOAD_MODULES=""         # modules (file names) loaded first, in this order, e.g. a watchdog
+WATCHDOG=0                 # 1: pet /dev/watchdog0 from userspace (busybox watchdog)
+SCREENLOG=1                # show the log on the display (0 to keep the display untouched)
 [ -f /etc/mobarchy/initramfs.conf ] && . /etc/mobarchy/initramfs.conf
 
 log() {
     echo "mobarchy: $*" > /dev/kmsg 2>/dev/null
     echo "mobarchy: $*"
+    echo "$(cut -d' ' -f1 /proc/uptime 2>/dev/null) $*" >> /run/mobarchy.log 2>/dev/null
 }
 
 mount_pseudo() {
@@ -62,20 +72,70 @@ populate_dev() {
     grep -qw devtmpfs /proc/mounts || mdev -s
 }
 
-load_modules() {
-    local dir=/lib/modules list=/lib/modules/modules.load ok=0 fail=0
+module_args() {  # parameters for a module from the kernel command line (<module>.<param>=<value>)
+    local n
+    n=$(basename "$1" .ko | tr '-' '_')
+    tr ' ' '\n' < /proc/cmdline | sed -n "s/^$n\.//p" | tr '\n' ' '
+}
+
+insmod_timed() {  # insmod with a time budget; a module stuck in probe must not block boot
+    local ko=$1 i=0 pid
+    # Like modprobe, pass the module's parameters from the kernel command line. Android's
+    # bootloaders put required ones there (panel names, UFS FIPS LBAs, Type-C config, ...).
+    insmod "$ko" $(module_args "$ko") 2>/tmp/insmod.err &
+    pid=$!
+    while kill -0 $pid 2>/dev/null; do
+        i=$((i + 1))
+        [ $i -ge $((MODULE_TIMEOUT * 10)) ] && { log "insmod $(basename "$ko") still running after ${MODULE_TIMEOUT}s, moving on"; return 2; }
+        sleep 0.1
+    done
+    wait $pid && return 0
+    log "insmod $(basename "$ko") failed: $(cat /tmp/insmod.err)"
+    return 1
+}
+
+# Dependency-aware loading, like modprobe: a module's dependencies (modules.dep) and
+# pre-softdeps (modules.softdep) are loaded before the module itself. The vendor's
+# modules.load gives the order of the top-level modules only.
+module_path() { echo "/lib/modules/$(basename "$1")"; }
+module_name() { basename "$1" .ko | tr '-' '_'; }
+is_loaded() { grep -q "^$(module_name "$1") " /proc/modules; }
+
+load_module() {  # load_module <file.ko>: load dependencies first, then the module
+    local m ko d
+    m=$(basename "$1")
+    case " $MODULE_SKIP " in *" ${m%.ko} "*) return 0 ;; esac
+    is_loaded "$m" && return 0
+    grep -qx "$m" /run/mobarchy-modules.visiting 2>/dev/null && return 0  # dependency cycle guard
+    echo "$m" >> /run/mobarchy-modules.visiting
+    # Like modprobe: the last listed dependency is the most basic one, so start there.
+    for d in $(sed -n "s|^\(.*/\)\{0,1\}$m:||p" /lib/modules/modules.dep 2>/dev/null | tr ' ' '\n' | tac); do
+        load_module "$d"
+    done
+    for d in $(sed -n "s/^softdep $(module_name "$m") pre: //p" /lib/modules/modules.softdep 2>/dev/null); do
+        [ -f "$(module_path "$d.ko")" ] && load_module "$d.ko"
+    done
+    ko=$(module_path "$m")
+    [ -f "$ko" ] || { log "module $m not found"; return 1; }
+    echo "$(cut -d' ' -f1 /proc/uptime) $m" >> /run/mobarchy-modules.log
+    insmod_timed "$ko"
+}
+
+load_modules() {  # load_modules <first line> <last line|$>: a slice of modules.load
+    local list=/lib/modules/modules.load ok=0 fail=0 m
     [ -f "$list" ] || { log "no $list, skipping module loading"; return; }
-    log "loading modules from $list"
-    while read -r m; do
-        [ -n "$m" ] || continue
-        if insmod "$dir/$(basename "$m")" 2>/tmp/insmod.err; then
-            ok=$((ok + 1))
-        else
-            fail=$((fail + 1))
-            log "insmod $(basename "$m") failed: $(cat /tmp/insmod.err)"
-        fi
-    done < "$list"
-    log "modules loaded: $ok ok, $fail failed"
+    for m in $(sed -n "$1,$2p" "$list"); do
+        [ -c /dev/dri/card0 ] || { [ -e /sys/class/drm/card0 ] && mdev -s; }  # let screenlog start early
+        if load_module "$m"; then ok=$((ok + 1)); else fail=$((fail + 1)); fi
+    done
+    log "modules $1-$2 loaded: $ok ok, $fail failed or pending"
+}
+
+early_modules_end() {  # line in modules.load after which USB can come up (EARLY_MODULES_UNTIL)
+    local n
+    [ -n "$EARLY_MODULES_UNTIL" ] && [ -f /lib/modules/modules.load ] || { echo '$'; return; }
+    n=$(grep -n "$EARLY_MODULES_UNTIL" /lib/modules/modules.load | head -n1 | cut -d: -f1)
+    echo "${n:-\$}"
 }
 
 setup_usb_gadget() {
@@ -83,8 +143,8 @@ setup_usb_gadget() {
     [ -d /sys/kernel/config/usb_gadget ] || { log "no usb_gadget configfs"; return 1; }
     # The UDC can appear late (after its module and PHY come up).
     for i in $(seq 1 50); do
-        udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
-        [ -n "$udc" ] && break
+        udc=${USB_UDC:-$(ls /sys/class/udc 2>/dev/null | head -n1)}
+        [ -n "$udc" ] && [ -e "/sys/class/udc/$udc" ] && break
         sleep 0.2
     done
     [ -n "$udc" ] || { log "no USB device controller found"; return 1; }
@@ -105,6 +165,8 @@ setup_usb_gadget() {
         || log "acm function unavailable"
 
     echo "$udc" > $g/UDC || { log "binding gadget to $udc failed"; return 1; }
+    # Devices may need a nudge to start a device-mode session (initramfs.conf hook).
+    type usb_post_bind >/dev/null 2>&1 && usb_post_bind
     log "usb gadget bound to $udc"
 }
 
@@ -152,6 +214,7 @@ switch_to_root() {
     log "switching root to $dev ($part)"
     # Hand over: stop our services, keep the gadget bound (the rootfs takes it over).
     killall telnetd udhcpd 2>/dev/null
+    [ -n "$SCREENLOG_PID" ] && kill "$SCREENLOG_PID" 2>/dev/null
     [ -n "${SERIAL_LOOP:-}" ] && kill "$SERIAL_LOOP" 2>/dev/null && pkill -f 'exec sh </dev/ttyGS0'
     for m in dev proc sys run; do mkdir -p /newroot/$m; mount --move /$m /newroot/$m; done
     exec switch_root /newroot /sbin/init
@@ -168,10 +231,73 @@ serial_shell() {
 mount_pseudo
 log "init started ($(uname -r), $(uname -m))"
 populate_dev
-load_modules
+# USB first: it is our only window into the device. Load the modules it needs (a prefix of
+# the vendor's load order), bring up the gadget, then load the rest.
+# Show our log on the display as soon as a DRM device appears (screenlog waits for it).
+# Some SoCs come out of the bootloader with a hardware watchdog armed. Its driver has to
+# be up (and the watchdog petted) long before the rest of the modules are loaded.
+if [ -n "$PRELOAD_MODULES" ]; then
+    for m in $PRELOAD_MODULES; do load_module "$m" && log "preloaded $m"; done
+    populate_dev
+fi
+if [ "$WATCHDOG" = 1 ]; then
+    # The watchdog device node can show up after its driver finishes probing; wait for it
+    # in the background and pet it from then on.
+    (
+        for i in $(seq 1 300); do
+            [ -e /sys/class/watchdog/watchdog0 ] && { [ -c /dev/watchdog0 ] || mdev -s; }
+            [ -c /dev/watchdog0 ] && break
+            sleep 0.1
+        done
+        if [ -c /dev/watchdog0 ]; then
+            watchdog -t 5 -T 30 /dev/watchdog0 && log "petting /dev/watchdog0 (after ${i}00 ms)"
+        else
+            log "no watchdog device after 30 s"
+        fi
+    ) &
+fi
+
+SCREENLOG_PID=""
+if [ "$SCREENLOG" = 1 ]; then
+    mobarchy-screenlog /run/mobarchy.log ${SCREENLOG_SCALE:-2} 2>>/run/mobarchy.log &
+    SCREENLOG_PID=$!
+fi
+early=$(early_modules_end)
+load_modules 1 "$early"
 populate_dev
 setup_usb_gadget && { populate_dev; setup_network; serial_shell; }
+if [ "$early" != '$' ]; then
+    load_modules $((early + 1)) '$'
+    populate_dev
+fi
 
+diagnose_usb() {  # log USB state; with DIAG_TIMEOUT, reboot to bootloader if no host shows up
+    local udc st i=0
+    [ -n "$DIAG_TIMEOUT" ] || return 0
+    udc=${USB_UDC:-$(ls /sys/class/udc 2>/dev/null | head -n1)}
+    while [ $i -lt "$DIAG_TIMEOUT" ]; do
+        st=$(cat /sys/class/udc/$udc/state 2>/dev/null)
+        [ "$st" = configured ] && { log "usb: host connected (udc $udc configured)"; return 0; }
+        sleep 1; i=$((i + 1))
+    done
+    log "diag: no USB host after ${DIAG_TIMEOUT}s; udc=$udc state=$st"
+    log "diag: udcs: $(ls /sys/class/udc 2>/dev/null | tr '\n' ' ')"
+    log "diag: gadget UDC: $(cat /sys/kernel/config/usb_gadget/mobarchy/UDC 2>/dev/null)"
+    for f in /sys/class/typec/port0/data_role /sys/class/typec/port0/power_role /sys/class/typec/port0/*/uevent \
+             /sys/devices/platform/11210000.usb/dwc3_exynos_otg_b_sess /sys/devices/platform/11210000.usb/dwc3_exynos_otg_id \
+             /sys/devices/platform/11210000.usb/usb_data_enabled; do
+        [ -e "$f" ] && log "diag: $f = $(tr '\n' ' ' < "$f" 2>/dev/null)"
+    done
+    log "diag: modules loaded: $(wc -l < /proc/modules)"
+    log "diag: last module lines: $(tail -n 3 /run/mobarchy-modules.log 2>/dev/null | tr '\n' ' ')"
+    dmesg | grep -iE "dwc3|udc|gadget|tcpc|tcpm|typec|usb|max77759" | tail -n 40 | while read -r l; do log "diag-dmesg: $l"; done
+    sync
+    log "diag: rebooting to bootloader"
+    sleep 2
+    reboot-to bootloader
+}
+
+diagnose_usb
 switch_to_root
 
 # Leave a trace of how far we got for the next boot (pstore) and for the host.

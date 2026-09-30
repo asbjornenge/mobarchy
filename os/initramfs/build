@@ -26,12 +26,24 @@ case "$arch" in aarch64) debarch=arm64 ;; x86_64) debarch=amd64 ;; *) echo "unsu
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/root/etc/mobarchy" "$(dirname "$out")"
 cp "$repo/os/initramfs/init" "$work/root/init"
+cp -a "$repo/os/initramfs/root/." "$work/root/"   # static files (e.g. /system/bin/modprobe)
 if [ -n "$device" ] && [ -f "$repo/devices/$device/initramfs.conf" ]; then
     cp "$repo/devices/$device/initramfs.conf" "$work/root/etc/mobarchy/initramfs.conf"
 fi
 
 for kv in "${settings[@]}"; do echo "$kv" >> "$work/root/etc/mobarchy/initramfs.conf"; done
 [ -n "$overlay" ] && cp -a "$overlay/." "$work/root/"
+
+# Static helpers from os/initramfs/src, compiled for the target arch (emulated if needed):
+# reboot-to (reboot with a target) and mobarchy-screenlog (log on the display, with a
+# Terminus console font compiled in).
+docker run --rm --platform "linux/$debarch" -v "$repo/os/initramfs/src:/src:ro" -v "$work:/w" debian:trixie bash -euo pipefail -c "
+    apt-get update -qq >/dev/null
+    apt-get install -y -qq gcc libc6-dev linux-libc-dev console-setup-linux xxd >/dev/null 2>&1
+    gcc -static -Os -s -o /w/reboot-to /src/reboot-to.c
+    zcat /usr/share/consolefonts/Uni2-TerminusBold32x16.psf.gz > /tmp/font_psf
+    (cd /tmp && xxd -i font_psf > font.c)
+    gcc -static -O2 -s -o /w/mobarchy-screenlog /src/screenlog.c /tmp/font.c" >/dev/null
 
 docker image inspect mobarchy-androidtools >/dev/null 2>&1 \
     || docker build -q -t mobarchy-androidtools "$repo/tools/android-images" >/dev/null
@@ -46,6 +58,7 @@ docker run --rm -v "$work:/w" mobarchy-androidtools bash -euo pipefail -c "
     r=/w/root
     mkdir -p \$r/bin \$r/sbin \$r/usr/bin \$r/usr/sbin \$r/proc \$r/sys \$r/dev \$r/run \$r/tmp \$r/var \$r/lib/modules
     cp target/usr/bin/busybox \$r/bin/busybox
+    cp /w/reboot-to /w/mobarchy-screenlog \$r/bin/
     # Applet symlinks: the host build of the same version lists the applets.
     for a in \$(host/usr/bin/busybox --list-full); do
         [ -e \$r/\$a ] || ln -s /bin/busybox \$r/\$a

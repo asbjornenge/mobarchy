@@ -16,8 +16,13 @@ mkdir -p "$work/overlay/lib/modules"
 $ssh "sudo cat /boot/vmlinuz-linux" > "$work/vmlinuz"
 for m in $mods; do
     $ssh "zstd -dc \$(modinfo -n $m)" > "$work/overlay/lib/modules/$m.ko"
-    echo "$m.ko" >> "$work/overlay/lib/modules/modules.load"
+    # modules.dep in the Android vendor ramdisk format (absolute paths).
+    deps=$($ssh "modinfo -F depends $m" | tr ',' '\n' | sed '/^$/d; s|.*|/lib/modules/&.ko|' | tr '\n' ' ')
+    echo "/lib/modules/$m.ko: $deps" >> "$work/overlay/lib/modules/modules.dep"
 done
+# Load order deliberately "wrong" (dependents first): the init must resolve modules.dep.
+printf '%s.ko\n' dummy_hcd usb_f_acm usb_f_ncm u_serial u_ether libcomposite udc-core \
+    > "$work/overlay/lib/modules/modules.load"
 "$repo/os/initramfs/build" --arch x86_64 --overlay "$work/overlay" --out "$work/initramfs.cpio.gz" >/dev/null
 
 boot() {  # boot <log> <extra cmdline> [qemu args...]; waits for "$want_last" in the log
@@ -40,7 +45,7 @@ check() {  # check <log> <expected lines...>
 echo "== debug boot"
 want_last="debug init ready"
 boot "$work/debug.log" ""
-check "$work/debug.log" "modules loaded: 7 ok, 0 failed" "usb gadget bound to" \
+check "$work/debug.log" "loaded: 7 ok, 0 failed" "usb gadget bound to" \
     "telnet shell on 172.16.42.1" "shell on USB serial /dev/ttyGS0" "debug init ready"
 r1=$?
 
