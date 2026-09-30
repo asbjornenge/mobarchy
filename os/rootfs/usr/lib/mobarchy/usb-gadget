@@ -1,0 +1,23 @@
+#!/bin/sh
+# Make sure the Mobarchy USB gadget (NCM network + ACM serial) is up. The debug
+# initramfs normally sets it up before switch_root, and then this is a no-op. The
+# settings mirror os/initramfs/init.
+g=/sys/kernel/config/usb_gadget/mobarchy
+[ -d /sys/kernel/config/usb_gadget ] || mount -t configfs configfs /sys/kernel/config 2>/dev/null
+if [ ! -d $g ] || [ -z "$(cat $g/UDC 2>/dev/null)" ]; then
+    udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
+    [ -n "$udc" ] || { echo "no USB device controller" >&2; exit 0; }
+    mkdir -p $g/strings/0x409 $g/configs/c.1/strings/0x409
+    echo 0x1d6b > $g/idVendor
+    echo 0x0104 > $g/idProduct
+    echo Mobarchy > $g/strings/0x409/manufacturer
+    echo Mobarchy > $g/strings/0x409/product
+    echo mobarchy > $g/strings/0x409/serialnumber
+    echo "NCM + ACM" > $g/configs/c.1/strings/0x409/configuration
+    for f in ncm.usb0 acm.GS0; do
+        mkdir -p $g/functions/$f
+        [ -e $g/configs/c.1/$f ] || ln -s $g/functions/$f $g/configs/c.1/
+    done
+    echo "$udc" > $g/UDC
+fi
+exit 0

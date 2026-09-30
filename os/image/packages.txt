@@ -1,0 +1,22 @@
+# Packages for the Mobarchy device rootfs (Arch Linux ARM). Keep in sync with the
+# simulator's cloud-init list in sim/mobsim where it makes sense.
+base
+sudo
+openssh
+iproute2
+hyprland
+foot
+mesa
+grim
+wtype
+jq
+python
+uv
+rsync
+ttf-dejavu
+noto-fonts
+gtk4
+gtk4-layer-shell
+python-gobject
+squeekboard
+libinput

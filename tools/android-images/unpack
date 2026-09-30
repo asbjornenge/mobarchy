@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Unpack an Android factory image directory (the image-*.zip contents) for analysis.
+# Read-only with respect to the phone: this only works on downloaded files.
+#
+#   tools/android-images/unpack <image-dir> <out-dir>
+#
+# Output: <out>/<name>/ for each boot-type image (kernel, ramdisks, dtb, header info),
+#         <out>/fs/<partition>/ for erofs/ext4 partitions (vendor, vendor_dlkm, system_dlkm).
+# Runs the tools in a container (mobarchy-androidtools) so no host packages are needed.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+img="$(realpath "$1")"; out="$(realpath -m "$2")"
+mkdir -p "$out"
+docker image inspect mobarchy-androidtools >/dev/null 2>&1 || docker build -q -t mobarchy-androidtools "$here" >/dev/null
+docker run --rm -u "$(id -u):$(id -g)" -v "$img:/img:ro" -v "$out:/out" mobarchy-androidtools bash -euo pipefail -c '
+decompress() {  # ramdisk -> cpio tree
+  local f=$1 d=$2; mkdir -p "$d"
+  case "$(file -b "$f")" in
+    LZ4*)  lz4 -dc "$f" ;;
+    gzip*) gzip -dc "$f" ;;
+    *)     cat "$f" ;;
+  esac | (cd "$d" && cpio -idm --quiet 2>/dev/null || true)
+}
+for b in boot init_boot vendor_boot vendor_kernel_boot; do
+  [ -f /img/$b.img ] || continue
+  mkdir -p /out/$b
+  unpack_bootimg --boot_img /img/$b.img --out /out/$b --format info > /out/$b/header.txt
+  for r in /out/$b/ramdisk /out/$b/vendor_ramdisk*; do
+    [ -f "$r" ] && decompress "$r" "$r.d"
+  done
+done
+for p in vendor vendor_dlkm system_dlkm; do
+  f=/img/$p.img; [ -f $f ] || continue
+  mkdir -p /out/fs/$p
+  if file -b $f | grep -q "Android sparse"; then simg2img $f /tmp/$p.raw; f=/tmp/$p.raw; fi
+  case "$(file -b $f)" in
+    *EROFS*|data) fsck.erofs --extract=/out/fs/$p $f >/dev/null 2>&1 || debugfs -R "rdump / /out/fs/$p" $f >/dev/null 2>&1 ;;
+    *ext4*|*ext2*) debugfs -R "rdump / /out/fs/$p" $f >/dev/null 2>&1 ;;
+  esac
+done
+'
+echo "unpacked into $out"

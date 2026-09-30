@@ -11,6 +11,8 @@ Each device directory contains:
 |---|---|
 | `device.toml` | Machine-readable description: arch, boot method, displays, input, hardware quirks. |
 | `README.md` | Human notes: porting status, how to flash/boot, known issues. (optional until the port starts) |
+| `initramfs.conf` | Optional settings for the debug initramfs (`os/initramfs`), e.g. USB strings. |
+| `scripts/` | Optional device build scripts (e.g. boot image assembly). |
 | `rootfs/` | Optional overlay of files installed on top of the generic `os/rootfs/`, for example `/etc/mobarchy/mcp.env`. |
 
 Generic layers (`os/`, `agent/`) may read `device.toml` but must never branch on a codename.
@@ -43,4 +45,4 @@ Fields will be added as the porting work needs them. Keep this document in sync.
 | Codename | Device | Status |
 |---|---|---|
 | `sim-x86_64` | QEMU/KVM simulator | Working: Hyprland, touch, screenshots, mobarchy-mcp |
-| `comet` | Google Pixel 9 Pro Fold | Not started. Plan in [ADR 0005](../docs/decisions/0005-comet-boot-strategy.md) |
+| `comet` | Google Pixel 9 Pro Fold | v0.1 images built, not booted. See [comet/README.md](comet/README.md), ADR 0005/0007 |

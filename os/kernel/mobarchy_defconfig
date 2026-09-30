@@ -1,0 +1,22 @@
+# Mobarchy kernel config fragment: what a regular Linux userspace needs on top of an
+# Android (GKI) kernel. Device-agnostic; applied to every kernel_build (Kleaf
+# --defconfig_fragment), including the GKI base kernel. See docs/decisions/0007.
+
+# systemd / udev
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+CONFIG_FHANDLE=y
+CONFIG_AUTOFS_FS=y
+CONFIG_TMPFS_POSIX_ACL=y
+CONFIG_TMPFS_XATTR=y
+
+# SysV IPC: libhybris/Halium and plenty of Linux software
+CONFIG_SYSVIPC=y
+
+# Namespaces for sandboxing (flatpak, bubblewrap, containers)
+CONFIG_USER_NS=y
+CONFIG_PID_NS=y
+
+# nftables (modern firewalling; iptables-nft)
+CONFIG_NF_TABLES=y
+CONFIG_NF_TABLES_INET=y

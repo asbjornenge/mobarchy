@@ -1,0 +1,185 @@
+#!/bin/sh
+# Mobarchy debug init (PID 1 in the initramfs).
+#
+# Goal: the smallest thing that proves a device boots our code and gives us a shell.
+#   1. mount pseudo filesystems and populate /dev (devtmpfs if the kernel has it, else mdev)
+#   2. load kernel modules in the vendor's order (/lib/modules/modules.load)
+#   3. expose a USB gadget: NCM network + ACM serial console
+#   4. serve a telnet shell on 172.16.42.1 and a shell on the USB serial console
+#   5. if a root partition is configured, mount it and switch_root into its init
+#      (systemd); on any failure stay in the debug shell
+#
+# Root selection: ROOT_PARTNAME in initramfs.conf or mobarchy.root=<partname> on the kernel
+# command line (the command line wins). mobarchy.debug on the command line never switches.
+#
+# Everything is logged to /dev/kmsg with the "mobarchy:" prefix, so it also ends up in
+# pstore (ramoops) and can be read after a reboot if boot fails.
+#
+# Device specifics come from /etc/mobarchy/initramfs.conf (from devices/<codename>/).
+
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+
+USB_VENDOR=0x1d6b          # Linux Foundation
+USB_PRODUCT=0x0104         # Multifunction Composite Gadget
+USB_MANUFACTURER=Mobarchy
+USB_PRODUCT_NAME="Mobarchy debug"
+USB_SERIAL=mobarchy
+USB_IP=172.16.42.1
+HOST_IP=172.16.42.2
+ROOT_PARTNAME=""
+[ -f /etc/mobarchy/initramfs.conf ] && . /etc/mobarchy/initramfs.conf
+
+log() {
+    echo "mobarchy: $*" > /dev/kmsg 2>/dev/null
+    echo "mobarchy: $*"
+}
+
+mount_pseudo() {
+    mkdir -p /proc /sys /dev /run /tmp
+    mount -t proc proc /proc
+    mount -t sysfs sysfs /sys
+    # mobarchy.nodevtmpfs on the kernel command line exercises the mdev path on kernels that
+    # have devtmpfs (for testing what stock Pixel kernels need).
+    if grep -qw devtmpfs /proc/filesystems && ! grep -qw mobarchy.nodevtmpfs /proc/cmdline; then
+        mount -t devtmpfs devtmpfs /dev
+    else
+        mount -t tmpfs -o mode=0755 tmpfs /dev
+        mknod -m 600 /dev/kmsg c 1 11
+        mknod -m 666 /dev/null c 1 3
+        mknod -m 600 /dev/console c 5 1
+    fi
+    mkdir -p /dev/pts
+    mount -t devpts devpts /dev/pts
+    mount -t tmpfs tmpfs /run
+    mount -t tmpfs tmpfs /tmp
+    mount -t configfs configfs /sys/kernel/config 2>/dev/null
+    mount -t pstore pstore /sys/fs/pstore 2>/dev/null
+    mount -t debugfs debugfs /sys/kernel/debug 2>/dev/null
+}
+
+populate_dev() {
+    # No-op with devtmpfs; otherwise create nodes from sysfs.
+    grep -qw devtmpfs /proc/mounts || mdev -s
+}
+
+load_modules() {
+    local dir=/lib/modules list=/lib/modules/modules.load ok=0 fail=0
+    [ -f "$list" ] || { log "no $list, skipping module loading"; return; }
+    log "loading modules from $list"
+    while read -r m; do
+        [ -n "$m" ] || continue
+        if insmod "$dir/$(basename "$m")" 2>/tmp/insmod.err; then
+            ok=$((ok + 1))
+        else
+            fail=$((fail + 1))
+            log "insmod $(basename "$m") failed: $(cat /tmp/insmod.err)"
+        fi
+    done < "$list"
+    log "modules loaded: $ok ok, $fail failed"
+}
+
+setup_usb_gadget() {
+    local g=/sys/kernel/config/usb_gadget/mobarchy udc i
+    [ -d /sys/kernel/config/usb_gadget ] || { log "no usb_gadget configfs"; return 1; }
+    # The UDC can appear late (after its module and PHY come up).
+    for i in $(seq 1 50); do
+        udc=$(ls /sys/class/udc 2>/dev/null | head -n1)
+        [ -n "$udc" ] && break
+        sleep 0.2
+    done
+    [ -n "$udc" ] || { log "no USB device controller found"; return 1; }
+
+    mkdir -p $g
+    echo $USB_VENDOR > $g/idVendor
+    echo $USB_PRODUCT > $g/idProduct
+    mkdir -p $g/strings/0x409
+    echo "$USB_MANUFACTURER" > $g/strings/0x409/manufacturer
+    echo "$USB_PRODUCT_NAME" > $g/strings/0x409/product
+    echo "$USB_SERIAL" > $g/strings/0x409/serialnumber
+    mkdir -p $g/configs/c.1/strings/0x409
+    echo "NCM + ACM" > $g/configs/c.1/strings/0x409/configuration
+
+    mkdir -p $g/functions/ncm.usb0 && ln -s $g/functions/ncm.usb0 $g/configs/c.1/ \
+        || log "ncm function unavailable"
+    mkdir -p $g/functions/acm.GS0 && ln -s $g/functions/acm.GS0 $g/configs/c.1/ \
+        || log "acm function unavailable"
+
+    echo "$udc" > $g/UDC || { log "binding gadget to $udc failed"; return 1; }
+    log "usb gadget bound to $udc"
+}
+
+setup_network() {
+    local ifc
+    ifc=$(cat /sys/kernel/config/usb_gadget/mobarchy/functions/ncm.usb0/ifname 2>/dev/null)
+    [ -n "$ifc" ] && [ "$ifc" != "(unnamed net_device)" ] || ifc=usb0
+    ip link set lo up
+    ip addr add $USB_IP/24 dev "$ifc" && ip link set "$ifc" up || { log "no $ifc interface"; return 1; }
+    cat > /etc/udhcpd.conf <<EOF
+start $HOST_IP
+end $HOST_IP
+interface $ifc
+option subnet 255.255.255.0
+EOF
+    touch /var/lib/udhcpd.leases 2>/dev/null || { mkdir -p /var/lib && touch /var/lib/udhcpd.leases; }
+    udhcpd -S /etc/udhcpd.conf
+    telnetd -l /bin/sh -b $USB_IP
+    log "telnet shell on $USB_IP (host gets $HOST_IP via DHCP)"
+}
+
+cmdline_arg() {  # value of key=value on the kernel command line
+    tr ' ' '\n' < /proc/cmdline | sed -n "s/^$1=//p" | tail -n1
+}
+
+find_partition() {  # block device for a GPT partition name, e.g. userdata
+    local u name
+    for u in /sys/class/block/*/uevent; do
+        name=$(sed -n 's/^PARTNAME=//p' "$u")
+        [ "$name" = "$1" ] && { echo "/dev/$(sed -n 's/^DEVNAME=//p' "$u")"; return 0; }
+    done
+    return 1
+}
+
+switch_to_root() {
+    local part dev
+    part=$(cmdline_arg mobarchy.root); [ -n "$part" ] || part=$ROOT_PARTNAME
+    [ -n "$part" ] || { log "no root partition configured, staying in debug shell"; return 1; }
+    grep -qw mobarchy.debug /proc/cmdline && { log "mobarchy.debug set, staying in debug shell"; return 1; }
+    dev=$(find_partition "$part") || { log "partition $part not found"; return 1; }
+    [ -b "$dev" ] || mdev -s
+    mkdir -p /newroot
+    mount -o rw,noatime "$dev" /newroot || { log "cannot mount $dev ($part)"; return 1; }
+    [ -x /newroot/sbin/init ] || [ -L /newroot/sbin/init ] || { log "$part has no /sbin/init"; umount /newroot; return 1; }
+    log "switching root to $dev ($part)"
+    # Hand over: stop our services, keep the gadget bound (the rootfs takes it over).
+    killall telnetd udhcpd 2>/dev/null
+    [ -n "${SERIAL_LOOP:-}" ] && kill "$SERIAL_LOOP" 2>/dev/null && pkill -f 'exec sh </dev/ttyGS0'
+    for m in dev proc sys run; do mkdir -p /newroot/$m; mount --move /$m /newroot/$m; done
+    exec switch_root /newroot /sbin/init
+}
+
+serial_shell() {
+    # Respawn a shell on the USB serial console (ttyGS0) forever.
+    [ -e /dev/ttyGS0 ] || { mdev -s; [ -e /dev/ttyGS0 ] || return; }
+    ( while true; do setsid sh -c 'exec sh </dev/ttyGS0 >/dev/ttyGS0 2>&1'; sleep 1; done ) &
+    SERIAL_LOOP=$!
+    log "shell on USB serial /dev/ttyGS0"
+}
+
+mount_pseudo
+log "init started ($(uname -r), $(uname -m))"
+populate_dev
+load_modules
+populate_dev
+setup_usb_gadget && { populate_dev; setup_network; serial_shell; }
+
+switch_to_root
+
+# Leave a trace of how far we got for the next boot (pstore) and for the host.
+log "debug init ready"
+echo "Mobarchy debug initramfs. Telnet: $USB_IP" > /etc/motd
+
+# PID 1 must never exit. Offer a console shell if there is a console, else just wait.
+if [ -c /dev/console ]; then
+    while true; do setsid sh -c 'exec sh </dev/console >/dev/console 2>&1'; sleep 1; done
+fi
+while true; do sleep 3600; done

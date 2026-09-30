@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Build the Mobarchy debug initramfs (busybox + our /init) as a gzip'd cpio.
+#
+#   os/initramfs/build --arch aarch64|x86_64 [--device <codename>] [--overlay <dir>] --out <file.cpio.gz>
+#
+# --overlay copies a directory tree on top of the initramfs (e.g. extra modules for tests).
+# --set KEY=VALUE appends a setting to /etc/mobarchy/initramfs.conf (e.g. ROOT_PARTNAME=userdata).
+# busybox-static comes from Debian (same version for every arch). The tool
+# containers do the work, so no host packages or root are needed.
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+arch="" device="" out="" overlay="" settings=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --arch) arch="$2"; shift 2 ;;
+        --device) device="$2"; shift 2 ;;
+        --out) out="$(realpath -m "$2")"; shift 2 ;;
+        --overlay) overlay="$(realpath "$2")"; shift 2 ;;
+        --set) settings+=("$2"); shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$arch" ] && [ -n "$out" ] || { echo "usage: $0 --arch aarch64|x86_64 [--device codename] --out file" >&2; exit 2; }
+case "$arch" in aarch64) debarch=arm64 ;; x86_64) debarch=amd64 ;; *) echo "unsupported arch $arch" >&2; exit 2 ;; esac
+
+work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+mkdir -p "$work/root/etc/mobarchy" "$(dirname "$out")"
+cp "$repo/os/initramfs/init" "$work/root/init"
+if [ -n "$device" ] && [ -f "$repo/devices/$device/initramfs.conf" ]; then
+    cp "$repo/devices/$device/initramfs.conf" "$work/root/etc/mobarchy/initramfs.conf"
+fi
+
+for kv in "${settings[@]}"; do echo "$kv" >> "$work/root/etc/mobarchy/initramfs.conf"; done
+[ -n "$overlay" ] && cp -a "$overlay/." "$work/root/"
+
+docker image inspect mobarchy-androidtools >/dev/null 2>&1 \
+    || docker build -q -t mobarchy-androidtools "$repo/tools/android-images" >/dev/null
+docker run --rm -v "$work:/w" mobarchy-androidtools bash -euo pipefail -c "
+    dpkg --add-architecture $debarch 2>/dev/null || true
+    apt-get update -qq >/dev/null
+    cd /tmp
+    apt-get download -qq busybox-static:$debarch busybox-static:amd64 >/dev/null
+    mkdir target host
+    dpkg-deb -x busybox-static_*_$debarch.deb target
+    dpkg-deb -x busybox-static_*_amd64.deb host
+    r=/w/root
+    mkdir -p \$r/bin \$r/sbin \$r/usr/bin \$r/usr/sbin \$r/proc \$r/sys \$r/dev \$r/run \$r/tmp \$r/var \$r/lib/modules
+    cp target/usr/bin/busybox \$r/bin/busybox
+    # Applet symlinks: the host build of the same version lists the applets.
+    for a in \$(host/usr/bin/busybox --list-full); do
+        [ -e \$r/\$a ] || ln -s /bin/busybox \$r/\$a
+    done
+    chmod 755 \$r/init
+    (cd \$r && find . | cpio -o -H newc --owner 0:0 --quiet) | gzip -9 > /w/initramfs.cpio.gz
+    chown -R $(id -u):$(id -g) /w
+"
+cp "$work/initramfs.cpio.gz" "$out"
+echo "built $out ($(du -h "$out" | cut -f1), $arch${device:+, $device})"

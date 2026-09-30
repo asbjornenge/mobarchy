@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Build a Pixel (gs-6.1 / Kleaf) kernel and all its modules from LineageOS sources,
+# in a container, optionally with the Mobarchy config fragment.
+#
+#   tools/kernel-build/build --device comet --src <dir> [--stock] [--detach]
+#
+#   --src     source checkout (created and synced on first use; needs ~15 GB, use external storage)
+#   --stock   build without the Mobarchy fragment (for comparing against the factory kernel)
+#   --detach  run in a detached container named mobarchy-kbuild-<device>; follow <src>/build-<variant>.log
+#
+# Output: <src>/out/<device>-<variant>/ with boot.img, vendor_kernel_boot.img, vendor_dlkm.img,
+# system_dlkm.img, dtb/dtbo and the modules.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"; repo="$(cd "$here/../.." && pwd)"
+device="" src="" variant=mobarchy detach=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --device) device="$2"; shift 2 ;;
+        --src) src="$(realpath -m "$2")"; shift 2 ;;
+        --stock) variant=stock; shift ;;
+        --detach) detach=1; shift ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$device" ] && [ -n "$src" ] || { echo "usage: $0 --device <codename> --src <dir> [--stock] [--detach]" >&2; exit 2; }
+
+docker build -q -t mobarchy-kernel-build "$here" >/dev/null
+mkdir -p "$src/.home"
+run() { docker run --rm -u "$(id -u):$(id -g)" -e HOME=/work/.home -e USER=mobarchy -v "$src:/work" -w /work mobarchy-kernel-build bash -euo pipefail -c "$1"; }
+
+if [ ! -d "$src/.repo" ]; then
+    run 'git config --global user.name mobarchy; git config --global user.email mobarchy@localhost
+         repo init -q -u https://github.com/LineageOS/android_kernel_google_gs-6.1_manifest -b lineage-23.2 --depth=1 --git-lfs
+         repo sync -q -c -j16 --no-tags --optimized-fetch'
+fi
+
+flags=""
+if [ $variant = mobarchy ]; then
+    # Kleaf only sees files inside the workspace: stage the fragment as //mobarchy:mobarchy_defconfig.
+    mkdir -p "$src/mobarchy"
+    cp "$repo/os/kernel/mobarchy_defconfig" "$src/mobarchy/mobarchy_defconfig"
+    echo 'exports_files(["mobarchy_defconfig"])' > "$src/mobarchy/BUILD.bazel"
+    # The GKI base kernel must be built from source for the fragment to reach it. Options
+    # such as USER_NS turn inline helpers (make_kuid, ...) into exported symbols that are
+    # not on the Pixel KMI symbol list, so symbol trimming is disabled (--notrim). We
+    # build every module against this kernel ourselves, so the frozen KMI doesn't matter.
+    # use_source_tree_aosp: build GKI from //aosp instead of downloading Google's prebuilt.
+    # The prebuilt fips140.ko is tied to Google's GKI binary, so build that from source too.
+    flags="--config=use_source_tree_aosp --download_prebuilt_gki_fips140=false --notrim"
+    flags="$flags --defconfig_fragment=//mobarchy:mobarchy_defconfig"
+fi
+cmd="./build_$device.sh $flags -- --destdir=/work/out/$device-$variant > /work/build-$variant.log 2>&1; echo EXIT=\$? >> /work/build-$variant.log"
+
+if [ $detach = 1 ]; then
+    docker rm -f "mobarchy-kbuild-$device" >/dev/null 2>&1 || true
+    docker run -d --name "mobarchy-kbuild-$device" -u "$(id -u):$(id -g)" -e HOME=/work/.home -e USER=mobarchy \
+        -v "$src:/work" -w /work mobarchy-kernel-build bash -c "$cmd" >/dev/null
+    echo "building in container mobarchy-kbuild-$device; log: $src/build-$variant.log"
+else
+    run "$cmd" || true
+    tail -3 "$src/build-$variant.log"
+    grep -q '^EXIT=0' "$src/build-$variant.log"
+fi

@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# Boot the debug initramfs on x86_64 under QEMU with the simulator's kernel, and check
+# that init gets all the way through: pseudo filesystems, /dev (mdev path), module
+# loading, a USB gadget (dummy_hcd stands in for the phone's UDC), network and telnetd.
+# A second boot adds a GPT disk with a "userdata" partition and checks switch_root.
+#
+#   os/initramfs/test-sim        (needs the simulator running: sim/mobsim up)
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+ssh="$repo/sim/mobsim ssh"
+
+# Kernel and the gadget modules from the simulator guest (decompressed for busybox insmod).
+mods="udc-core libcomposite u_ether u_serial usb_f_ncm usb_f_acm dummy_hcd"
+mkdir -p "$work/overlay/lib/modules"
+$ssh "sudo cat /boot/vmlinuz-linux" > "$work/vmlinuz"
+for m in $mods; do
+    $ssh "zstd -dc \$(modinfo -n $m)" > "$work/overlay/lib/modules/$m.ko"
+    echo "$m.ko" >> "$work/overlay/lib/modules/modules.load"
+done
+"$repo/os/initramfs/build" --arch x86_64 --overlay "$work/overlay" --out "$work/initramfs.cpio.gz" >/dev/null
+
+boot() {  # boot <log> <extra cmdline> [qemu args...]; waits for "$want_last" in the log
+    local log=$1 append=$2; shift 2
+    timeout 60 qemu-system-x86_64 -accel kvm -m 512 -nographic -no-reboot \
+        -kernel "$work/vmlinuz" -initrd "$work/initramfs.cpio.gz" \
+        -append "console=ttyS0 panic=-1 mobarchy.nodevtmpfs $append" "$@" > "$log" 2>&1 &
+    local qemu=$!
+    for i in $(seq 1 50); do grep -q "$want_last" "$log" && break; sleep 1; done
+    sleep 1; kill $qemu 2>/dev/null || true
+}
+check() {  # check <log> <expected lines...>
+    local log=$1 fail=0; shift
+    grep "mobarchy:" "$log" | sed 's/^\[[^]]*\] //' | sort -u | sed 's/^/  /'
+    for want in "$@"; do grep -q "$want" "$log" || { echo "MISSING: $want"; fail=1; }; done
+    [ $fail = 0 ] || { echo "--- log tail"; tail -30 "$log"; }
+    return $fail
+}
+
+echo "== debug boot"
+want_last="debug init ready"
+boot "$work/debug.log" ""
+check "$work/debug.log" "modules loaded: 7 ok, 0 failed" "usb gadget bound to" \
+    "telnet shell on 172.16.42.1" "shell on USB serial /dev/ttyGS0" "debug init ready"
+r1=$?
+
+echo "== switch_root boot"
+# A tiny root filesystem whose /sbin/init just reports success.
+mkdir -p "$work/root/sbin" "$work/root/bin"
+zcat "$work/initramfs.cpio.gz" | (cd "$work/root" && cpio -id --quiet bin/busybox 2>/dev/null)
+printf '#!/bin/busybox sh\n/bin/busybox echo MOBARCHY-ROOT-OK pid=$$ > /dev/console\n/bin/busybox sleep 30\n' > "$work/root/sbin/init"
+chmod +x "$work/root/sbin/init"
+docker run --rm -v "$work:/w" mobarchy-androidtools bash -euo pipefail -c '
+    mkfs.ext4 -q -d /w/root /w/part.img 32M
+    truncate -s 40M /w/disk.img
+    echo "label: gpt
+start=2048, size=65536, name=userdata" | sfdisk -q /w/disk.img
+    dd if=/w/part.img of=/w/disk.img bs=512 seek=2048 conv=notrunc status=none
+    chmod 666 /w/disk.img'
+want_last="MOBARCHY-ROOT-OK"
+boot "$work/root.log" "mobarchy.root=userdata" -drive "file=$work/disk.img,format=raw,if=virtio"
+check "$work/root.log" "switching root to" "MOBARCHY-ROOT-OK pid=1"
+r2=$?
+
+[ $r1 = 0 ] && [ $r2 = 0 ] && echo PASS || { echo FAIL; exit 1; }

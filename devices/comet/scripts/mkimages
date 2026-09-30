@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# Build Mobarchy images for comet. This only writes files on the host. Flashing is a
+# separate, manual step that needs Asbjørn's explicit sign-off (CLAUDE.md, ADR 0005/0007).
+#
+#   v0.1 (debug shell over USB, stock kernel):
+#     devices/comet/scripts/mkimages --stock <unpacked-factory> --out <dir>
+#
+#   v0.2 (Mobarchy kernel + Linux rootfs on userdata):
+#     devices/comet/scripts/mkimages --stock <unpacked-factory> --kernel <kernel-out> \
+#         --rootfs <rootfs.img> --out <dir>
+#
+# <unpacked-factory> comes from tools/android-images/unpack, <kernel-out> from
+# tools/kernel-build/build, and <rootfs.img> from os/image/build.
+#
+# v0.1 outputs:
+#   init_boot-mobarchy.img  debug initramfs as init_boot; kernel and vendor images stay stock
+#   boot-mobarchy.img       stock kernel + debug initramfs, for trying `fastboot boot`
+# v0.2 adds:
+#   boot.img, vendor_kernel_boot.img, vendor_dlkm.img, system_dlkm.img, dtbo.img  (our kernel)
+#   init_boot-mobarchy.img  initramfs that switches root to the userdata partition
+#   userdata.simg           rootfs as a sparse image for `fastboot flash userdata`
+#   FLASHING.md             the exact fastboot commands (not executed)
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/../../.." && pwd)"
+stock="" out="" kernel="" rootfs=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --stock) stock="$(realpath "$2")"; shift 2 ;;
+        --out) out="$(realpath -m "$2")"; shift 2 ;;
+        --kernel) kernel="$(realpath "$2")"; shift 2 ;;
+        --rootfs) rootfs="$(realpath "$2")"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$stock" ] && [ -n "$out" ] || { echo "usage: see header of $0" >&2; exit 2; }
+[ -z "$kernel" ] || [ -n "$rootfs" ] || { echo "--kernel needs --rootfs (v0.2)" >&2; exit 2; }
+mkdir -p "$out"
+osver=$(sed -n 's/^os version: //p' "$stock/init_boot/header.txt")
+patch=$(sed -n 's/^os patch level: //p' "$stock/init_boot/header.txt")
+tools() { docker run --rm -u "$(id -u):$(id -g)" -v "$out:/out" -v "$stock:/stock:ro" "$@"; }
+
+if [ -z "$kernel" ]; then  # ---------------------------------------------------- v0.1
+    "$repo/os/initramfs/build" --arch aarch64 --device comet --out "$out/initramfs.cpio.gz"
+    tools mobarchy-androidtools bash -euo pipefail -c "
+        mkbootimg --header_version 4 --ramdisk /out/initramfs.cpio.gz \
+            --os_version $osver --os_patch_level $patch -o /out/init_boot-mobarchy.img
+        mkbootimg --header_version 4 --kernel /stock/boot/kernel --ramdisk /out/initramfs.cpio.gz \
+            --os_version $osver --os_patch_level $patch -o /out/boot-mobarchy.img"
+else  # -------------------------------------------------------------------------- v0.2
+    "$repo/os/initramfs/build" --arch aarch64 --device comet --set ROOT_PARTNAME=userdata \
+        --out "$out/initramfs.cpio.gz"
+    for i in boot vendor_kernel_boot vendor_dlkm system_dlkm dtbo; do cp "$kernel/$i.img" "$out/"; done
+    tools -v "$rootfs:/rootfs.img:ro" mobarchy-androidtools bash -euo pipefail -c "
+        mkbootimg --header_version 4 --ramdisk /out/initramfs.cpio.gz \
+            --os_version $osver --os_patch_level $patch -o /out/init_boot-mobarchy.img
+        img2simg /rootfs.img /out/userdata.simg"
+    cat > "$out/FLASHING.md" <<EOM
+# comet v0.2: flashing (needs Asbjørn's sign-off, bootloader unlocked)
+
+Current slot: \`fastboot getvar current-slot\`. Use it as \`_a\` or \`_b\` below.
+Keep a copy of the stock images of the *same build* for recovery (factory image).
+
+\`\`\`sh
+fastboot flash boot_<slot>               boot.img
+fastboot flash vendor_kernel_boot_<slot> vendor_kernel_boot.img
+fastboot flash dtbo_<slot>               dtbo.img
+fastboot flash init_boot_<slot>          init_boot-mobarchy.img
+fastboot reboot fastboot                 # userspace fastbootd, for logical partitions
+fastboot flash vendor_dlkm_<slot>        vendor_dlkm.img
+fastboot flash system_dlkm_<slot>        system_dlkm.img
+fastboot reboot bootloader
+fastboot flash userdata                  userdata.simg    # replaces Android's /data
+fastboot reboot
+\`\`\`
+
+Recovery: Power + Volume Down gives fastboot. Flash the stock images of the same build
+back (or run the factory image's flash-all.sh). The bootloader is never touched.
+EOM
+fi
+ls -la "$out"

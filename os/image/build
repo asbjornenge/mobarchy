@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+# Build the Mobarchy aarch64 rootfs image (Arch Linux ARM + Mobarchy stack) for a device.
+#
+#   os/image/build --device <codename> --base <ArchLinuxARM-aarch64-latest.tar.gz> --out <dir>
+#                  [--size 8G] [--extra NAME=DIR ...]
+#
+# Runs pacman inside an arm64 container (needs qemu-user binfmt on the host). The
+# result is <out>/rootfs.img (ext4) and <out>/rootfs.tar. Device-specific additions
+# (kernel modules, firmware links, fstab) come from devices/<codename>/scripts/rootfs-hook
+# if that script exists. It runs inside the container with the rootfs at /, and sees each
+# --extra NAME=DIR read-only at /extra/NAME (e.g. kernel build output, vendor firmware).
+#
+# Access: ssh as "mob" with the key ~/.config/mobarchy/device_ed25519 (created on first
+# build, kept outside the repo).
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+device="" base="" out="" size=8G extra=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --device) device="$2"; shift 2 ;;
+        --base) base="$(realpath "$2")"; shift 2 ;;
+        --out) out="$(realpath -m "$2")"; shift 2 ;;
+        --size) size="$2"; shift 2 ;;
+        --extra) extra+=(-v "$(realpath "${2#*=}"):/extra/${2%%=*}:ro"); shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$device" ] && [ -n "$base" ] && [ -n "$out" ] || { echo "usage: $0 --device <codename> --base <tarball> --out <dir>" >&2; exit 2; }
+mkdir -p "$out"
+name="mobarchy-rootfs-$device"
+
+# 1. Base image from the (signature-verified) Arch Linux ARM tarball.
+base_img="mobarchy-alarm-base:$(sha256sum "$base" | cut -c1-12)"
+docker image inspect "$base_img" >/dev/null 2>&1 || docker import --platform linux/arm64 "$base" "$base_img" >/dev/null
+
+# 2. Install packages and the Mobarchy tree in an arm64 container.
+docker rm -f "$name" >/dev/null 2>&1 || true
+pubkey_file="$HOME/.config/mobarchy/device_ed25519.pub"
+mkdir -p "$(dirname "$pubkey_file")"
+[ -f "$pubkey_file" ] || ssh-keygen -q -t ed25519 -N "" -C mobarchy-device -f "${pubkey_file%.pub}"
+docker run --platform linux/arm64 --name "$name" -e MOBARCHY_SSH_PUBKEY="$(cat "$pubkey_file")" \
+    -v "$repo:/src:ro" "${extra[@]}" "$base_img" /bin/bash -euo pipefail -c '
+    device='"$device"'
+    pacman-key --init >/dev/null && pacman-key --populate archlinuxarm >/dev/null
+    # The stock kernel and bootloader bits are for SBCs; the device brings its own kernel.
+    pacman -Rdd --disable-sandbox --noconfirm linux-aarch64 $(pacman -Qq | grep "^linux-firmware") >/dev/null 2>&1 || true
+    # The pacman download sandbox (Landlock, alpm user) does not work under qemu-user emulation.
+    grep -v "^#" /src/os/image/packages.txt | xargs pacman -Syu --disable-sandbox --noconfirm --needed >/dev/null
+    rm -rf /var/cache/pacman/pkg/*
+
+    # Owner account: autologin on tty1 starts Hyprland (same as the simulator).
+    userdel -r alarm 2>/dev/null || true
+    useradd -m -G wheel,video,input,audio -s /bin/bash mob
+    echo "%wheel ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel
+    passwd -l root >/dev/null
+    cat > /home/mob/.bash_profile <<EOP
+[ -f ~/.bashrc ] && . ~/.bashrc
+if [ "\$(tty)" = /dev/tty1 ]; then exec start-hyprland > ~/.hyprland.log 2>&1; fi
+EOP
+
+    # Mobarchy tree: generic overlay, then device overlay, device description, session config.
+    # Overlays are installed root-owned without group/other write, and existing
+    # directories (/etc, /usr/bin, ...) keep their own owner and mode.
+    overlay() { tar -C "$1" -cf - --owner=0 --group=0 --mode=go-w . | tar -C / -xf - --no-overwrite-dir; }
+    overlay /src/os/rootfs
+    [ -d /src/devices/$device/rootfs ] && overlay /src/devices/$device/rootfs
+    install -Dm644 /src/devices/$device/device.toml /etc/mobarchy/device.toml
+    mkdir -p /home/mob/.config && cp -r --no-preserve=ownership /src/os/config/. /home/mob/.config/
+    python3 - <<EOP
+import tomllib
+dev = tomllib.load(open("/etc/mobarchy/device.toml", "rb"))
+lines = ["# Generated from devices/$device/device.toml by os/image/build"]
+lines.append("monitor = , preferred, auto, auto")
+open("/home/mob/.config/hypr/device.conf", "w").write("\n".join(lines) + "\n")
+EOP
+    if [ -n "${MOBARCHY_SSH_PUBKEY:-}" ]; then
+        install -d -m700 /home/mob/.ssh && echo "$MOBARCHY_SSH_PUBKEY" > /home/mob/.ssh/authorized_keys
+        chmod 600 /home/mob/.ssh/authorized_keys
+    fi
+    glib-compile-schemas /usr/share/glib-2.0/schemas
+
+    # Agent layer, with its Python environments resolved for aarch64.
+    mkdir -p /opt/mobarchy
+    cp -r --no-preserve=ownership /src/agent /opt/mobarchy/agent
+    find /opt/mobarchy/agent -name .venv -prune -exec rm -rf {} +
+    chown -R mob:mob /opt/mobarchy /home/mob
+    for p in /opt/mobarchy/agent/*/pyproject.toml; do
+        su mob -c "cd $(dirname $p) && uv sync -q --no-dev --python /usr/bin/python3"
+    done
+
+    systemctl enable sshd systemd-networkd mobarchy-usb-gadget >/dev/null 2>&1
+    [ -x /src/devices/$device/scripts/rootfs-hook ] && /src/devices/$device/scripts/rootfs-hook
+    echo "rootfs ready"
+'
+
+# 3. Export and pack into an ext4 image.
+docker export "$name" > "$out/rootfs.tar"
+docker rm "$name" >/dev/null
+docker run --rm -v "$out:/out" mobarchy-androidtools bash -euo pipefail -c "
+    rm -rf /tmp/r && mkdir /tmp/r && tar -xpf /out/rootfs.tar -C /tmp/r --numeric-owner
+    rm -f /tmp/r/.dockerenv
+    rm -f /out/rootfs.img && mkfs.ext4 -q -L mobarchy -d /tmp/r /out/rootfs.img $size
+    chown $(id -u):$(id -g) /out/rootfs.img
+"
+echo "built $out/rootfs.img ($size, $(du -h "$out/rootfs.img" | cut -f1) used)"

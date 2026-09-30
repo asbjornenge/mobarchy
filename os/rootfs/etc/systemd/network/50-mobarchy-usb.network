@@ -1,0 +1,14 @@
+# USB networking to the development host. The phone is 172.16.42.1 and gives the host
+# 172.16.42.2 over DHCP, the same as the debug initramfs.
+[Match]
+Name=usb0
+
+[Network]
+Address=172.16.42.1/24
+DHCPServer=yes
+
+[DHCPServer]
+PoolOffset=2
+PoolSize=1
+EmitDNS=no
+EmitRouter=no

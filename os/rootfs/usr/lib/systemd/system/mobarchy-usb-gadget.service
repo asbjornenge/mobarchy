@@ -1,0 +1,12 @@
+[Unit]
+Description=Mobarchy USB gadget (NCM network + serial console)
+Before=systemd-networkd.service
+Wants=serial-getty@ttyGS0.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/mobarchy/usb-gadget
+
+[Install]
+WantedBy=multi-user.target
