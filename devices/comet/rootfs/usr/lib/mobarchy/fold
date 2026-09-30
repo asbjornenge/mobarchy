@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""Fold handling for comet: one panel at a time, following the hall sensor.
+
+    fold auto       apply the current hinge state (at session start)
+    fold folded     outer panel on, inner off
+    fold unfolded   inner panel on, outer off
+
+Hyprland calls this from switch binds (see /etc/mobarchy/hyprland-device.conf).
+The bar and keyboard are layer surfaces tied to an output, so they are restarted
+on the panel that is now in use.
+"""
+import array
+import fcntl
+import glob
+import json
+import os
+import subprocess
+import sys
+import time
+
+# (connector, mode, scale, reserved strip at the top in logical px: camera cutout and
+# rounded corners)
+INNER = ("DSI-1", "2152x2076@60", "2", 24)
+OUTER = ("DSI-2", "1080x2424@60", "2.4", 32)
+HALL_NAME = "hall effect sensor"
+SW_LID = 0x00
+EVIOCGSW = lambda length: (2 << 30) | (length << 16) | (ord("E") << 8) | 0x1B  # _IOC_READ
+
+
+def lid_closed() -> bool:
+    for name_file in glob.glob("/sys/class/input/event*/device/name"):
+        if open(name_file).read().strip() == HALL_NAME:
+            dev = "/dev/input/" + name_file.split("/")[4]
+            buf = array.array("B", [0] * 8)
+            with open(dev, "rb") as f:
+                fcntl.ioctl(f, EVIOCGSW(len(buf)), buf, True)
+            return bool(buf[SW_LID // 8] & (1 << (SW_LID % 8)))
+    return True  # no sensor: assume folded (outer panel)
+
+
+def hyprctl(*args: str) -> None:
+    subprocess.run(["hyprctl", *args], check=False, stdout=subprocess.DEVNULL)
+
+
+def hyprjson(what: str) -> list:
+    out = subprocess.run(["hyprctl", "-j", what], capture_output=True, text=True).stdout
+    return json.loads(out or "[]")
+
+
+def gather_workspaces(monitor: str) -> None:
+    """Move every workspace to monitor and show the lowest one, so windows follow the fold."""
+    ids = sorted(w["id"] for w in hyprjson("workspaces") if w["id"] > 0)
+    for ws in ids:
+        hyprctl("dispatch", "moveworkspacetomonitor", str(ws), monitor)
+    if ids:
+        hyprctl("dispatch", "workspace", str(ids[0]))
+
+
+def apply(folded: bool) -> None:
+    on, off = (OUTER, INNER) if folded else (INNER, OUTER)
+    hyprctl("keyword", "monitor", f"{on[0]}, {on[1]}, 0x0, {on[2]}")
+    hyprctl("keyword", "monitor", f"{on[0]}, addreserved, {on[3]}, 0, 0, 0")
+    # Monitor changes are applied asynchronously: wait for the panel before moving
+    # workspaces to it, and check again once the other panel is gone, because Hyprland
+    # reshuffles workspaces itself when a monitor is removed.
+    for _ in range(50):
+        if any(m["name"] == on[0] for m in hyprjson("monitors")):
+            break
+        time.sleep(0.1)
+    gather_workspaces(on[0])
+    hyprctl("keyword", "monitor", f"{off[0]}, disable")
+    for _ in range(50):
+        if all(m["name"] != off[0] for m in hyprjson("monitors")):
+            break
+        time.sleep(0.1)
+    hyprctl("dispatch", "focusmonitor", on[0])
+    gather_workspaces(on[0])
+    # Layer surfaces (bar, on-screen keyboard) stay on the output they were created on.
+    subprocess.run(["systemctl", "--user", "restart", "mobarchy-bar"], check=False)
+    subprocess.run(["pkill", "-x", "squeekboard"], check=False)
+    subprocess.Popen(["squeekboard"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True)
+
+
+if __name__ == "__main__":
+    mode = sys.argv[1] if len(sys.argv) > 1 else "auto"
+    if mode == "auto":
+        time.sleep(1.5)  # at session start, let Hyprland finish bringing up its outputs first
+    apply(lid_closed() if mode == "auto" else mode == "folded")

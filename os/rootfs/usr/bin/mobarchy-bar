@@ -2,8 +2,8 @@
 """mobarchy-bar: the assistant bar at the bottom of the screen.
 
 Two parts in one process:
-  - the bar: a layer-shell panel with agent status, an "Ask" button and a
-    keyboard toggle;
+  - the bar: a layer-shell panel with agent status, an "Ask" button, a
+    keyboard toggle and a terminal launcher;
   - the composer: a normal app window with a text field, opened by "Ask".
 
 Text entry lives in a normal window on purpose. Hyprland neither gives
@@ -34,6 +34,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 from gi.repository import Gio, GLib, Gtk, Pango, Gtk4LayerShell as LayerShell  # noqa: E402
 
+TERMINAL = os.environ.get("MOBARCHY_TERMINAL", "foot")
 AGENT = os.environ.get("MOBARCHY_AGENT_BIN", "/opt/mobarchy/agent/mobarchy-agent/.venv/bin/mobarchy-agent")
 
 CSS = b"""
@@ -80,6 +81,9 @@ class Assistant(Gtk.Application):
         kbd = Gtk.Button(label="⌨")
         kbd.add_css_class("round")
         kbd.connect("clicked", self.toggle_keyboard)
+        term = Gtk.Button(label=">_")
+        term.add_css_class("round")
+        term.connect("clicked", self.open_terminal)
         self.status = Gtk.Label(label="", xalign=0, hexpand=True, wrap=True, lines=3,
                                 ellipsize=Pango.EllipsizeMode.END)
         self.status.add_css_class("status")
@@ -87,7 +91,7 @@ class Assistant(Gtk.Application):
         self.action.add_css_class("round")
         self.action.add_css_class("suggested-action")
         self.action.connect("clicked", self.on_action)
-        for w in (kbd, self.status, self.action):
+        for w in (kbd, term, self.status, self.action):
             row.append(w)
         bar.set_child(row)
         bar.present()
@@ -100,6 +104,11 @@ class Assistant(Gtk.Application):
             self.open_composer()
 
     # --- the composer (normal window) ---------------------------------------------------
+
+    def open_terminal(self, _button):
+        # Through the compositor, not as our child: the bar is a user service that gets
+        # restarted (e.g. on fold changes) and would take the terminal down with it.
+        subprocess.Popen(["hyprctl", "dispatch", "exec", TERMINAL], stdout=subprocess.DEVNULL)
 
     def open_composer(self):
         if self.composer is None:

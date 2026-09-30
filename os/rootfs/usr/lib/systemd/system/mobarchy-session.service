@@ -12,7 +12,10 @@ WorkingDirectory=~
 Environment=XDG_SEAT=seat0 XDG_SESSION_TYPE=wayland XDG_SESSION_CLASS=user XDG_SESSION_DESKTOP=Hyprland
 # Device-specific settings (e.g. Mesa software rendering on GPU-less KMS devices).
 EnvironmentFile=-/etc/mobarchy/session.env
-ExecStart=/usr/bin/start-hyprland
+# pam_systemd puts CAP_WAKE_ALARM in the session's ambient set, and every app inherits it.
+# bubblewrap refuses to run with capabilities it didn't get from setuid, which breaks
+# glycin (GTK's image loader: no SVG icons) and other sandboxed apps. Drop it.
+ExecStart=/usr/bin/setpriv --inh-caps=-all --ambient-caps=-all /usr/bin/start-hyprland
 Restart=on-failure
 RestartSec=3
 

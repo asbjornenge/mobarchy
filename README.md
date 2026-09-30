@@ -3,7 +3,7 @@
 An AI-first mobile Linux OS. The OS itself is exposed to AI agents as tools (MCP), so an agent can see and do everything a user can do on the phone.
 Inspired by [Omarchy](https://omarchy.org).
 
-Status: early development. Nothing boots on real hardware yet.
+Status: early development. The Pixel 9 Pro Fold (`devices/comet`) boots Mobarchy to a Hyprland session with a terminal and on-screen keyboard.
 
 ## Layout
 

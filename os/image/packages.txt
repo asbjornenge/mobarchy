@@ -20,3 +20,5 @@ gtk4-layer-shell
 python-gobject
 squeekboard
 libinput
+# squeekboard links libbsd.so.0, but the Arch Linux ARM package does not depend on it
+libbsd

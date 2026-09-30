@@ -1,7 +1,8 @@
 # comet: Google Pixel 9 Pro Fold
 
 Status: **v0.2 boots to Arch Linux + systemd + Hyprland** (2026-09-30), with ssh over USB.
-The compositor's output is not displayed correctly yet (blue screen; see "Open: compositor scanout" below).
+The outer panel shows a terminal (foot), the Mobarchy bar and the on-screen keyboard
+(squeekboard), and the panel in use follows the fold.
 **v0.1 boots** (2026-09-30). Our init runs as PID 1 on the stock kernel and loads all vendor modules. It shows its log on both panels via KMS and exposes USB NCM and ACM. The host gets 172.16.42.2 over DHCP, and `telnet 172.16.42.1` gives a root shell. This is the porting notebook, and it records what we know.
 
 Analysis source: factory image `cp3a.260905.009` (Android 17, September 2026 patch, bootloader `ripcurrentpro-17.0`), unpacked with `tools/android-images/unpack`. There are no binaries in this repo. Everything is reproducible from Google's download.
@@ -112,13 +113,21 @@ Fixes found on the device, now in the repo:
 - There are no VTs, so the session is a systemd service (`mobarchy-session`) instead of getty autologin.
 - The late modules from `init.insmod.comet.cfg` (touch, haptics, audio, wifi) must be loaded.
 - The locale must be set to UTF-8.
+- pam_systemd gives the session an ambient `CAP_WAKE_ALARM`. bubblewrap refuses to run with it, which breaks glycin, GTK's sandboxed image loader. The visible symptom was squeekboard keys labelled "icon". `mobarchy-session` drops the ambient set with `setpriv`.
 
-**Open: compositor scanout.** With Hyprland (and sway/pixman), both panels show solid blue with thin line artifacts. That is the DPU's pattern for a failed or underrun fetch. The compositor's own screenshots are correct. Our KMS client `mobarchy-screenlog` displays correctly on both panels, including through a dma-buf export/import round trip. That rules out plain dumb buffers and dma-buf import as the cause. Remaining suspects:
-- continuous atomic page flips on command-mode panels (HWC uses explicit frame triggers, BTS and self-refresh handling)
-- per-plane properties the compositor sets differently from legacy SETCRTC
-- 120 Hz on the inner panel
+**Display driver fixes** (`kernel/patches/private/google-modules/display/`). With both, Hyprland renders correctly on both panels:
+1. **RGB byte order.** exynos-drm's format table gives the DPU the byte-mirrored twin of every 32-bit RGB format (XRGB8888 is fetched as BGRX, and so on). Android never noticed because HWC picks the formats to match. Symptom: an all-blue screen, because the X/alpha byte lands in the blue channel.
+2. **FB pitch.** The DPP programmed the source width from `fb->width` and ignored `pitches[0]`. Compositors allocate padded buffers (a stride of 4352 bytes for 1080 pixels), so every line was fetched from the wrong offset. Symptom: skewed, partial lines. Dumb buffers without padding hid it.
 
-Next step: reproduce with screenlog variants (atomic commits, repeated flips, 120 Hz) until it turns blue.
+**Fold and panels** (`rootfs/usr/lib/mobarchy/fold`, `rootfs/etc/mobarchy/hyprland-device.conf`): one panel at a time. The hall sensor (`hall effect sensor`, SW_LID) picks it at session start and through Hyprland switch binds on every change.
+- Folded: the outer panel DSI-2, 1080x2424, scale 2.4.
+- Unfolded: the inner panel DSI-1, 2152x2076, scale 2.
+- A strip at the top is reserved for the camera cutout.
+- On every change, workspaces move to the active panel, and the bar and keyboard (layer surfaces tied to an output) are restarted.
+- Touch mapping: `goodix_ts0` → DSI-1 and `synaptics_tcm_touch` → DSI-2. The touch drivers suspend and resume with their panel.
+
+**Host setup for USB networking.** The gadget uses fixed MACs (phone `02:6d:6f:62:00:02`, host side `02:6d:6f:62:00:01`), so the host interface is always `enx026d6f620001`. After a reboot, NetworkManager's DHCP profile raced networkd's DHCP server, so the host uses a static profile instead:
+`nmcli con add type ethernet con-name mobarchy-usb ifname enx026d6f620001 ipv4.method manual ipv4.addresses 172.16.42.2/24 ipv6.method link-local`.
 
 Open points for v0.2:
 - **Display setup:** which DRM connector belongs to which panel (inner/outer), and the panel power sequencing without Android's HWC.
