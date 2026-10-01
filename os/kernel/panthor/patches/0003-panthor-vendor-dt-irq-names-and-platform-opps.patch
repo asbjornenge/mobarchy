@@ -1,0 +1,119 @@
+Panthor: uppercase IRQ names as a fallback, OPPs from platform code when the DT has
+no OPP table. Generic; needed for vendor DTs such as Pixel's.
+
+diff --git a/panthor_devfreq.c b/panthor_devfreq.c
+index 3686515..3674365 100644
+--- a/panthor_devfreq.c
++++ b/panthor_devfreq.c
+@@ -145,18 +145,25 @@ int panthor_devfreq_init(struct panthor_device *ptdev)
+ 
+ 	ptdev->devfreq = pdevfreq;
+ 
+-	ret = devm_pm_opp_set_regulators(dev, reg_names);
+-	if (ret) {
+-		if (ret != -EPROBE_DEFER)
+-			DRM_DEV_ERROR(dev, "Couldn't set OPP regulators\n");
+-
+-		return ret;
++	/*
++	 * OPPs may already be registered by platform code (e.g. Pixel, whose GPU clocks and
++	 * voltages are driven by firmware and described in a vendor table instead of a DT
++	 * OPP table). Use those as they are: they have no regulators to set.
++	 */
++	if (dev_pm_opp_get_opp_count(dev) <= 0) {
++		ret = devm_pm_opp_set_regulators(dev, reg_names);
++		if (ret) {
++			if (ret != -EPROBE_DEFER)
++				DRM_DEV_ERROR(dev, "Couldn't set OPP regulators\n");
++
++			return ret;
++		}
++
++		ret = devm_pm_opp_of_add_table(dev);
++		if (ret)
++			return ret;
+ 	}
+ 
+-	ret = devm_pm_opp_of_add_table(dev);
+-	if (ret)
+-		return ret;
+-
+ 	spin_lock_init(&pdevfreq->lock);
+ 
+ 	panthor_devfreq_reset(pdevfreq);
+diff --git a/panthor_device.h b/panthor_device.h
+index 4fc7cf2..4e071b2 100644
+--- a/panthor_device.h
++++ b/panthor_device.h
+@@ -10,6 +10,8 @@
+ #include <linux/io-pgtable.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/pm_runtime.h>
++#include <linux/platform_device.h>
++#include <linux/string.h>
+ #include <linux/sched.h>
+ #include <linux/spinlock.h>
+ 
+@@ -385,6 +387,23 @@ const char *panthor_exception_name(struct panthor_device *ptdev,
+  *
+  * void (*handler)(struct panthor_device *, u32 status);
+  */
++/*
++ * IRQs by name. Some vendor device trees (e.g. Google Pixel) name them in upper case
++ * ("JOB", "MMU", "GPU"); accept that as a fallback.
++ */
++static inline int panthor_get_irq_byname(struct panthor_device *ptdev, const char *name)
++{
++	struct platform_device *pdev = to_platform_device(ptdev->base.dev);
++	char upper[8];
++	int irq;
++
++	irq = platform_get_irq_byname_optional(pdev, name);
++	if (irq > 0 || strlen(name) >= sizeof(upper))
++		return irq > 0 ? irq : platform_get_irq_byname(pdev, name);
++	string_upper(upper, name);
++	return platform_get_irq_byname(pdev, upper);
++}
++
+ #define PANTHOR_IRQ_HANDLER(__name, __reg_prefix, __handler)					\
+ static irqreturn_t panthor_ ## __name ## _irq_raw_handler(int irq, void *data)			\
+ {												\
+diff --git a/panthor_fw.c b/panthor_fw.c
+index 3fe101e..167764c 100644
+--- a/panthor_fw.c
++++ b/panthor_fw.c
+@@ -1385,7 +1385,7 @@ int panthor_fw_init(struct panthor_device *ptdev)
+ 	INIT_LIST_HEAD(&fw->sections);
+ 	INIT_DELAYED_WORK(&fw->watchdog.ping_work, panthor_fw_ping_work);
+ 
+-	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "job");
++	irq = panthor_get_irq_byname(ptdev, "job");
+ 	if (irq <= 0)
+ 		return -ENODEV;
+ 
+diff --git a/panthor_gpu.c b/panthor_gpu.c
+index 77d0f4c..89adb9b 100644
+--- a/panthor_gpu.c
++++ b/panthor_gpu.c
+@@ -122,7 +122,7 @@ int panthor_gpu_init(struct panthor_device *ptdev)
+ 	if (ret)
+ 		return ret;
+ 
+-	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "gpu");
++	irq = panthor_get_irq_byname(ptdev, "gpu");
+ 	if (irq < 0)
+ 		return irq;
+ 
+diff --git a/panthor_mmu.c b/panthor_mmu.c
+index b36cd7d..4c9f2b8 100644
+--- a/panthor_mmu.c
++++ b/panthor_mmu.c
+@@ -2802,7 +2802,7 @@ int panthor_mmu_init(struct panthor_device *ptdev)
+ 
+ 	ptdev->mmu = mmu;
+ 
+-	irq = platform_get_irq_byname(to_platform_device(ptdev->base.dev), "mmu");
++	irq = panthor_get_irq_byname(ptdev, "mmu");
+ 	if (irq <= 0)
+ 		return -ENODEV;
+ 
