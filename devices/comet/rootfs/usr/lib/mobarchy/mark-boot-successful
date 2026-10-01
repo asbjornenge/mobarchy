@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+"""Mark the current A/B slot as successfully booted, like Android's boot control HAL.
+
+Pixel 6-9 keep the slot state in the devinfo partition: a 128-byte header (no checksum)
+in front of factory data that must never be touched. This does what Android's
+markBootSuccessful() does (device/google/gs-common/bootctrl/aidl/BootControl.cpp) and
+nothing more: set the "successful" bit of the current slot. Not done: Android's blowAR()
+(anti-rollback OTP fuses).
+
+Without this the bootloader counts down the slot's tries on every boot and then stops
+in fastboot ("BL1 requested") instead of booting.
+
+    mark-boot-successful [--check]     --check: report only, never write
+"""
+import os
+import re
+import struct
+import sys
+
+DEVINFO = "/dev/disk/by-partlabel/devinfo"
+MAGIC = 0x49564544          # "DEVI"
+MIN_VERSION = 0x00030003    # the HAL only trusts devinfo from v3.3 on
+SLOT_OFFSET = {"a": 48, "b": 52}    # per slot: u8 retry_count, u8 flags
+UNBOOTABLE, SUCCESSFUL, ACTIVE = 0x01, 0x02, 0x04
+
+
+def current_slot() -> str:
+    """The bootloader passes androidboot.slot_suffix in bootconfig (or the cmdline)."""
+    for path in ("/proc/bootconfig", "/proc/cmdline"):
+        try:
+            m = re.search(r'androidboot\.slot_suffix\s*=\s*"?_([ab])\b', open(path).read())
+        except OSError:
+            continue
+        if m:
+            return m.group(1)
+    sys.exit("mark-boot-successful: cannot tell the current slot")
+
+
+def main() -> None:
+    check = "--check" in sys.argv[1:]
+    slot = current_slot()
+    with open(DEVINFO, "rb") as f:
+        header = bytearray(f.read(128))
+    magic, major, minor = struct.unpack_from("<IHH", header, 0)
+    if magic != MAGIC or (major << 16 | minor) < MIN_VERSION:
+        sys.exit(f"mark-boot-successful: unexpected devinfo header (magic {magic:#x}, "
+                 f"version {major}.{minor}); not touching it")
+    off = SLOT_OFFSET[slot]
+    retry, flags = header[off], header[off + 1]
+    state = f"slot {slot}: retry {retry}, flags {flags:#04x}"
+    if not flags & ACTIVE or flags & UNBOOTABLE:
+        sys.exit(f"mark-boot-successful: {state} is not the active, bootable slot; not touching it")
+    if flags & SUCCESSFUL:
+        print(f"mark-boot-successful: {state}, already marked successful")
+        return
+    if check:
+        print(f"mark-boot-successful: {state}, not marked successful (check only)")
+        return
+
+    header[off + 1] = flags | SUCCESSFUL
+    fd = os.open(DEVINFO, os.O_WRONLY | os.O_DSYNC)
+    try:
+        os.pwrite(fd, bytes(header), 0)
+    finally:
+        os.close(fd)
+    with open(DEVINFO, "rb") as f:
+        after = f.read(128)
+    if after != bytes(header):
+        sys.exit("mark-boot-successful: read-back mismatch after writing devinfo!")
+    print(f"mark-boot-successful: {state} -> flags {header[off + 1]:#04x} (successful)")
+
+
+if __name__ == "__main__":
+    main()

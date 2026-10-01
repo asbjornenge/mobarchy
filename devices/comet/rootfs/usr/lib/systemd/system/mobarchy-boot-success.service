@@ -1,0 +1,9 @@
+[Unit]
+Description=Mark this A/B slot as successfully booted (as Android's boot control does)
+# Only a boot that reached a running session counts as successful.
+After=mobarchy-session.service
+
+[Service]
+Type=oneshot
+ExecCondition=/usr/bin/systemctl is-active --quiet mobarchy-session.service
+ExecStart=/usr/lib/mobarchy/mark-boot-successful

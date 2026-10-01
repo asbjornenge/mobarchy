@@ -47,3 +47,7 @@ if [ -d /extra/gpu ]; then
     sed -i '/^mali_kbase$/d' /etc/modules-load.d/mobarchy-comet.conf 2>/dev/null || true
     echo "comet: installed the GPU stack (Panthor for $kver, $(ls $g/mesa-*.tar.zst | xargs -n1 basename))"
 fi
+
+# Mark healthy boots successful in devinfo, or the bootloader stops in fastboot once the
+# slot's tries run out (see /usr/lib/mobarchy/mark-boot-successful).
+systemctl enable mobarchy-boot-success.timer >/dev/null

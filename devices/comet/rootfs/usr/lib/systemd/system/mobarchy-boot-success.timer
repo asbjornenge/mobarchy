@@ -1,0 +1,8 @@
+[Unit]
+Description=Mark the boot successful once it has been healthy for a minute
+
+[Timer]
+OnBootSec=60
+
+[Install]
+WantedBy=timers.target
