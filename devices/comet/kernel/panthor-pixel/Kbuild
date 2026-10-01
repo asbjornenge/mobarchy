@@ -1,2 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 obj-m := panthor_pixel.o
+
+# Google's soc headers (exynos_pm_qos). Vendor options are not in the GKI config this is
+# built against: declare that the exynos_pm_qos module exists, or its API compiles to
+# no-ops.
+ccflags-y := -I$(srctree)/../private/google-modules/soc/gs/include -DCONFIG_EXYNOS_PM_QOS_MODULE=1

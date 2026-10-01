@@ -14,6 +14,8 @@
  *   domain by itself, so both are attached here and linked to the GPU device for runtime
  *   PM, and so is the GPU's S2MPU (pKVM stage-2 MPU), which must be powered while the GPU
  *   does DMA.
+ * - DVFS only while the GPU is powered: ACPM times out (and the SoC panics) when asked to
+ *   change a powered-off GPU's clocks; requests are deferred to the next power-up.
  * - Bus protection: after every power-up of the top domain, a secure-monitor call sets
  *   the SoC's protection config for the GPU master (as kbase does); without it the
  *   GPU's memory accesses fail with bus errors.
@@ -34,6 +36,8 @@
 #include <linux/pm_opp.h>
 #include <linux/pm_runtime.h>
 #include <linux/slab.h>
+#include <linux/workqueue.h>
+#include <soc/google/exynos_pm_qos.h>
 
 /* Google cal-if (cmupmucal.ko); rates in kHz. */
 extern int cal_dfs_set_rate(unsigned int id, unsigned long rate);
@@ -66,6 +70,8 @@ MODULE_PARM_DESC(always_on, "keep the GPU power domains and S2MPU on (bring-up)"
 struct level {
 	unsigned long top_khz;
 	unsigned long shaders_khz;
+	u32 int_min_khz;		/* internal bus floor for this level */
+	u32 mif_min_khz;		/* memory interface floor for this level */
 };
 
 static struct {
@@ -75,6 +81,19 @@ static struct {
 	struct level levels[MAX_LEVELS];
 	int nlevels;
 	int cur;			/* index into levels, -1 if unknown */
+	/*
+	 * cal-if talks to ACPM, which must only be asked to change the GPU clocks while the
+	 * GPU's top domain is on, and never from atomic context (both end in an ACPM IPC
+	 * timeout and a panic). Levels are applied in process context while holding a
+	 * runtime PM reference on the domain; while it is off, a requested level is only
+	 * recorded, and applied by pending_work after the next power-up (as kbase does).
+	 */
+	struct mutex lock;		/* cur, pending, ACPM calls */
+	int pending;			/* level to apply at power-up, -1 if none */
+	struct work_struct pending_work;
+	/* Bus floors, as kbase sets them per level: the GPU at high clocks needs them. */
+	struct exynos_pm_qos_request qos_int, qos_mif;
+	bool qos_added;
 	struct clk_hw hw;
 	bool clk_registered;
 	struct clk_lookup *clkdev;
@@ -98,12 +117,20 @@ static void set_gpu_protection(bool enable)
 		dev_err(g.dev, "SMC_PROTECTION_SET(G3D, %d) failed: %#lx\n", enable, res.a0);
 }
 
+/* May run in atomic context (IRQ-safe domain): SMCs only, ACPM work is deferred. */
 static int top_domain_notify(struct notifier_block *nb, unsigned long action, void *data)
 {
-	if (action == GENPD_NOTIFY_ON)
+	if (action == GENPD_NOTIFY_ON) {
 		set_gpu_protection(true);
-	else if (action == GENPD_NOTIFY_PRE_OFF)
+		if (READ_ONCE(g.pending) >= 0)
+			schedule_work(&g.pending_work);
+	} else if (action == GENPD_NOTIFY_PRE_OFF) {
 		set_gpu_protection(false);
+	} else if (action == GENPD_NOTIFY_OFF && g.qos_added) {
+		/* A powered-off GPU needs no bus floors (kbase resets them too). */
+		exynos_pm_qos_update_request_async(&g.qos_int, 0);
+		exynos_pm_qos_update_request_async(&g.qos_mif, 0);
+	}
 	return NOTIFY_OK;
 }
 
@@ -123,7 +150,20 @@ static int level_for_rate(unsigned long rate_hz)
 
 static unsigned long pp_recalc_rate(struct clk_hw *hw, unsigned long parent_rate)
 {
-	return cal_dfs_get_rate(g.cal_shaders) * 1000UL;
+	unsigned long rate = 0;
+	int level;
+
+	mutex_lock(&g.lock);
+	level = g.pending >= 0 ? g.pending : g.cur;
+	if (level >= 0) {
+		rate = g.levels[level].shaders_khz * 1000UL;
+	} else if (g.pd[0] && pm_runtime_get_if_active(g.pd[0], true) > 0) {
+		/* Unknown level (initial state): ask, while the domain is on. */
+		rate = cal_dfs_get_rate(g.cal_shaders) * 1000UL;
+		pm_runtime_put(g.pd[0]);
+	}
+	mutex_unlock(&g.lock);
+	return rate;
 }
 
 static long pp_round_rate(struct clk_hw *hw, unsigned long rate, unsigned long *parent_rate)
@@ -131,15 +171,26 @@ static long pp_round_rate(struct clk_hw *hw, unsigned long rate, unsigned long *
 	return g.levels[level_for_rate(rate)].shaders_khz * 1000UL;
 }
 
-static int pp_set_rate(struct clk_hw *hw, unsigned long rate, unsigned long parent_rate)
+static void set_bus_floors(const struct level *l)
 {
-	int next = level_for_rate(rate);
+	exynos_pm_qos_update_request(&g.qos_int, l ? l->int_min_khz : 0);
+	exynos_pm_qos_update_request(&g.qos_mif, l ? l->mif_min_khz : 0);
+}
+
+/* Move both clock domains to a level. Caller holds g.lock and the top domain is on. */
+static int apply_level(int next)
+{
 	const struct level *l = &g.levels[next];
 	bool up = g.cur < 0 || next < g.cur;	/* lower index = faster */
 	int ret;
 
-	/* Like kbase: raise the shaders before the top level, lower them after it. */
+	/*
+	 * Like kbase: raise the bus floors before the clocks, and the shaders before the
+	 * top level; going down, the reverse. Without the floors the GPU at its top levels
+	 * starves the memory system and ACPM stops answering (IPC timeout, panic).
+	 */
 	if (up) {
+		set_bus_floors(l);
 		ret = cal_dfs_set_rate(g.cal_shaders, l->shaders_khz);
 		if (!ret)
 			ret = cal_dfs_set_rate(g.cal_top, l->top_khz);
@@ -147,6 +198,8 @@ static int pp_set_rate(struct clk_hw *hw, unsigned long rate, unsigned long pare
 		ret = cal_dfs_set_rate(g.cal_top, l->top_khz);
 		if (!ret)
 			ret = cal_dfs_set_rate(g.cal_shaders, l->shaders_khz);
+		if (!ret)
+			set_bus_floors(l);
 	}
 	if (ret) {
 		dev_err(g.dev, "cal_dfs_set_rate to %lu/%lu kHz failed: %d\n",
@@ -155,6 +208,33 @@ static int pp_set_rate(struct clk_hw *hw, unsigned long rate, unsigned long pare
 	}
 	g.cur = next;
 	return 0;
+}
+
+static int pp_set_rate(struct clk_hw *hw, unsigned long rate, unsigned long parent_rate)
+{
+	int next = level_for_rate(rate), ret = 0;
+
+	mutex_lock(&g.lock);
+	if (pm_runtime_get_if_active(g.pd[0], true) > 0) {
+		g.pending = -1;
+		ret = apply_level(next);
+		pm_runtime_put(g.pd[0]);
+	} else {
+		g.pending = next;
+	}
+	mutex_unlock(&g.lock);
+	return ret;
+}
+
+static void pending_work_fn(struct work_struct *work)
+{
+	mutex_lock(&g.lock);
+	if (g.pending >= 0 && pm_runtime_get_if_active(g.pd[0], true) > 0) {
+		apply_level(g.pending);
+		g.pending = -1;
+		pm_runtime_put(g.pd[0]);
+	}
+	mutex_unlock(&g.lock);
 }
 
 static const struct clk_ops pp_clk_ops = {
@@ -186,10 +266,17 @@ static int read_dvfs_table(struct device_node *np)
 		return -ENOMEM;
 	ret = of_property_read_u32_array(np, "gpu_dvfs_table_v2", t, rows * cols);
 	if (!ret) {
-		/* Row: top kHz, shaders kHz, then governor/QoS columns we don't use. */
+		/*
+		 * Row (pixel_gpu_dvfs.c): top kHz, shaders kHz, util min/max, hysteresis,
+		 * INT min, MIF min, CPU limits, MCU util. We use the clocks and bus floors.
+		 */
 		for (i = 0; i < rows; i++) {
 			g.levels[i].top_khz = t[i * cols + 0];
 			g.levels[i].shaders_khz = t[i * cols + 1];
+			if (cols > 6) {
+				g.levels[i].int_min_khz = t[i * cols + 5];
+				g.levels[i].mif_min_khz = t[i * cols + 6];
+			}
 		}
 		g.nlevels = rows;
 	}
@@ -209,6 +296,7 @@ static void teardown(void)
 	}
 	if (g.top_nb_added)
 		dev_pm_genpd_remove_notifier(g.pd[0]);
+	cancel_work_sync(&g.pending_work);
 	if (g.dev && g.pdev->driver_override)
 		driver_set_override(g.dev, &g.pdev->driver_override, "", 0);
 	if (g.s2mpu_link)
@@ -227,6 +315,10 @@ static void teardown(void)
 		clkdev_drop(g.clkdev);
 	if (g.clk_registered)
 		clk_hw_unregister(&g.hw);
+	if (g.qos_added) {
+		exynos_pm_qos_remove_request(&g.qos_mif);
+		exynos_pm_qos_remove_request(&g.qos_int);
+	}
 	if (g.pdev)
 		put_device(&g.pdev->dev);
 	memset(&g, 0, sizeof(g));
@@ -249,6 +341,9 @@ static int __init panthor_pixel_init(void)
 	}
 	g.dev = &g.pdev->dev;
 	g.cur = -1;
+	g.pending = -1;
+	mutex_init(&g.lock);
+	INIT_WORK(&g.pending_work, pending_work_fn);
 
 	if (g.dev->driver) {
 		dev_err(g.dev, "bound to %s; unbind it before loading panthor_pixel\n",
@@ -260,24 +355,6 @@ static int __init panthor_pixel_init(void)
 	ret = read_dvfs_table(np);
 	if (ret)
 		goto err;
-
-	g.hw.init = &init;
-	ret = clk_hw_register(NULL, &g.hw);
-	if (ret)
-		goto err;
-	g.clk_registered = true;
-	g.clkdev = clkdev_hw_create(&g.hw, NULL, "%s", dev_name(g.dev));
-	if (!g.clkdev) {
-		ret = -ENOMEM;
-		goto err;
-	}
-
-	for (i = 0; i < g.nlevels; i++) {
-		ret = dev_pm_opp_add(g.dev, g.levels[i].shaders_khz * 1000UL, 0);
-		if (ret)
-			goto err;
-		g.opps_added = true;
-	}
 
 	for (i = 0; i < ARRAY_SIZE(pd_names); i++) {
 		g.pd[i] = dev_pm_domain_attach_by_name(g.dev, pd_names[i]);
@@ -317,6 +394,31 @@ static int __init panthor_pixel_init(void)
 		ret = -EINVAL;
 		goto err;
 	}
+
+	/* The clock last: registering it already calls recalc_rate, which needs the
+	 * power domains attached. */
+	exynos_pm_qos_add_request(&g.qos_int, PM_QOS_DEVICE_THROUGHPUT, 0);
+	exynos_pm_qos_add_request(&g.qos_mif, PM_QOS_BUS_THROUGHPUT, 0);
+	g.qos_added = true;
+
+	g.hw.init = &init;
+	ret = clk_hw_register(NULL, &g.hw);
+	if (ret)
+		goto err;
+	g.clk_registered = true;
+	g.clkdev = clkdev_hw_create(&g.hw, NULL, "%s", dev_name(g.dev));
+	if (!g.clkdev) {
+		ret = -ENOMEM;
+		goto err;
+	}
+
+	for (i = 0; i < g.nlevels; i++) {
+		ret = dev_pm_opp_add(g.dev, g.levels[i].shaders_khz * 1000UL, 0);
+		if (ret)
+			goto err;
+		g.opps_added = true;
+	}
+
 
 	if (always_on) {
 		/* Same order as kbase powers up: top, cores, then the S2MPU. */
