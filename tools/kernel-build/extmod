@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+# Build an out-of-tree kernel module against a kernel built by tools/kernel-build/build,
+# without going through Kleaf. This is the fast development loop for drivers we load from
+# the rootfs (e.g. the Panthor backport, ADR 0008): build here, scp, insmod.
+#
+#   tools/kernel-build/extmod --src <kernel-src> --device <codename> --obj <dir> --module <dir>
+#
+#   --src     the source checkout used by tools/kernel-build/build
+#   --obj     object tree for the kernel, prepared here (scripts, generated headers,
+#             Module.symvers). It is reused while the kernel's config doesn't change.
+#   --module  the module source directory (with a Kbuild file)
+#
+# The module must be built with exactly the kernel's config, or struct layouts differ and
+# loading it crashes the kernel (seen twice: a config from Kleaf's cache without the
+# Mobarchy fragment, and a missing CONFIG_DEBUG_INFO_BTF_MODULES because olddefconfig
+# drops it without the prebuilt pahole). So:
+# - the config is taken from the kernel image itself (IKCONFIG), never passed in;
+# - after olddefconfig, only toolchain-probe options may differ, else the build stops;
+# - the built module's struct module size must match the kernel's own modules.
+set -euo pipefail
+src="" device="" obj="" module=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --src) src="$(realpath "$2")"; shift 2 ;;
+        --device) device="$2"; shift 2 ;;
+        --obj) obj="$(realpath -m "$2")"; shift 2 ;;
+        --module) module="$(realpath "$2")"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$src" ] && [ -n "$device" ] && [ -n "$obj" ] && [ -n "$module" ] || {
+    echo "usage: $0 --src <kernel-src> --device <codename> --obj <dir> --module <dir>" >&2; exit 2; }
+kout="$src/out/$device-mobarchy"
+[ -f "$kout/vmlinux.symvers" ] || { echo "no kernel build in $kout (run tools/kernel-build/build)" >&2; exit 1; }
+
+# Everything must be visible inside the container: mount / at the same paths.
+clang=$(ls -d "$src"/prebuilts/clang/host/linux-x86/clang-r* | sort | tail -1)
+tools="$clang/bin:$src/prebuilts/kernel-build-tools/linux-x86/bin:$src/prebuilts/build-tools/linux-x86/bin"
+mk="make -s -C $src/aosp O=$obj ARCH=arm64 LLVM=1 LLVM_IAS=1"
+run() {
+    docker run --rm -u "$(id -u):$(id -g)" -v "$src:$src" -v "$obj:$obj" -v "$module:$module" \
+        mobarchy-kernel-build bash -euo pipefail -c "export PATH=$tools:\$PATH; $1"
+}
+
+mkdir -p "$obj"
+config="$obj/.config.kernel"
+"$src/aosp/scripts/extract-ikconfig" "$kout/vmlinux" > "$config.new" || {
+    echo "cannot extract the config from $kout/vmlinux (CONFIG_IKCONFIG?)" >&2; exit 1; }
+if ! cmp -s "$config.new" "$obj/.config.device" 2>/dev/null; then
+    echo "preparing object tree in $obj"
+    cp "$config.new" "$obj/.config" && cp "$config.new" "$obj/.config.device"
+    # The release string must match the running kernel (vermagic): take the suffix from it.
+    release=$(grep -a -m1 -oE 'Linux version [^ ]+' "$kout/vmlinux" | awk '{print $3}')
+    base=$(sed -n 's/^VERSION = //p;s/^PATCHLEVEL = //p;s/^SUBLEVEL = //p' "$src/aosp/Makefile" | paste -sd.)
+    printf '%s' "${release#$base}" > "$obj/localversion"
+    run "$mk olddefconfig >/dev/null"
+    # Options that only record what the build host's toolchain can do may differ.
+    probe='^CONFIG_(CC_CAN_LINK|CC_CAN_LINK_STATIC|UAPI_HEADER_TEST|PAHOLE_VERSION|CC_VERSION_TEXT|CLANG_VERSION|LLD_VERSION|AS_VERSION)='
+    if ! diff <(grep '^CONFIG_' "$config.new" | grep -Ev "$probe" | sort) \
+              <(grep '^CONFIG_' "$obj/.config" | grep -Ev "$probe" | sort) >&2; then
+        echo "REFUSING: olddefconfig changed the kernel's config (lines above). Modules built" >&2
+        echo "against it could crash the kernel. Is a build tool (e.g. pahole) missing?" >&2
+        rm -f "$obj/.config.device"; exit 1
+    fi
+    run "$mk -j\$(nproc) modules_prepare >/dev/null 2>&1"
+    cat "$kout/vmlinux.symvers" "$kout"/*_Module.symvers | sort -u -k2,2 > "$obj/Module.symvers"
+    echo "kernel release: $(cat "$obj/include/config/kernel.release")"
+fi
+
+run "$mk M=$module -j\$(nproc) modules"
+
+readelf_=$clang/bin/llvm-readelf
+# (No early-exit consumers in pipelines: with pipefail, SIGPIPE upstream fails the script.)
+size_of() { $readelf_ -S -W "$1" | awk '/\.gnu\.linkonce\.this_module/ && !n++ {print $6}'; }
+kos=("$kout"/*.ko); ref=${kos[0]}
+want=$(size_of "$ref")
+for ko in "$module"/*.ko; do
+    got=$(size_of "$ko")
+    if [ "$got" != "$want" ]; then
+        echo "REFUSING: $(basename "$ko") has struct module size 0x$got, the kernel's modules 0x$want." >&2
+        echo "The configs differ; loading it would crash the kernel." >&2
+        rm -f "$ko"; exit 1
+    fi
+    echo "built $ko (struct module 0x$got, matches the kernel)"
+done
