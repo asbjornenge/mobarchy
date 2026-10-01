@@ -1,0 +1,53 @@
+#!/bin/sh
+# Wifi from the terminal (wpa_supplicant + systemd-networkd).
+#
+#   mobarchy-wifi scan              networks in range
+#   mobarchy-wifi connect <ssid>    asks for the passphrase (empty: open network), saves it
+#   mobarchy-wifi status            connection and address
+#   mobarchy-wifi forget <ssid>
+#
+# Credentials are saved by wpa_supplicant in /etc/wpa_supplicant/wpa_supplicant-wlan0.conf
+# (root only) and never leave the device.
+set -eu
+IF=wlan0
+cli() { wpa_cli -i "$IF" "$@"; }
+[ "$(id -u)" = 0 ] || exec sudo "$0" "$@"
+
+case "${1:-status}" in
+scan)
+    cli scan >/dev/null; sleep 4
+    cli scan_results | tail -n +2 | sort -t"$(printf '\t')" -k3 -n -r | awk -F'\t' '$5 != "" && !seen[$5]++ { printf "%-32s %s dBm  %s\n", $5, $3, $4 }'
+    ;;
+connect)
+    ssid=${2:?usage: mobarchy-wifi connect <ssid>}
+    printf 'Passphrase for %s (empty for an open network): ' "$ssid"
+    stty -echo 2>/dev/null || true; read -r pass; stty echo 2>/dev/null || true; echo
+    id=$(cli add_network | tail -1)
+    cli set_network "$id" ssid "\"$ssid\"" >/dev/null
+    if [ -n "$pass" ]; then
+        cli set_network "$id" psk "\"$pass\"" >/dev/null
+    else
+        cli set_network "$id" key_mgmt NONE >/dev/null
+    fi
+    cli enable_network "$id" >/dev/null
+    cli select_network "$id" >/dev/null
+    cli save_config >/dev/null
+    echo "connecting to $ssid ..."
+    for _ in $(seq 1 20); do
+        [ "$(cli status | sed -n 's/^wpa_state=//p')" = COMPLETED ] && break; sleep 1
+    done
+    "$0" status
+    ;;
+forget)
+    ssid=${2:?usage: mobarchy-wifi forget <ssid>}
+    cli list_networks | awk -F'\t' -v s="$ssid" '$2 == s { print $1 }' | while read -r id; do
+        cli remove_network "$id" >/dev/null
+    done
+    cli save_config >/dev/null; echo "forgot $ssid"
+    ;;
+status)
+    cli status | sed -n 's/^\(ssid\|wpa_state\|freq\|ip_address\)=/\1: /p'
+    ip -br addr show "$IF"
+    ;;
+*) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

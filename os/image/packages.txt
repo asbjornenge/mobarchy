@@ -22,3 +22,7 @@ squeekboard
 libinput
 # squeekboard links libbsd.so.0, but the Arch Linux ARM package does not depend on it
 libbsd
+# Wifi (mobarchy-wifi)
+wpa_supplicant
+iw
+wireless-regdb

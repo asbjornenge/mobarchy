@@ -1,0 +1,10 @@
+# Wifi: DHCP on the first wlan interface. wpa_supplicant@wlan0 handles association.
+[Match]
+Name=wlan0
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+
+[DHCPv4]
+RouteMetric=600
