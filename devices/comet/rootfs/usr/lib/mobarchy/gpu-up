@@ -1,0 +1,50 @@
+#!/bin/sh
+# Bring up comet's GPU on Panthor (ADR 0008), or stay on software rendering.
+#
+# Loads panthor_pixel (Pixel glue) and panthor, then tells the session to use the GPU
+# through /run/mobarchy/session.env. A GPU driver that takes the phone down would do so
+# on every boot, so this is guarded: a marker is written before loading and removed
+# after. If it is still there at the next boot, that attempt crashed: the GPU is skipped
+# (software rendering) until the marker is removed by hand.
+set -u
+MARK=/var/lib/mobarchy/gpu-loading
+DEV=/sys/bus/platform/devices/1f000000.mali
+MESA=/opt/mesa-main
+
+log() { echo "mobarchy-gpu: $*"; }
+
+if [ -e "$MARK" ]; then
+    log "the previous GPU bring-up did not finish (crash?); staying on software rendering."
+    log "remove $MARK to try again."
+    exit 0
+fi
+[ -d "$MESA/lib" ] || { log "no Mesa with Valhall v11 support in $MESA; software rendering"; exit 0; }
+
+mkdir -p "${MARK%/*}" && touch "$MARK" && sync
+# kbase is blacklisted, but if something loaded it anyway, release the GPU first.
+if [ "$(basename "$(readlink "$DEV/driver" 2>/dev/null)")" = mali ]; then
+    echo 1f000000.mali > "$DEV/driver/unbind"
+fi
+modprobe panthor_pixel && modprobe panthor
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    [ "$(basename "$(readlink "$DEV/driver" 2>/dev/null)")" = panthor ] && break
+    sleep 0.5
+done
+rm -f "$MARK"; sync
+
+if [ "$(basename "$(readlink "$DEV/driver" 2>/dev/null)")" != panthor ]; then
+    log "panthor did not bind to the GPU; software rendering"
+    exit 0
+fi
+
+mkdir -p /run/mobarchy
+cat > /run/mobarchy/session.env <<EOT
+# Written by $0: the GPU is up. Render with Panthor through Mesa main ($MESA);
+# display on exynos-drm (card0; Panthor's card1 has no outputs).
+unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER
+LD_LIBRARY_PATH=$MESA/lib
+__EGL_VENDOR_LIBRARY_FILENAMES=$MESA/share/glvnd/egl_vendor.d/50_mesa.json
+GBM_BACKENDS_PATH=$MESA/lib/gbm
+AQ_DRM_DEVICES=/dev/dri/card0
+EOT
+log "GPU up (panthor), session will render on it"

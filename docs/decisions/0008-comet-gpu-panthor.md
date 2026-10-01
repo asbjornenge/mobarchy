@@ -68,7 +68,13 @@
   - The missing pieces were Pixel-specific: the GPU master's bus protection must be set by a secure monitor call (`SMC_PROTECTION_SET`, G3D) after every power-up and cleared before every power-down, exactly as kbase does. Without the first, every GPU access is a bus error. Without the second, powering off the domain hard-locks the SoC.
   - Also needed: the L2 slice hash from DT and a soft reset before the first boot.
   - Runtime suspend/resume and module reload work.
-- **Step 3 is blocked on Mesa.** Arch's Mesa 26.2.3 has no Valhall v11 (G615/G715). Mesa main (26.3-devel) has it: `PAN_PROD_ID(11, 8, 2)`, variant 4. `os/mesa/build` builds Mesa main for the device into `/opt/mesa-main`, next to the distribution's Mesa.
+- **2026-10-01, steps 3 and 4 done.**
+  - Mesa main (`os/mesa/build` into `/opt/mesa-main`) gives `OpenGL ES 3.1 Mesa 26.3.0-devel` on `Mali-G715 MC7 (Panfrost)`.
+  - Hyprland renders on Panthor through kmsro (display on exynos-drm `card0`), with linux-dmabuf for clients. That needed PRIME hooks the 6.1 core requires (patch 0005).
+  - Scroll benchmark: **58 FPS at 26 % CPU** (llvmpipe: 28 FPS at 420 %).
+  - At boot, `mobarchy-gpu.service` loads the modules with a crash guard and switches the session's environment; software rendering remains the fallback.
+  - PanVK (Vulkan) is still gated by Mesa for v11.
+- (Before step 3: Mesa was the blocker.) Arch's Mesa 26.2.3 has no Valhall v11 (G615/G715). Mesa main (26.3-devel) has it: `PAN_PROD_ID(11, 8, 2)`, variant 4. `os/mesa/build` builds Mesa main for the device into `/opt/mesa-main`, next to the distribution's Mesa.
 
 Hardening list (step 5), found along the way:
 - Custom io-pgtable allocators: Panthor's page table pre-reservation. 6.1 lacks the hooks.

@@ -1,0 +1,9 @@
+[Unit]
+Description=Mobarchy GPU (Panthor) bring-up, with crash guard
+After=systemd-modules-load.service local-fs.target
+Before=mobarchy-session.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/mobarchy/gpu-up

@@ -1,0 +1,23 @@
+Panthor on 6.1: set the PRIME and dma-buf mmap hooks, which the 6.1 core needs
+(6.6+ handles them for every GEM driver). Without them nothing can be shared
+with the display or other processes.
+
+diff --git a/panthor_drv.c b/panthor_drv.c
+index 7dfe413..0b6e03f 100644
+--- a/panthor_drv.c
++++ b/panthor_drv.c
+@@ -1618,6 +1618,14 @@ static const struct drm_driver panthor_drm_driver = {
+ 
+ 	.gem_create_object = panthor_gem_create_object,
+ 	.gem_prime_import_sg_table = drm_gem_shmem_prime_import_sg_table,
++	/*
++	 * 6.1: PRIME (dma-buf import/export) and dma-buf mmap go through these hooks;
++	 * without them the core reports no PRIME capability and the ioctls fail. 6.6+
++	 * does this for every GEM driver, so upstream Panthor has none.
++	 */
++	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
++	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
++	.gem_prime_mmap = drm_gem_prime_mmap,
+ #ifdef CONFIG_DEBUG_FS
+ 	.debugfs_init = panthor_debugfs_init,
+ #endif

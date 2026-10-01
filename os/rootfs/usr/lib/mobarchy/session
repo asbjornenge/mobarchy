@@ -1,0 +1,10 @@
+#!/bin/sh
+# Starts the Wayland session (mobarchy-session.service). The environment comes from
+# /etc/mobarchy/session.env (static, from the image), then /run/mobarchy/session.env
+# (written at boot by device services, e.g. "the GPU driver is up, use it"). Both are
+# shell, so the runtime file can also unset what the static one set.
+set -a
+[ -r /etc/mobarchy/session.env ] && . /etc/mobarchy/session.env
+[ -r /run/mobarchy/session.env ] && . /run/mobarchy/session.env
+set +a
+exec /usr/bin/start-hyprland
