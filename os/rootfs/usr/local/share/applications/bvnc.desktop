@@ -1,0 +1,5 @@
+[Desktop Entry]
+# Hidden from the Mobarchy app grid (tooling, not an app).
+Type=Application
+Name=bvnc
+NoDisplay=true

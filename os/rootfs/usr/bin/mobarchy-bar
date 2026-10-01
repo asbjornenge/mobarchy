@@ -3,7 +3,7 @@
 
 Two parts in one process:
   - the bar: a layer-shell panel with agent status, an "Ask" button, a
-    keyboard toggle and a terminal launcher;
+    keyboard toggle, a terminal launcher and an app grid;
   - the composer: a normal app window with a text field, opened by "Ask".
 
 Text entry lives in a normal window on purpose. Hyprland neither gives
@@ -20,6 +20,7 @@ itself with LD_PRELOAD set.
 
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -44,6 +45,9 @@ window.mobarchy-bar .status.error { color: #ff7a7a; }
 window.mobarchy-bar .status.done { color: #9be39b; }
 window.mobarchy-ask { background: #15161a; color: #e8e8ea; }
 window.mobarchy-ask .title { font-size: 20px; font-weight: bold; }
+window.mobarchy-apps { background: #15161a; color: #e8e8ea; }
+window.mobarchy-apps button.app { padding: 12px 4px; border-radius: 16px; }
+window.mobarchy-apps button.app label { font-size: 13px; color: #e8e8ea; }
 window.mobarchy-ask entry { min-height: 48px; font-size: 18px; border-radius: 24px; padding: 0 16px; }
 button.round { min-width: 44px; min-height: 44px; border-radius: 22px; padding: 0 12px; font-size: 16px; }
 """
@@ -55,6 +59,7 @@ class Assistant(Gtk.Application):
         self.proc: subprocess.Popen | None = None
         self.bar = None
         self.composer = None
+        self.apps = None
 
     def do_activate(self):
         if self.bar:  # already running: a second launch just activates us
@@ -84,6 +89,9 @@ class Assistant(Gtk.Application):
         term = Gtk.Button(label=">_")
         term.add_css_class("round")
         term.connect("clicked", self.open_terminal)
+        apps = Gtk.Button(label="⊞")
+        apps.add_css_class("round")
+        apps.connect("clicked", lambda _b: self.open_apps())
         self.status = Gtk.Label(label="", xalign=0, hexpand=True, wrap=True, lines=3,
                                 ellipsize=Pango.EllipsizeMode.END)
         self.status.add_css_class("status")
@@ -91,7 +99,7 @@ class Assistant(Gtk.Application):
         self.action.add_css_class("round")
         self.action.add_css_class("suggested-action")
         self.action.connect("clicked", self.on_action)
-        for w in (kbd, term, self.status, self.action):
+        for w in (kbd, term, apps, self.status, self.action):
             row.append(w)
         bar.set_child(row)
         bar.present()
@@ -109,6 +117,49 @@ class Assistant(Gtk.Application):
         # Through the compositor, not as our child: the bar is a user service that gets
         # restarted (e.g. on fold changes) and would take the terminal down with it.
         subprocess.Popen(["hyprctl", "dispatch", "exec", TERMINAL], stdout=subprocess.DEVNULL)
+
+    # --- the app grid (normal window) ----------------------------------------------------
+
+    @staticmethod
+    def launch(app):
+        """Start a desktop app through the compositor (see open_terminal)."""
+        cmd = re.sub(r"\s*%[fFuUdDnNickvm]", "", app.get_commandline() or "").strip()
+        if cmd:
+            subprocess.Popen(["hyprctl", "dispatch", "exec", cmd], stdout=subprocess.DEVNULL)
+
+    def open_apps(self):
+        if self.apps is None:
+            win = self.apps = Gtk.ApplicationWindow(application=self, title="Apps")
+            win.add_css_class("mobarchy-apps")
+            win.set_hide_on_close(True)
+            self.app_grid = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, homogeneous=True,
+                                        max_children_per_line=4, min_children_per_line=3,
+                                        row_spacing=8, column_spacing=8, margin_start=12,
+                                        margin_end=12, margin_top=16, margin_bottom=16,
+                                        valign=Gtk.Align.START)
+            win.set_child(Gtk.ScrolledWindow(child=self.app_grid, vexpand=True))
+        # Rebuilt each time: apps get installed while the bar runs.
+        while (child := self.app_grid.get_first_child()) is not None:
+            self.app_grid.remove(child)
+        apps = sorted((a for a in Gio.AppInfo.get_all() if a.should_show()),
+                      key=lambda a: a.get_display_name().lower())
+        for app in apps:
+            tile = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+            icon = Gtk.Image(pixel_size=48)
+            if app.get_icon():
+                icon.set_from_gicon(app.get_icon())
+            else:
+                icon.set_from_icon_name("application-x-executable")
+            name = Gtk.Label(label=app.get_display_name(), ellipsize=Pango.EllipsizeMode.END,
+                             max_width_chars=10)
+            tile.append(icon)
+            tile.append(name)
+            button = Gtk.Button(child=tile)
+            button.add_css_class("app")
+            button.add_css_class("flat")
+            button.connect("clicked", lambda _b, a=app: (self.launch(a), self.apps.close()))
+            self.app_grid.append(button)
+        self.apps.present()
 
     def open_composer(self):
         if self.composer is None:
