@@ -1,0 +1,52 @@
+diff --git a/display/samsung/exynos_drm_plane.c b/display/samsung/exynos_drm_plane.c
+index b34b299..2a789f9 100644
+--- a/display/samsung/exynos_drm_plane.c
++++ b/display/samsung/exynos_drm_plane.c
+@@ -13,6 +13,7 @@
+ #include <drm/drm_atomic.h>
+ #include <drm/drm_atomic_helper.h>
+ #include <drm/drm_plane_helper.h>
++#include <linux/dma-mapping.h>
+ #include <drm/exynos_drm.h>
+ 
+ #include "exynos_drm_crtc.h"
+@@ -20,6 +21,7 @@
+ #include "exynos_drm_drv.h"
+ #include "exynos_drm_fb.h"
+ #include "exynos_drm_format.h"
++#include "exynos_drm_gem.h"
+ #include "exynos_drm_plane.h"
+ #include "exynos_drm_decon.h"
+ 
+@@ -506,6 +508,31 @@ static int exynos_plane_prepare_fb(struct drm_plane *plane,
+ 	decon = crtc_to_decon(new_state->crtc);
+ 	DPU_EVENT_LOG(DPU_EVT_PLANE_PREPARE_FB, decon->id, new_state);
+ 
++	/*
++	 * Buffers here come from the cached system heap (dumb buffers, and PRIME imports
++	 * of them) and on Linux are written by the CPU (software rendering). Nothing else
++	 * makes those writes visible to the DPU, so clean the CPU caches before the
++	 * buffer is scanned out. Without this the display shows stale cache lines:
++	 * garbling and flicker that come and go. Android never hits this, because its
++	 * buffers are written by the GPU and synced by their exporter.
++	 */
++	if (new_state->fb) {
++		struct exynos_drm_private *priv = drm_to_exynos_dev(plane->dev);
++		int i;
++
++		for (i = 0; i < new_state->fb->format->num_planes; i++) {
++			struct drm_gem_object *obj = new_state->fb->obj[i];
++			struct exynos_drm_gem *gem;
++
++			if (!obj)
++				continue;
++			gem = to_exynos_gem(obj);
++			if (gem->sgt)
++				dma_sync_sgtable_for_device(priv->iommu_client, gem->sgt,
++							    DMA_TO_DEVICE);
++		}
++	}
++
+ 	return 0;
+ }
+ 

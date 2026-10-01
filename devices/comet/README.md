@@ -115,9 +115,10 @@ Fixes found on the device, now in the repo:
 - The locale must be set to UTF-8.
 - pam_systemd gives the session an ambient `CAP_WAKE_ALARM`. bubblewrap refuses to run with it, which breaks glycin, GTK's sandboxed image loader. The visible symptom was squeekboard keys labelled "icon". `mobarchy-session` drops the ambient set with `setpriv`.
 
-**Display driver fixes** (`kernel/patches/private/google-modules/display/`). With both, Hyprland renders correctly on both panels:
+**Display driver fixes** (`kernel/patches/private/google-modules/display/`). With these, Hyprland renders correctly on both panels:
 1. **RGB byte order.** exynos-drm's format table gives the DPU the byte-mirrored twin of every 32-bit RGB format (XRGB8888 is fetched as BGRX, and so on). Android never noticed because HWC picks the formats to match. Symptom: an all-blue screen, because the X/alpha byte lands in the blue channel.
 2. **FB pitch.** The DPP programmed the source width from `fb->width` and ignored `pitches[0]`. Compositors allocate padded buffers (a stride of 4352 bytes for 1080 pixels), so every line was fetched from the wrong offset. Symptom: skewed, partial lines. Dumb buffers without padding hid it.
+3. **CPU caches.** Framebuffers come from the cached system DMA heap, and with software rendering the CPU writes them. Nothing cleaned the caches before scanout, so the DPU fetched stale lines from RAM. Symptom: garbling and flicker that grow over time and appear on content changes, with no errors in dmesg. `prepare_fb` now syncs every framebuffer for the device.
 
 **Fold and panels** (`rootfs/usr/lib/mobarchy/fold`, `rootfs/etc/mobarchy/hyprland-device.conf`): one panel at a time. The hall sensor (`hall effect sensor`, SW_LID) picks it at session start and through Hyprland switch binds on every change.
 - Folded: the outer panel DSI-2, 1080x2424, scale 2.4.
