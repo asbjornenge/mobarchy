@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Reach a device's MCP server from the host. The server only listens on the device's
+# loopback; this forwards it over ssh (USB network), so nothing is exposed on the wire.
+#
+#   tools/device/mcp-tunnel [--host mob@172.16.42.1] [--port 18765]
+#
+# Then, e.g.:  cd agent/mobarchy-mcp && uv run mobarchy-mcp-call --url http://127.0.0.1:18765/mcp tools
+# Stays in the foreground; Ctrl-C closes the tunnel.
+set -euo pipefail
+host=mob@172.16.42.1 port=18765
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --host) host="$2"; shift 2 ;;
+        --port) port="$2"; shift 2 ;;
+        *) echo "usage: $0 [--host user@addr] [--port local-port]" >&2; exit 2 ;;
+    esac
+done
+key="$HOME/.config/mobarchy/device_ed25519"
+echo "MCP of $host at http://127.0.0.1:$port/mcp (Ctrl-C to stop)"
+# The device's host key changes with every reflashed rootfs, so don't pin it.
+exec ssh -i "$key" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+    -o ExitOnForwardFailure=yes -N -L "127.0.0.1:$port:127.0.0.1:8765" "$host"

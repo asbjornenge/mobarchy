@@ -26,10 +26,11 @@ codename = "..."      # directory name
 name = "..."          # marketing name
 arch = "aarch64"      # or x86_64
 kind = "hardware"     # or "virtual"
-boot = "halium"       # halium | qemu | mainline
+boot = "native"       # native (vendor kernel build) | halium | qemu | mainline
 
 [[display]]           # one entry per screen; foldables have several
 id = "main"
+connector = "DSI-1"   # optional: DRM connector name
 width = 1080
 height = 2424
 scale = 2.4           # optional
@@ -45,4 +46,4 @@ Fields will be added as the porting work needs them. Keep this document in sync.
 | Codename | Device | Status |
 |---|---|---|
 | `sim-x86_64` | QEMU/KVM simulator | Working: Hyprland, touch, screenshots, mobarchy-mcp |
-| `comet` | Google Pixel 9 Pro Fold | v0.1 images built, not booted. See [comet/README.md](comet/README.md), ADR 0005/0007 |
+| `comet` | Google Pixel 9 Pro Fold | Boots Mobarchy (Hyprland, terminal, on-screen keyboard, MCP). See [comet/README.md](comet/README.md), ADR 0005/0007 |

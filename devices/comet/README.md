@@ -127,6 +127,8 @@ Fixes found on the device, now in the repo:
 - On every change, workspaces move to the active panel, and the bar and keyboard (layer surfaces tied to an output) are restarted.
 - Touch mapping: `goodix_ts0` → DSI-1 and `synaptics_tcm_touch` → DSI-2. The touch drivers suspend and resume with their panel.
 
+**Driving the phone through MCP.** `mobarchy-mcp` runs in the session and listens on the phone's loopback only. Run `tools/device/mcp-tunnel` on the host, then use `uv run mobarchy-mcp-call --url http://127.0.0.1:18765/mcp ...` from `agent/mobarchy-mcp`. Verified on the phone (2026-10-01): `device_info`, `screenshot`, `list_windows`, `tap`, `type_text`, `press_key` and `close_window`.
+
 **Host setup for USB networking.** The gadget uses fixed MACs (phone `02:6d:6f:62:00:02`, host side `02:6d:6f:62:00:01`), so the host interface is always `enx026d6f620001`. After a reboot, NetworkManager's DHCP profile raced networkd's DHCP server, so the host uses a static profile instead:
 `nmcli con add type ethernet con-name mobarchy-usb ifname enx026d6f620001 ipv4.method manual ipv4.addresses 172.16.42.2/24 ipv6.method link-local`.
 

@@ -1,5 +1,5 @@
 # Google Pixel 9 Pro Fold. Primary hardware target.
-# Status: not ported yet. Values are reference data for the port (Track A).
+# Status: boots Mobarchy natively (v0.2, see README.md).
 
 [device]
 codename = "comet"
@@ -9,18 +9,20 @@ kind = "hardware"
 soc = "Google Tensor G4 (zumapro)"
 gpu = "Mali-G715"
 memory = "16G"
-boot = "halium"     # Android vendor kernel + blobs via Halium/libhybris
+boot = "native"     # own gs-6.1 kernel build + Arch Linux ARM rootfs on userdata (ADR 0007)
 baseline = "lineageos-23.2"
 
 [[display]]
 id = "outer"
+connector = "DSI-2"
 width = 1080
 height = 2424
 
 [[display]]
 id = "inner"
-width = 2076
-height = 2152
+connector = "DSI-1"
+width = 2152
+height = 2076
 
 [input]
 touch = "vendor"

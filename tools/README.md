@@ -1,10 +1,11 @@
 # Tools
 
-Containerized helpers. They need Docker, but no sudo and no host packages.
+Host helpers. The containerized ones need Docker, but no sudo and no host packages.
 
 | Tool | What it does |
 |---|---|
 | `android-images/unpack <image-dir> <out>` | Unpacks a factory image: boot-type images (kernel, ramdisks, dtb, header info) and erofs/ext4 partitions. |
+| `device/mcp-tunnel [--host mob@172.16.42.1] [--port 18765]` | Forwards a device's MCP server (loopback only on the device) to the host over ssh, at `http://127.0.0.1:18765/mcp`. |
 | `kernel-build/build --device <codename> --src <dir> [--stock] [--detach]` | Syncs and builds a Pixel gs-6.1 kernel and all modules from LineageOS sources (Kleaf). Without `--stock` it applies `os/kernel/mobarchy_defconfig`. |
 
 Large inputs and outputs (factory images, kernel trees at ~15 GB, build output) belong on external storage, never in the repo.
