@@ -1,0 +1,30 @@
+--- a/display/samsung/exynos_drm_plane.c
++++ b/display/samsung/exynos_drm_plane.c
+@@ -13,6 +13,7 @@
+ #include <drm/drm_atomic.h>
+ #include <drm/drm_atomic_helper.h>
+ #include <drm/drm_plane_helper.h>
++#include <drm/drm_gem_atomic_helper.h>
+ #include <linux/dma-mapping.h>
+ #include <drm/exynos_drm.h>
+ 
+@@ -509,6 +510,19 @@
+ 	DPU_EVENT_LOG(DPU_EVT_PLANE_PREPARE_FB, decon->id, new_state);
+ 
+ 	/*
++	 * Implicit sync: without an explicit IN_FENCE_FD, wait for the writers of the
++	 * framebuffer (e.g. a GPU still rendering into it), like the standard GEM helper.
++	 * Android always passes explicit fences; Linux compositors often rely on implicit
++	 * ones, and without this the DPU scans out half-rendered frames (tearing).
++	 */
++	if (new_state->fb && !new_state->fence) {
++		int ret = drm_gem_plane_helper_prepare_fb(plane, new_state);
++
++		if (ret)
++			return ret;
++	}
++
++	/*
+ 	 * Buffers here come from the cached system heap (dumb buffers, and PRIME imports
+ 	 * of them) and on Linux are written by the CPU (software rendering). Nothing else
+ 	 * makes those writes visible to the DPU, so clean the CPU caches before the
