@@ -142,6 +142,8 @@ Fixes found on the device, now in the repo:
 - Userspace needs Mesa main for Valhall v11.
 - Any crash or hang in this area lands the phone in fastboot. A plain `fastboot reboot` (which writes nothing) brings it back.
 
+**A/B slot state.** Like Android, Mobarchy marks healthy boots successful (`mobarchy-boot-success.timer` runs `/usr/lib/mobarchy/mark-boot-successful`). The slot state lives in a 128-byte header in the `devinfo` partition, the same format as `device/google/gs-common/bootctrl`: per slot a retry count and flags (unbootable, successful, active, fastboot_ok), with no checksum. The rest of the partition holds factory data and is never touched. Without this, the bootloader counts the slot's tries down and then stops in fastboot ("BL1 requested") on every reboot. Back up `devinfo` before experimenting with it.
+
 **Driving the phone through MCP.** `mobarchy-mcp` runs in the session and listens on the phone's loopback only. Run `tools/device/mcp-tunnel` on the host, then use `uv run mobarchy-mcp-call --url http://127.0.0.1:18765/mcp ...` from `agent/mobarchy-mcp`. Verified on the phone (2026-10-01): `device_info`, `screenshot`, `list_windows`, `tap`, `type_text`, `press_key` and `close_window`.
 
 **Host setup for USB networking.** The gadget uses fixed MACs (phone `02:6d:6f:62:00:02`, host side `02:6d:6f:62:00:01`), so the host interface is always `enx026d6f620001`. After a reboot, NetworkManager's DHCP profile raced networkd's DHCP server, so the host uses a static profile instead:
