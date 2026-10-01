@@ -54,17 +54,24 @@ def hyprjson(what: str) -> list:
     return json.loads(out or "[]")
 
 
-def gather_workspaces(monitor: str) -> None:
-    """Move every workspace to monitor and show the lowest one, so windows follow the fold."""
+def gather_workspaces(monitor: str, show: int | None) -> None:
+    """Move every workspace to monitor and show `show` (the one in use before the fold),
+    or the lowest one, so windows follow the fold."""
     ids = sorted(w["id"] for w in hyprjson("workspaces") if w["id"] > 0)
     for ws in ids:
         hyprctl("dispatch", "moveworkspacetomonitor", str(ws), monitor)
-    if ids:
+    if show in ids:
+        hyprctl("dispatch", "workspace", str(show))
+    elif ids:
         hyprctl("dispatch", "workspace", str(ids[0]))
 
 
 def apply(folded: bool) -> None:
     on, off = (OUTER, INNER) if folded else (INNER, OUTER)
+    # The workspace in use now (on the panel being switched away from) stays in view.
+    current = (subprocess.run(["hyprctl", "-j", "activeworkspace"], capture_output=True,
+                              text=True).stdout or "{}")
+    show = json.loads(current).get("id")
     # Monitor rules go through a config file and a reload, not `hyprctl keyword monitor`:
     # rules set by keyword pile up, and after a while (or a reload) Hyprland stops
     # applying them. A reload switches both panels in one step.
@@ -82,7 +89,7 @@ def apply(folded: bool) -> None:
             break
         time.sleep(0.1)
     hyprctl("dispatch", "focusmonitor", on[0])
-    gather_workspaces(on[0])
+    gather_workspaces(on[0], show)
     # Layer surfaces (bar, on-screen keyboard) stay on the output they were created on.
     subprocess.run(["systemctl", "--user", "restart", "mobarchy-bar"], check=False)
     subprocess.run(["pkill", "-x", "squeekboard"], check=False)
