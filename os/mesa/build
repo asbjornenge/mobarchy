@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
-# Build Mesa from a git checkout for an aarch64 Mobarchy device, with only the drivers the
-# device needs, into a prefix that can sit next to the distribution's Mesa.
+# Build Mesa from a git checkout for an aarch64 Mobarchy device, as an Arch package that
+# replaces the distribution's Mesa (provides/conflicts mesa, vulkan-panfrost).
 #
-#   os/mesa/build --src <mesa checkout> --out <dir> [--prefix /opt/mesa-main]
-#                 [--gallium panfrost] [--vulkan panfrost] [--jobs N]
+#   os/mesa/build --src <mesa checkout> --out <dir> [--gallium panfrost,llvmpipe,softpipe]
+#                 [--vulkan panfrost] [--jobs N]
 #
 # Why: Arch's Mesa can lag behind what a GPU needs (comet's Mali-G715, Valhall v11, is
-# only supported on Mesa main as of 2026-10; see ADR 0008).
+# only supported on Mesa main as of 2026-10; see ADR 0008). It replaces the system Mesa
+# rather than sitting next to it: a side install needs LD_LIBRARY_PATH, which sandboxes
+# (WebKit's bubblewrap) and services don't get. llvmpipe stays in, so software rendering
+# keeps working when the GPU is not up.
 #
 # Builds natively in the arm64 Arch Linux ARM container (qemu-user), because Panfrost
 # needs Mesa's own OpenCL compiler (mesa-clc, LLVM + libclc) at build time, which is far
-# simpler native than cross. Result: <out>/mesa-<version>-<rev>.tar.zst, rooted at /.
+# simpler native than cross. Result: <out>/mesa-mobarchy-<version>-<n>-aarch64.pkg.tar.zst
 set -euo pipefail
-src="" out="" prefix=/opt/mesa-main gallium=panfrost vulkan=panfrost jobs=12
+src="" out="" gallium=panfrost,llvmpipe,softpipe vulkan=panfrost jobs=12
 while [ $# -gt 0 ]; do
     case "$1" in
         --src) src="$(realpath "$2")"; shift 2 ;;
         --out) out="$(realpath -m "$2")"; shift 2 ;;
-        --prefix) prefix="$2"; shift 2 ;;
         --gallium) gallium="$2"; shift 2 ;;
         --vulkan) vulkan="$2"; shift 2 ;;
         --jobs) jobs="$2"; shift 2 ;;
@@ -30,7 +32,8 @@ mkdir -p "$out"
 image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
     echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
 rev=$(git -C "$src" rev-parse --short HEAD)
-version=$(cat "$src/VERSION")
+# Arch version: 26.3.0-devel at 185cc17 -> 26.3.0_devel.185cc17
+pkgver="$(sed 's/-/_/g' "$src/VERSION").$rev"
 
 docker run --rm --platform linux/arm64 -v "$src:/src:ro" -v "$out:/out" "$image" bash -euo pipefail -c "
     pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
@@ -38,15 +41,39 @@ docker run --rm --platform linux/arm64 -v "$src:/src:ro" -v "$out:/out" "$image"
     pacman -S --noconfirm --needed --disable-sandbox base-devel meson ninja python-mako \
         python-packaging python-yaml python-ply llvm clang libclc spirv-llvm-translator \
         spirv-tools spirv-headers glslang libdrm wayland wayland-protocols libelf zstd expat \
-        libglvnd >/dev/null
-    meson setup /tmp/build /src --prefix=$prefix --libdir=lib -Dbuildtype=release -Db_ndebug=true \
+        libglvnd lm_sensors >/dev/null
+    meson setup /tmp/build /src --prefix=/usr --libdir=lib --sysconfdir=/etc \
+        -Dbuildtype=release -Db_ndebug=true \
         -Dplatforms=wayland -Dgallium-drivers=$gallium -Dvulkan-drivers=$vulkan \
         -Dglx=disabled -Dgbm=enabled -Degl=enabled -Dgles1=disabled -Dgles2=enabled \
         -Dglvnd=enabled -Dllvm=enabled -Dshared-llvm=enabled -Dvalgrind=disabled \
         -Dlibunwind=disabled -Dvideo-codecs= -Dbuild-tests=false > /out/meson-setup.log
     ninja -C /tmp/build -j$jobs > /out/ninja.log
     DESTDIR=/tmp/root ninja -C /tmp/build install > /out/install.log
-    tar -C /tmp/root -c --zstd -f /out/mesa-$version-$rev.tar.zst .
+
+    # Package the installed tree with makepkg (as an unprivileged user).
+    useradd -m builder 2>/dev/null || true
+    mkdir -p /tmp/pkg && cp -a /tmp/root /tmp/pkg/root
+    cat > /tmp/pkg/PKGBUILD <<'EOP'
+pkgname=mesa-mobarchy
+pkgver=PKGVER
+pkgrel=1
+pkgdesc='Mesa from git for Mobarchy devices (Panfrost GL/Vulkan, llvmpipe fallback)'
+arch=(aarch64)
+url='https://mesa3d.org'
+license=(MIT)
+depends=(libdrm wayland expat zstd libglvnd llvm-libs spirv-tools lm_sensors libelf)
+provides=(mesa=PKGVER opengl-driver vulkan-driver vulkan-panfrost=PKGVER libgbm.so)
+conflicts=(mesa vulkan-panfrost vulkan-mesa-implicit-layers)
+replaces=()
+options=(!strip !debug)
+package() { cp -a \"\$startdir/root/.\" \"\$pkgdir/\"; }
+EOP
+    sed -i \"s/PKGVER/$pkgver/g\" /tmp/pkg/PKGBUILD
+    chown -R builder /tmp/pkg
+    su builder -c 'cd /tmp/pkg && PKGDEST=/tmp/pkg makepkg --nodeps --noconfirm >/tmp/pkg/makepkg.log 2>&1' \
+        || { tail -20 /tmp/pkg/makepkg.log >&2; exit 1; }
+    cp /tmp/pkg/mesa-mobarchy-*.pkg.tar.zst /out/
     chmod a+r /out/*
 "
-echo "built $out/mesa-$version-$rev.tar.zst"
+ls "$out"/mesa-mobarchy-*.pkg.tar.zst

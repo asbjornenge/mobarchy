@@ -26,3 +26,5 @@ libbsd
 wpa_supplicant
 iw
 wireless-regdb
+# Web browser with a phone-friendly (adaptive) UI
+epiphany

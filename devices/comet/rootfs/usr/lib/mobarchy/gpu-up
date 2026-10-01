@@ -9,7 +9,6 @@
 set -u
 MARK=/var/lib/mobarchy/gpu-loading
 DEV=/sys/bus/platform/devices/1f000000.mali
-MESA=/opt/mesa-main
 
 log() { echo "mobarchy-gpu: $*"; }
 
@@ -18,7 +17,8 @@ if [ -e "$MARK" ]; then
     log "remove $MARK to try again."
     exit 0
 fi
-[ -d "$MESA/lib" ] || { log "no Mesa with Valhall v11 support in $MESA; software rendering"; exit 0; }
+# Valhall v11 (G715) needs Mesa from git (os/mesa/build: mesa-mobarchy) as of 2026-10.
+pacman -Q mesa-mobarchy >/dev/null 2>&1 || { log "the installed Mesa has no Valhall v11 support; software rendering"; exit 0; }
 
 mkdir -p "${MARK%/*}" && touch "$MARK" && sync
 # kbase is blacklisted, but if something loaded it anyway, release the GPU first.
@@ -39,12 +39,9 @@ fi
 
 mkdir -p /run/mobarchy
 cat > /run/mobarchy/session.env <<EOT
-# Written by $0: the GPU is up. Render with Panthor through Mesa main ($MESA);
-# display on exynos-drm (card0; Panthor's card1 has no outputs).
+# Written by $0: the GPU is up. Render with Panthor (Mesa picks it up through
+# kmsro); display on exynos-drm (card0; Panthor's card1 has no outputs).
 unset MESA_LOADER_DRIVER_OVERRIDE GALLIUM_DRIVER
-LD_LIBRARY_PATH=$MESA/lib
-__EGL_VENDOR_LIBRARY_FILENAMES=$MESA/share/glvnd/egl_vendor.d/50_mesa.json
-GBM_BACKENDS_PATH=$MESA/lib/gbm
 AQ_DRM_DEVICES=/dev/dri/card0
 EOT
 log "GPU up (panthor), session will render on it"

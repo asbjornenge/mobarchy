@@ -42,10 +42,11 @@ if [ -d /extra/gpu ]; then
     install -Dm644 -t /usr/lib/modules/$kver/extra/mobarchy $g/panthor.ko $g/panthor_pixel.ko
     depmod "$kver"
     install -Dm644 $g/mali_csffw.bin /usr/lib/firmware/arm/mali/arch11.8/mali_csffw.bin
-    tar -C / -xf $g/mesa-*.tar.zst
+    # Mesa with Valhall v11 support, replacing Arch's mesa (--ask 4: accept the conflict).
+    pacman -U --noconfirm --ask 4 $g/mesa-mobarchy-*.pkg.tar.zst >/dev/null
     # The GPU belongs to Panthor (mobarchy-gpu.service); kbase is blacklisted as well.
     sed -i '/^mali_kbase$/d' /etc/modules-load.d/mobarchy-comet.conf 2>/dev/null || true
-    echo "comet: installed the GPU stack (Panthor for $kver, $(ls $g/mesa-*.tar.zst | xargs -n1 basename))"
+    echo "comet: installed the GPU stack (Panthor for $kver, $(ls $g/mesa-mobarchy-*.pkg.tar.zst | xargs -n1 basename))"
 fi
 
 # Mark healthy boots successful in devinfo, or the bootloader stops in fastboot once the
