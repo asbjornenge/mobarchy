@@ -40,13 +40,20 @@ fi
 # applied with git in that subtree (skipped if already applied).
 patches="$repo/devices/$device/kernel/patches"
 if [ $variant = mobarchy ] && [ -d "$patches" ]; then
-    find "$patches" -name '*.patch' | sort | while read -r p; do
-        sub=$(dirname "${p#$patches/}")
-        if git -C "$src/$sub" apply --reverse --check "$p" 2>/dev/null; then
-            echo "patch already applied: ${p#$repo/}"
-        else
-            git -C "$src/$sub" apply "$p" && echo "applied: ${p#$repo/}"
+    # Patches are applied per subtree, in order. Several patches may touch the same
+    # file, so "already applied" is decided for the whole stack: if the last one
+    # reverse-applies, the stack is in.
+    find "$patches" -name '*.patch' -printf '%h\n' | sort -u | while read -r d; do
+        sub=${d#$patches/}
+        stack=$(find "$d" -maxdepth 1 -name '*.patch' | sort)
+        last=$(echo "$stack" | tail -1)
+        if git -C "$src/$sub" apply --reverse --check "$last" 2>/dev/null; then
+            echo "patches already applied: ${sub} ($(echo "$stack" | wc -l))"
+            continue
         fi
+        for p in $stack; do
+            git -C "$src/$sub" apply "$p" && echo "applied: ${p#$repo/}"
+        done
     done
 fi
 
