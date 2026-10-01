@@ -1,0 +1,48 @@
+From: Mobarchy <mobarchy@localhost>
+Subject: [PATCH] resource: fix lost wakeup in CAsyncResourceGatherer::await()
+
+await() created the condition variable only when it started waiting, and the
+gatherer thread set awaitingEvent only if that condition variable already
+existed, without holding awaitingMtx. When the gatherer finished a resource
+before await() got to it (common for small text on fast ARM cores), the event
+was never recorded and await() blocked forever: Hyprland hangs in
+renderText() from the error/debug overlays.
+
+Always set awaitingEvent under awaitingMtx, and create/check/wait on the
+condition variable under the same mutex.
+---
+diff --git a/src/resource/AsyncResourceGatherer.cpp b/src/resource/AsyncResourceGatherer.cpp
+index 7e3e7de..908657e 100644
+--- a/src/resource/AsyncResourceGatherer.cpp
++++ b/src/resource/AsyncResourceGatherer.cpp
+@@ -30,8 +30,13 @@ void CAsyncResourceGatherer::enqueue(Hyprutils::Memory::CAtomicSharedPointer<IAs
+ }
+ 
+ void CAsyncResourceGatherer::await(Hyprutils::Memory::CAtomicSharedPointer<IAsyncResource> resource) {
+-    resource->m_impl->awaitingCv = Hyprutils::Memory::makeUnique<std::condition_variable>();
++    // The resource may already have been rendered (the gatherer thread can finish before we
++    // get here): awaitingEvent is always set by the gatherer, under awaitingMtx, so check
++    // and wait under the same mutex. Creating the cv under the mutex also orders it with
++    // the gatherer's notify.
+     std::unique_lock<std::mutex> lk(resource->m_impl->awaitingMtx);
++    if (!resource->m_impl->awaitingCv)
++        resource->m_impl->awaitingCv = Hyprutils::Memory::makeUnique<std::condition_variable>();
+     resource->m_impl->awaitingCv->wait(lk, [&resource] { return resource->m_impl->awaitingEvent; });
+     resource->m_impl->awaitingCv.reset();
+ }
+@@ -64,9 +69,13 @@ void CAsyncResourceGatherer::asyncAssetSpinLock() {
+         for (auto& r : requests) {
+             r->render();
+ 
+-            if (r->m_impl->awaitingCv) {
++            {
++                // Always record completion, even if nobody awaits yet: await() may only
++                // start waiting after this (lost wakeup otherwise: the awaiter blocks forever).
++                std::lock_guard<std::mutex> lg(r->m_impl->awaitingMtx);
+                 r->m_impl->awaitingEvent = true;
+-                r->m_impl->awaitingCv->notify_all();
++                if (r->m_impl->awaitingCv)
++                    r->m_impl->awaitingCv->notify_all();
+             }
+             r->m_ready = true;
+             r->m_events.finished.emit();

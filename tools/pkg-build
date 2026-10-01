@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Build one of Mobarchy's Arch packages (os/packages/<name>/PKGBUILD) for aarch64, in the
+# Arch Linux ARM container (qemu-user), with makepkg.
+#
+#   tools/pkg-build <name> --out <dir>
+#
+# os/packages holds distribution packages Mobarchy patches (fixes not yet upstream), as
+# the distribution's PKGBUILD plus patches with a higher pkgrel. Install the result on the
+# device with pacman -U, or put it in the image.
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+name="${1:-}"; shift || true
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out) out="$(realpath -m "$2")"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+pkgdir="$repo/os/packages/$name"
+[ -n "$name" ] && [ -n "$out" ] && [ -f "$pkgdir/PKGBUILD" ] || {
+    echo "usage: $0 <name> --out <dir>   (with os/packages/<name>/PKGBUILD)" >&2; exit 2; }
+mkdir -p "$out"
+image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
+    echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
+
+docker run --rm --platform linux/arm64 -v "$pkgdir:/pkg:ro" -v "$out:/out" "$image" bash -euo pipefail -c '
+    pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+    pacman -Syu --noconfirm --needed --disable-sandbox base-devel >/dev/null
+    # Dependencies are installed here, as root: makepkg --syncdeps would need sudo, and
+    # setuid does not work under qemu-user.
+    deps=$(bash -c "source /pkg/PKGBUILD; printf \"%s\n\" \"\${depends[@]}\" \"\${makedepends[@]}\" \"\${checkdepends[@]}\"")
+    pacman -S --noconfirm --needed --disable-sandbox $deps >/dev/null
+    useradd -m builder
+    cp -r /pkg /tmp/build && chown -R builder /tmp/build
+    su builder -c "cd /tmp/build && PKGDEST=/tmp/build/out PKGEXT=.pkg.tar.zst makepkg --noconfirm" \
+        > /tmp/makepkg.log 2>&1 || { cp /tmp/makepkg.log /out/makepkg-'"$name"'.log; tail -30 /tmp/makepkg.log >&2; exit 1; }
+    cp /tmp/makepkg.log /out/makepkg-'"$name"'.log && cp /tmp/build/out/*.pkg.tar.zst /out/
+    chmod a+r /out/*
+'
+ls "$out"/"$name"-*.pkg.tar.zst

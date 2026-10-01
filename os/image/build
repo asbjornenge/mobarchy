@@ -9,6 +9,8 @@
 # (kernel modules, firmware links, fstab) come from devices/<codename>/scripts/rootfs-hook
 # if that script exists. It runs inside the container with the rootfs at /, and sees each
 # --extra NAME=DIR read-only at /extra/NAME (e.g. kernel build output, vendor firmware).
+# --extra packages=DIR is special: every *.pkg.tar.zst in DIR is installed after
+# packages.txt (Mobarchy's patched packages, tools/pkg-build).
 #
 # Access: ssh as "mob" with the key ~/.config/mobarchy/device_ed25519 (created on first
 # build, kept outside the repo).
@@ -46,6 +48,10 @@ docker run --platform linux/arm64 --name "$name" -e MOBARCHY_SSH_PUBKEY="$(cat "
     pacman -Rdd --disable-sandbox --noconfirm linux-aarch64 $(pacman -Qq | grep "^linux-firmware") >/dev/null 2>&1 || true
     # The pacman download sandbox (Landlock, alpm user) does not work under qemu-user emulation.
     grep -v "^#" /src/os/image/packages.txt | xargs pacman -Syu --disable-sandbox --noconfirm --needed >/dev/null
+    if ls /extra/packages/*.pkg.tar.zst >/dev/null 2>&1; then
+        pacman -U --disable-sandbox --noconfirm --ask 4 /extra/packages/*.pkg.tar.zst >/dev/null
+        echo "installed Mobarchy packages: $(ls /extra/packages/*.pkg.tar.zst | xargs -n1 basename | tr "\n" " ")"
+    fi
     rm -rf /var/cache/pacman/pkg/*
 
     # Owner account: autologin on tty1 starts Hyprland (same as the simulator).

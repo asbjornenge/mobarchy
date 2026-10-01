@@ -6,6 +6,7 @@ Host helpers. The containerized ones need Docker, but no sudo and no host packag
 |---|---|
 | `android-images/unpack <image-dir> <out>` | Unpacks a factory image: boot-type images (kernel, ramdisks, dtb, header info) and erofs/ext4 partitions. |
 | `kernel-build/extmod --src <dir> --device <codename> --obj <dir> --module <dir>` | Builds an out-of-tree module against a kernel from `kernel-build/build`, for loading from the rootfs. Takes the config from the kernel image (IKCONFIG) and refuses to build if layouts could differ. |
+| `pkg-build <name> --out <dir>` | Builds a Mobarchy-patched Arch package (`os/packages/<name>`) for aarch64. Put results in the image with `os/image/build --extra packages=<dir>`. |
 | `device/mcp-tunnel [--host mob@172.16.42.1] [--port 18765]` | Forwards a device's MCP server (loopback only on the device) to the host over ssh, at `http://127.0.0.1:18765/mcp`. |
 | `kernel-build/build --device <codename> --src <dir> [--stock] [--detach]` | Syncs and builds a Pixel gs-6.1 kernel and all modules from LineageOS sources (Kleaf). Without `--stock` it applies `os/kernel/mobarchy_defconfig`. |
 

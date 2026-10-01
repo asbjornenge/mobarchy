@@ -1,0 +1,51 @@
+# Arch's hyprgraphics PKGBUILD (maintainer: Caleb Maclennan <caleb@alerque.com>) plus
+# Mobarchy's fix for a deadlock that hangs Hyprland on ARM (see the patch). Drop this
+# package once the fix is upstream. Build: tools/pkg-build hyprgraphics
+
+pkgname=hyprgraphics
+pkgver=0.5.1
+pkgrel=4.1
+pkgdesc='hyprland graphics resources and utilities'
+arch=(x86_64 aarch64)
+url="https://github.com/hyprwm/$pkgname"
+license=(BSD-3-Clause)
+depends=(cairo # libcairo.so
+         file libmagic.so
+         libgcc # libgcc_s.so
+         'libstdc++' # libstdc++.so
+         glibc # libc.so libm.so
+         hyprutils libhyprutils.so
+         libjpeg-turbo libjpeg.so
+         libjxl libjxl.so libjxl_threads.so
+         libpng # libpng.so
+         librsvg
+         libwebp libwebp.so
+         libglvnd 
+         pango libpangocairo-1.0.so
+         pixman)
+makedepends=(cmake)
+provides=("lib$pkgname.so")
+_archive="$pkgname-$pkgver"
+source=("$url/archive/v$pkgver/$_archive.tar.gz"
+        0001-fix-lost-wakeup-in-await.patch)
+sha256sums=('861ecaad872835922dd5745a612d7a4cc7bfc4babb1d06bc92bc63c2ac013b74'
+            '08481e7e2810f4fe7f6cd50ef1c78bf0a5b61574979da5694cf24ae6fab99a77')
+
+prepare() {
+	cd "$_archive"
+	patch -Np1 -i ../0001-fix-lost-wakeup-in-await.patch
+}
+
+build() {
+	cd "$_archive"
+	cmake -B build \
+		-D CMAKE_INSTALL_PREFIX=/usr \
+		-D CMAKE_BUILD_TYPE=Release
+	cmake --build build
+}
+
+package() {
+	cd "$_archive"
+	DESTDIR="$pkgdir" cmake --install build
+	install -Dm0644 -t "$pkgdir/usr/share/licenses/$pkgname" LICENSE
+}
