@@ -1,0 +1,85 @@
+Panthor: program the L2 slice hash from "l2-hash-values" (vendor DTs, e.g. Google
+Tensor), soft-reset the GPU before the first firmware boot, and do not run a
+reset queued during a probe that failed before the scheduler existed.
+
+diff --git a/panthor_device.c b/panthor_device.c
+index cdf82d8..03f02d8 100644
+--- a/panthor_device.c
++++ b/panthor_device.c
+@@ -135,6 +135,14 @@ static void panthor_device_reset_work(struct work_struct *work)
+ 	if (atomic_read(&ptdev->pm.state) != PANTHOR_DEVICE_PM_STATE_ACTIVE)
+ 		return;
+ 
++	/*
++	 * A reset can be queued while the device is still being initialized (e.g. by a GPU
++	 * fault while the firmware boots) and run after a failed probe has torn things down.
++	 * Without a scheduler there is nothing to reset: the probe failure handles it.
++	 */
++	if (!ptdev->scheduler)
++		return;
++
+ 	if (!drm_dev_enter(&ptdev->base, &cookie))
+ 		return;
+ 
+diff --git a/panthor_fw.c b/panthor_fw.c
+index 167764c..60ced88 100644
+--- a/panthor_fw.c
++++ b/panthor_fw.c
+@@ -1395,6 +1395,12 @@ int panthor_fw_init(struct panthor_device *ptdev)
+ 		return ret;
+ 	}
+ 
++	/* Start from a clean GPU: the bootloader or a previous driver may have left it
++	 * running (the reset path does the same). */
++	ret = panthor_gpu_soft_reset(ptdev);
++	if (ret)
++		return ret;
++
+ 	ret = panthor_gpu_l2_power_on(ptdev);
+ 	if (ret)
+ 		return ret;
+diff --git a/panthor_gpu.c b/panthor_gpu.c
+index 89adb9b..0828cb5 100644
+--- a/panthor_gpu.c
++++ b/panthor_gpu.c
+@@ -241,6 +241,24 @@ int panthor_gpu_l2_power_on(struct panthor_device *ptdev)
+ 			      hweight64(ptdev->gpu_info.shader_present));
+ 	}
+ 
++	/*
++	 * Custom L2 slice hashing from the "l2-hash-values" DT property, as the vendor
++	 * driver programs it (e.g. Google Tensor). The hash routes addresses to L2 slices:
++	 * the reset default doesn't fit every SoC, and wrong routing shows up as bus errors.
++	 * Must be set while the L2 is off.
++	 */
++	if (of_property_present(ptdev->base.dev->of_node, "l2-hash-values")) {
++		u32 hash[GPU_ASN_HASH_COUNT] = {};
++		int i;
++
++		of_property_read_u32_array(ptdev->base.dev->of_node, "l2-hash-values", hash,
++					   GPU_ASN_HASH_COUNT);
++		for (i = 0; i < GPU_ASN_HASH_COUNT; i++)
++			gpu_write(ptdev, GPU_ASN_HASH(i), hash[i]);
++		gpu_write(ptdev, GPU_L2_CONFIG,
++			  gpu_read(ptdev, GPU_L2_CONFIG) | GPU_L2_CONFIG_ASN_HASH_ENABLE);
++	}
++
+ 	/* Set the desired coherency mode before the power up of L2 */
+ 	panthor_gpu_coherency_set(ptdev);
+ 
+diff --git a/panthor_regs.h b/panthor_regs.h
+index 8bee76d..af84194 100644
+--- a/panthor_regs.h
++++ b/panthor_regs.h
+@@ -20,6 +20,11 @@
+ #define   GPU_VER_STATUS(x)				((x) & GENMASK(3, 0))
+ 
+ #define GPU_L2_FEATURES					0x4
++/* L2 slice hashing (arch 10+): custom hash enable and the hash functions. */
++#define GPU_L2_CONFIG					0x48
++#define   GPU_L2_CONFIG_ASN_HASH_ENABLE			BIT(24)
++#define GPU_ASN_HASH(n)					(0x2C0 + ((n) * 4))
++#define GPU_ASN_HASH_COUNT				3
+ #define  GPU_L2_FEATURES_LINE_SIZE(x)			(1 << ((x) & GENMASK(7, 0)))
+ 
+ #define GPU_CORE_FEATURES				0x8

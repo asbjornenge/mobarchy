@@ -14,11 +14,15 @@
  *   domain by itself, so both are attached here and linked to the GPU device for runtime
  *   PM, and so is the GPU's S2MPU (pKVM stage-2 MPU), which must be powered while the GPU
  *   does DMA.
+ * - Bus protection: after every power-up of the top domain, a secure-monitor call sets
+ *   the SoC's protection config for the GPU master (as kbase does); without it the
+ *   GPU's memory accesses fail with bus errors.
  * - Binding: driver_override = "panthor", since the node's compatible is the legacy
  *   "arm,malit6xx".
  *
  * kbase must not be bound to the GPU when this module loads. Unloading undoes everything.
  */
+#include <linux/arm-smccc.h>
 #include <linux/clk-provider.h>
 #include <linux/clkdev.h>
 #include <linux/device.h>
@@ -28,6 +32,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_domain.h>
 #include <linux/pm_opp.h>
+#include <linux/pm_runtime.h>
 #include <linux/slab.h>
 
 /* Google cal-if (cmupmucal.ko); rates in kHz. */
@@ -35,6 +40,27 @@ extern int cal_dfs_set_rate(unsigned int id, unsigned long rate);
 extern unsigned long cal_dfs_get_rate(unsigned int id);
 
 #define GPU_COMPATIBLE	"arm,malit6xx"
+
+/*
+ * Bring-up aid: keep the GPU's power domains and S2MPU on while this module is loaded.
+ * A driver that gives up with the MCU still running then leaves a powered GPU behind,
+ * instead of one that loses power mid-transaction (which took the phone down).
+ */
+static bool always_on;
+module_param(always_on, bool, 0444);
+MODULE_PARM_DESC(always_on, "keep the GPU power domains and S2MPU on (bring-up)");
+
+/*
+ * The secure monitor must set the SoC's protection config for the GPU as a bus master
+ * after every power-up of the GPU's top domain, and clear it before every power-down, as
+ * kbase does (pixel_gpu_power.c). Without the first, every GPU memory access fails with
+ * a bus error and the CSF firmware never boots; without the second, the power domain's
+ * disable sequence hangs (hard lockup in blkpwr_g3d).
+ */
+#define SMC_PROTECTION_SET	0x82002010
+#define PROT_G3D		12
+#define SMC_PROTECTION_DISABLE	0
+#define SMC_PROTECTION_ENABLE	1
 #define MAX_LEVELS	16
 
 struct level {
@@ -57,7 +83,29 @@ static struct {
 	struct device_link *pd_link[2];
 	struct device *s2mpu;
 	struct device_link *s2mpu_link;
+	bool held;		/* always_on: runtime PM references on the suppliers */
+	struct notifier_block top_nb;
+	bool top_nb_added;
 } g;
+
+static void set_gpu_protection(bool enable)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_PROTECTION_SET, 0, PROT_G3D,
+		      enable ? SMC_PROTECTION_ENABLE : SMC_PROTECTION_DISABLE, 0, 0, 0, 0, &res);
+	if (res.a0)
+		dev_err(g.dev, "SMC_PROTECTION_SET(G3D, %d) failed: %#lx\n", enable, res.a0);
+}
+
+static int top_domain_notify(struct notifier_block *nb, unsigned long action, void *data)
+{
+	if (action == GENPD_NOTIFY_ON)
+		set_gpu_protection(true);
+	else if (action == GENPD_NOTIFY_PRE_OFF)
+		set_gpu_protection(false);
+	return NOTIFY_OK;
+}
 
 static const char *const pd_names[] = { "top", "cores" };
 
@@ -153,6 +201,14 @@ static void teardown(void)
 {
 	int i;
 
+	/* Power down (if we held it on) while the notifier still clears the protection. */
+	if (g.held) {
+		pm_runtime_put_sync(g.s2mpu);
+		pm_runtime_put_sync(g.pd[1]);
+		pm_runtime_put_sync(g.pd[0]);
+	}
+	if (g.top_nb_added)
+		dev_pm_genpd_remove_notifier(g.pd[0]);
 	if (g.dev && g.pdev->driver_override)
 		driver_set_override(g.dev, &g.pdev->driver_override, "", 0);
 	if (g.s2mpu_link)
@@ -238,6 +294,15 @@ static int __init panthor_pixel_init(void)
 		}
 	}
 
+	/* Protection config on every power-up of the top domain, and now if it is on. */
+	g.top_nb.notifier_call = top_domain_notify;
+	ret = dev_pm_genpd_add_notifier(g.pd[0], &g.top_nb);
+	if (ret) {
+		dev_err(g.dev, "genpd notifier on the top domain: %d\n", ret);
+		goto err;
+	}
+	g.top_nb_added = true;
+
 	s2np = of_parse_phandle(np, "s2mpus", 0);
 	s2pdev = s2np ? of_find_device_by_node(s2np) : NULL;
 	of_node_put(s2np);
@@ -253,14 +318,24 @@ static int __init panthor_pixel_init(void)
 		goto err;
 	}
 
+	if (always_on) {
+		/* Same order as kbase powers up: top, cores, then the S2MPU. */
+		pm_runtime_get_sync(g.pd[0]);
+		pm_runtime_get_sync(g.pd[1]);
+		pm_runtime_get_sync(g.s2mpu);
+		g.held = true;
+	}
+	if (pm_runtime_active(g.pd[0]))
+		set_gpu_protection(true);
+
 	ret = driver_set_override(g.dev, &g.pdev->driver_override, "panthor", strlen("panthor"));
 	if (ret)
 		goto err;
 
 	of_node_put(np);
-	dev_info(g.dev, "ready for panthor: %d levels %lu-%lu kHz, cal ids %#x/%#x, s2mpu %s\n",
+	dev_info(g.dev, "ready for panthor: %d levels %lu-%lu kHz, cal ids %#x/%#x, s2mpu %s%s\n",
 		 g.nlevels, g.levels[g.nlevels - 1].shaders_khz, g.levels[0].shaders_khz,
-		 g.cal_top, g.cal_shaders, dev_name(g.s2mpu));
+		 g.cal_top, g.cal_shaders, dev_name(g.s2mpu), always_on ? ", always on" : "");
 	return 0;
 
 err:
