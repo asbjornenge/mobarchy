@@ -122,8 +122,9 @@ Fixes found on the device, now in the repo:
 
 **Fold and panels** (`rootfs/usr/lib/mobarchy/fold`, `rootfs/etc/mobarchy/hyprland-device.conf`): one panel at a time. The hall sensor (`hall effect sensor`, SW_LID) picks it at session start and through Hyprland switch binds on every change.
 - Folded: the outer panel DSI-2, 1080x2424, scale 2.4.
-- Unfolded: the inner panel DSI-1, 2152x2076, scale 2.
+- Unfolded: the inner panel DSI-1, 2152x2076, scale 2, rotated (`transform 1`). The panel is mounted rotated: upright it is 2076x2152, which is the frame its touch controller reports in (`goodix,panel-max-x/y` = 2075/2151). Android rotates it as well (`ro.minui.default_rotation=ROTATION_RIGHT`). The direction is still to be confirmed on the device.
 - A strip at the top is reserved for the camera cutout.
+- The rules are written to `/run/mobarchy/fold.conf` (sourced by Hyprland), followed by `hyprctl reload`. Rules set with `hyprctl keyword monitor` pile up and eventually stop being applied.
 - On every change, workspaces move to the active panel, and the bar and keyboard (layer surfaces tied to an output) are restarted.
 - Touch mapping: `goodix_ts0` → DSI-1 and `synaptics_tcm_touch` → DSI-2. The touch drivers suspend and resume with their panel.
 
