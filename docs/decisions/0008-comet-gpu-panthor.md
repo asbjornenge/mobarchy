@@ -25,7 +25,7 @@
 
 **Upstream status:**
 - **Panthor** is the upstream kernel driver for CSF Malis. It supports G715 since Linux 6.18 (commit 3b1dc21d6d80, "Add support for Mali-Gx15 family"), and linux-firmware ships `arm/mali/arch11.8/mali_csffw.bin`.
-- **Mesa** (Panfrost GL and PanVK Vulkan) lists G715 (v11) with GLES 3.1, GL 3.1 and Vulkan 1.4. It is not yet conformance-tested on v11. Our Mesa 26.2.3 already includes it.
+- **Mesa** (Panfrost GL and PanVK Vulkan) lists G715 (v11) with GLES 3.1, GL 3.1 and Vulkan 1.4. It is not yet conformance-tested on v11. (Correction, found on the device: this is Mesa main, 26.3-devel. The released Mesa 26.2.3 has no v11.)
 - **The gap is only the kernel:** we run 6.1. It lacks `drm_gpuvm` and `drm_exec`, and has an older `drm_sched` and GEM shmem helpers.
 
 ## Options
@@ -47,7 +47,7 @@
   - keeping the S2MPU configured, as kbase's platform code does.
 - **Firmware:** upstream linux-firmware `arch11.8/mali_csffw.bin`, with the Pixel blobs as a fallback if Google's GPU needs them.
 - **kbase stays the default** until Panthor works. The switch is made by blacklisting `mali_kbase` and loading `panthor`, which is reversible.
-- **Userspace:** Arch's Mesa unchanged. Hyprland renders on the Panthor render node and scans out on exynos-drm. Both use dma-buf from the system heap; patch 0003 cleans the CPU cache before scanout.
+- **Userspace:** stock Mesa: Mesa main until a release has v11, then Arch's Mesa unchanged. Hyprland renders on the Panthor render node and scans out on exynos-drm. Both use dma-buf from the system heap; patch 0003 cleans the CPU cache before scanout.
 
 ## Plan (each step is verifiable on its own)
 
