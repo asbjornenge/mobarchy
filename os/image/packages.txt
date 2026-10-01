@@ -26,5 +26,7 @@ libbsd
 wpa_supplicant
 iw
 wireless-regdb
-# Web browser with a phone-friendly (adaptive) UI
+# Web browsers: GNOME Web (adaptive, phone-friendly UI) and Firefox (GPU page rendering
+# with WebRender and a separate scroll thread: much smoother scrolling on phones).
 epiphany
+firefox

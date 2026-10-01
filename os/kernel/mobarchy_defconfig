@@ -20,3 +20,7 @@ CONFIG_PID_NS=y
 # nftables (modern firewalling; iptables-nft)
 CONFIG_NF_TABLES=y
 CONFIG_NF_TABLES_INET=y
+
+# Landlock (unprivileged sandboxing; e.g. pacman's download sandbox). Already first in
+# the default CONFIG_LSM list.
+CONFIG_SECURITY_LANDLOCK=y
