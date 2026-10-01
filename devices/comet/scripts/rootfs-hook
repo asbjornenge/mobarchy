@@ -3,7 +3,9 @@
 # with the rootfs at /. Inputs (all optional, read-only):
 #   /extra/kernel    Mobarchy kernel build output (tools/kernel-build/build): modules
 #   /extra/firmware  vendor firmware from the factory image (unpacked vendor/firmware)
-# Neither the modules nor the firmware are stored in the repo.
+#   /extra/gpu       GPU stack from devices/comet/scripts/gpu-artifacts (ADR 0008): Panthor
+#                    modules, CSF firmware, Mesa build
+# None of these are stored in the repo.
 set -euo pipefail
 
 if [ -d /extra/kernel ]; then
@@ -32,4 +34,16 @@ if [ -d /extra/firmware ]; then
     install -d /usr/lib/firmware
     cp -r /extra/firmware/. /usr/lib/firmware/
     echo "comet: installed vendor firmware ($(du -sh /usr/lib/firmware | cut -f1))"
+fi
+
+if [ -d /extra/gpu ]; then
+    g=/extra/gpu
+    kver=$(modinfo -F vermagic $g/panthor.ko | cut -d' ' -f1)
+    install -Dm644 -t /usr/lib/modules/$kver/extra/mobarchy $g/panthor.ko $g/panthor_pixel.ko
+    depmod "$kver"
+    install -Dm644 $g/mali_csffw.bin /usr/lib/firmware/arm/mali/arch11.8/mali_csffw.bin
+    tar -C / -xf $g/mesa-*.tar.zst
+    # The GPU belongs to Panthor (mobarchy-gpu.service); kbase is blacklisted as well.
+    sed -i '/^mali_kbase$/d' /etc/modules-load.d/mobarchy-comet.conf 2>/dev/null || true
+    echo "comet: installed the GPU stack (Panthor for $kver, $(ls $g/mesa-*.tar.zst | xargs -n1 basename))"
 fi

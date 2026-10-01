@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Collect comet's GPU stack (ADR 0008) for the image build (--extra gpu=<out>):
+#   panthor.ko        os/kernel/panthor (upstream v6.18 + backport patches), built for our kernel
+#   panthor_pixel.ko  devices/comet/kernel/panthor-pixel
+#   mali_csffw.bin    CSF firmware for arch 11.8, from linux-firmware
+#   mesa-*.tar.zst    os/mesa/build output (Mesa with Valhall v11 support)
+#
+#   devices/comet/scripts/gpu-artifacts --kernel-src <dir> --linux <linux-6.18.y checkout> \
+#       --mesa <mesa tarball> --out <dir>
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/../../.." && pwd)"
+ksrc="" linux="" mesa="" out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --kernel-src) ksrc="$(realpath "$2")"; shift 2 ;;
+        --linux) linux="$(realpath "$2")"; shift 2 ;;
+        --mesa) mesa="$(realpath "$2")"; shift 2 ;;
+        --out) out="$(realpath -m "$2")"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$ksrc" ] && [ -n "$linux" ] && [ -n "$mesa" ] && [ -n "$out" ] || {
+    echo "usage: $0 --kernel-src <dir> --linux <dir> --mesa <tarball> --out <dir>" >&2; exit 2; }
+mkdir -p "$out"
+work="$out/.work"
+obj="$ksrc/out/extmod-obj"
+
+"$repo/os/kernel/panthor/prepare" --upstream "$linux" --out "$work/panthor"
+"$repo/tools/kernel-build/extmod" --src "$ksrc" --device comet --obj "$obj" --module "$work/panthor"
+rm -rf "$work/panthor-pixel" && cp -r "$repo/devices/comet/kernel/panthor-pixel" "$work/panthor-pixel"
+"$repo/tools/kernel-build/extmod" --src "$ksrc" --device comet --obj "$obj" --module "$work/panthor-pixel"
+cp "$work/panthor/panthor.ko" "$work/panthor-pixel/panthor_pixel.ko" "$out/"
+
+fw=https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/arm/mali/arch11.8/mali_csffw.bin
+curl -sfL -o "$out/mali_csffw.bin" "$fw"
+rm -f "$out"/mesa-*.tar.zst && cp "$mesa" "$out/"
+echo "GPU artifacts in $out:"; ls -l "$out"
