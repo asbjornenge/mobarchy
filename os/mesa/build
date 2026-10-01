@@ -42,14 +42,16 @@ docker run --rm --platform linux/arm64 -v "$src:/src:ro" -v "$out:/out" "$image"
         python-packaging python-yaml python-ply llvm clang libclc spirv-llvm-translator \
         spirv-tools spirv-headers glslang libdrm wayland wayland-protocols libelf zstd expat \
         libglvnd lm_sensors >/dev/null
-    meson setup /tmp/build /src --prefix=/usr --libdir=lib --sysconfdir=/etc \
+    # The build tree lives in <out>/.build: a later failure (e.g. packaging) or rerun
+    # doesn't cost a full rebuild (that is ~45 min under emulation).
+    [ -f /out/.build/build.ninja ] || meson setup /out/.build /src --prefix=/usr --libdir=lib --sysconfdir=/etc \
         -Dbuildtype=release -Db_ndebug=true \
         -Dplatforms=wayland -Dgallium-drivers=$gallium -Dvulkan-drivers=$vulkan \
         -Dglx=disabled -Dgbm=enabled -Degl=enabled -Dgles1=disabled -Dgles2=enabled \
         -Dglvnd=enabled -Dllvm=enabled -Dshared-llvm=enabled -Dvalgrind=disabled \
         -Dlibunwind=disabled -Dvideo-codecs= -Dbuild-tests=false > /out/meson-setup.log
-    ninja -C /tmp/build -j$jobs > /out/ninja.log
-    DESTDIR=/tmp/root ninja -C /tmp/build install > /out/install.log
+    ninja -C /out/.build -j$jobs > /out/ninja.log
+    rm -rf /tmp/root && DESTDIR=/tmp/root ninja -C /out/.build install > /out/install.log
 
     # Package the installed tree with makepkg (as an unprivileged user).
     useradd -m builder 2>/dev/null || true
@@ -71,7 +73,7 @@ package() { cp -a \"\$startdir/root/.\" \"\$pkgdir/\"; }
 EOP
     sed -i \"s/PKGVER/$pkgver/g\" /tmp/pkg/PKGBUILD
     chown -R builder /tmp/pkg
-    su builder -c 'cd /tmp/pkg && PKGDEST=/tmp/pkg makepkg --nodeps --noconfirm >/tmp/pkg/makepkg.log 2>&1' \
+    su builder -c 'cd /tmp/pkg && PKGDEST=/tmp/pkg PKGEXT=.pkg.tar.zst makepkg --nodeps --noconfirm >/tmp/pkg/makepkg.log 2>&1' \
         || { tail -20 /tmp/pkg/makepkg.log >&2; exit 1; }
     cp /tmp/pkg/mesa-mobarchy-*.pkg.tar.zst /out/
     chmod a+r /out/*
