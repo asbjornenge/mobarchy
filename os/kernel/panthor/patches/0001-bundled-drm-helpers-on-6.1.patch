@@ -1,0 +1,996 @@
+Bundled DRM helpers (6.18) on 6.1: gpuva bookkeeping in the shmem object, no exports,
+scheduler init called by Panthor, 6.1 API differences (kvrealloc, trace macros,
+fence deadlines, namespace syntax). See compat/compat.h.
+
+diff --git a/drm_exec.c b/drm_exec.c
+index 5c97f8b..4e64e1e 100644
+--- a/drm_exec.c
++++ b/drm_exec.c
+@@ -90,7 +90,6 @@ void drm_exec_init(struct drm_exec *exec, u32 flags, unsigned nr)
+ 	exec->contended = DRM_EXEC_DUMMY;
+ 	exec->prelocked = NULL;
+ }
+-EXPORT_SYMBOL(drm_exec_init);
+ 
+ /**
+  * drm_exec_fini - finalize a drm_exec object
+@@ -108,7 +107,6 @@ void drm_exec_fini(struct drm_exec *exec)
+ 		ww_acquire_fini(&exec->ticket);
+ 	}
+ }
+-EXPORT_SYMBOL(drm_exec_fini);
+ 
+ /**
+  * drm_exec_cleanup - cleanup when contention is detected
+@@ -135,7 +133,6 @@ bool drm_exec_cleanup(struct drm_exec *exec)
+ 	exec->num_objects = 0;
+ 	return true;
+ }
+-EXPORT_SYMBOL(drm_exec_cleanup);
+ 
+ /* Track the locked object in the array */
+ static int drm_exec_obj_locked(struct drm_exec *exec,
+@@ -145,7 +142,7 @@ static int drm_exec_obj_locked(struct drm_exec *exec,
+ 		size_t size = exec->max_objects * sizeof(void *);
+ 		void *tmp;
+ 
+-		tmp = kvrealloc(exec->objects, size + PAGE_SIZE, GFP_KERNEL);
++		tmp = kvrealloc(exec->objects, size, size + PAGE_SIZE, GFP_KERNEL);	/* 6.1: old size too */
+ 		if (!tmp)
+ 			return -ENOMEM;
+ 
+@@ -246,7 +243,6 @@ error_unlock:
+ 	dma_resv_unlock(obj->resv);
+ 	return ret;
+ }
+-EXPORT_SYMBOL(drm_exec_lock_obj);
+ 
+ /**
+  * drm_exec_unlock_obj - unlock a GEM object in this exec context
+@@ -273,7 +269,6 @@ void drm_exec_unlock_obj(struct drm_exec *exec, struct drm_gem_object *obj)
+ 
+ 	}
+ }
+-EXPORT_SYMBOL(drm_exec_unlock_obj);
+ 
+ /**
+  * drm_exec_prepare_obj - prepare a GEM object for use
+@@ -303,7 +298,6 @@ int drm_exec_prepare_obj(struct drm_exec *exec, struct drm_gem_object *obj,
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL(drm_exec_prepare_obj);
+ 
+ /**
+  * drm_exec_prepare_array - helper to prepare an array of objects
+@@ -346,7 +340,6 @@ int drm_exec_prepare_array(struct drm_exec *exec,
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL(drm_exec_prepare_array);
+ 
+ MODULE_DESCRIPTION("DRM execution context");
+ MODULE_LICENSE("Dual MIT/GPL");
+diff --git a/drm_gem_shmem_helper.c b/drm_gem_shmem_helper.c
+index 5c6da91..5e34d26 100644
+--- a/drm_gem_shmem_helper.c
++++ b/drm_gem_shmem_helper.c
+@@ -24,7 +24,7 @@
+ #include <drm/drm_prime.h>
+ #include <drm/drm_print.h>
+ 
+-MODULE_IMPORT_NS("DMA_BUF");
++MODULE_IMPORT_NS(DMA_BUF);	/* 6.1: unquoted */
+ 
+ /**
+  * DOC: overview
+@@ -91,6 +91,8 @@ __drm_gem_shmem_create(struct drm_device *dev, size_t size, bool private,
+ 		goto err_release;
+ 
+ 	INIT_LIST_HEAD(&shmem->madv_list);
++	INIT_LIST_HEAD(&shmem->gpuva.list);
++	mutex_init(&shmem->gpuva.lock);
+ 
+ 	if (!private) {
+ 		/*
+@@ -128,7 +130,6 @@ struct drm_gem_shmem_object *drm_gem_shmem_create(struct drm_device *dev, size_t
+ {
+ 	return __drm_gem_shmem_create(dev, size, false, NULL);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_create);
+ 
+ /**
+  * drm_gem_shmem_create_with_mnt - Allocate an object with the given size in a
+@@ -149,7 +150,6 @@ struct drm_gem_shmem_object *drm_gem_shmem_create_with_mnt(struct drm_device *de
+ {
+ 	return __drm_gem_shmem_create(dev, size, false, gemfs);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_create_with_mnt);
+ 
+ /**
+  * drm_gem_shmem_free - Free resources associated with a shmem GEM object
+@@ -184,10 +184,10 @@ void drm_gem_shmem_free(struct drm_gem_shmem_object *shmem)
+ 		dma_resv_unlock(shmem->base.resv);
+ 	}
+ 
++	mutex_destroy(&shmem->gpuva.lock);
+ 	drm_gem_object_release(obj);
+ 	kfree(shmem);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_free);
+ 
+ static int drm_gem_shmem_get_pages_locked(struct drm_gem_shmem_object *shmem)
+ {
+@@ -247,7 +247,6 @@ void drm_gem_shmem_put_pages_locked(struct drm_gem_shmem_object *shmem)
+ 		shmem->pages = NULL;
+ 	}
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_put_pages_locked);
+ 
+ int drm_gem_shmem_pin_locked(struct drm_gem_shmem_object *shmem)
+ {
+@@ -266,7 +265,6 @@ int drm_gem_shmem_pin_locked(struct drm_gem_shmem_object *shmem)
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL(drm_gem_shmem_pin_locked);
+ 
+ void drm_gem_shmem_unpin_locked(struct drm_gem_shmem_object *shmem)
+ {
+@@ -275,7 +273,6 @@ void drm_gem_shmem_unpin_locked(struct drm_gem_shmem_object *shmem)
+ 	if (refcount_dec_and_test(&shmem->pages_pin_count))
+ 		drm_gem_shmem_put_pages_locked(shmem);
+ }
+-EXPORT_SYMBOL(drm_gem_shmem_unpin_locked);
+ 
+ /**
+  * drm_gem_shmem_pin - Pin backing pages for a shmem GEM object
+@@ -305,7 +302,6 @@ int drm_gem_shmem_pin(struct drm_gem_shmem_object *shmem)
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_pin);
+ 
+ /**
+  * drm_gem_shmem_unpin - Unpin backing pages for a shmem GEM object
+@@ -327,7 +323,6 @@ void drm_gem_shmem_unpin(struct drm_gem_shmem_object *shmem)
+ 	drm_gem_shmem_unpin_locked(shmem);
+ 	dma_resv_unlock(shmem->base.resv);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_unpin);
+ 
+ /*
+  * drm_gem_shmem_vmap_locked - Create a virtual mapping for a shmem GEM object
+@@ -393,7 +388,6 @@ err_put_pages:
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_vmap_locked);
+ 
+ /*
+  * drm_gem_shmem_vunmap_locked - Unmap a virtual mapping for a shmem GEM object
+@@ -427,7 +421,6 @@ void drm_gem_shmem_vunmap_locked(struct drm_gem_shmem_object *shmem,
+ 		}
+ 	}
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_vunmap_locked);
+ 
+ static int
+ drm_gem_shmem_create_with_handle(struct drm_file *file_priv,
+@@ -466,7 +459,6 @@ int drm_gem_shmem_madvise_locked(struct drm_gem_shmem_object *shmem, int madv)
+ 
+ 	return (madv >= 0);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_madvise_locked);
+ 
+ void drm_gem_shmem_purge_locked(struct drm_gem_shmem_object *shmem)
+ {
+@@ -498,7 +490,6 @@ void drm_gem_shmem_purge_locked(struct drm_gem_shmem_object *shmem)
+ 
+ 	invalidate_mapping_pages(file_inode(obj->filp)->i_mapping, 0, (loff_t)-1);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_purge_locked);
+ 
+ /**
+  * drm_gem_shmem_dumb_create - Create a dumb shmem buffer object
+@@ -535,7 +526,6 @@ int drm_gem_shmem_dumb_create(struct drm_file *file, struct drm_device *dev,
+ 
+ 	return drm_gem_shmem_create_with_handle(file, dev, args->size, &args->handle);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_dumb_create);
+ 
+ static vm_fault_t drm_gem_shmem_fault(struct vm_fault *vmf)
+ {
+@@ -606,7 +596,6 @@ const struct vm_operations_struct drm_gem_shmem_vm_ops = {
+ 	.open = drm_gem_shmem_vm_open,
+ 	.close = drm_gem_shmem_vm_close,
+ };
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_vm_ops);
+ 
+ /**
+  * drm_gem_shmem_mmap - Memory-map a shmem GEM object
+@@ -658,7 +647,6 @@ int drm_gem_shmem_mmap(struct drm_gem_shmem_object *shmem, struct vm_area_struct
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_mmap);
+ 
+ /**
+  * drm_gem_shmem_print_info() - Print &drm_gem_shmem_object info for debugfs
+@@ -677,7 +665,6 @@ void drm_gem_shmem_print_info(const struct drm_gem_shmem_object *shmem,
+ 	drm_printf_indent(p, indent, "vmap_use_count=%u\n", refcount_read(&shmem->vmap_use_count));
+ 	drm_printf_indent(p, indent, "vaddr=%p\n", shmem->vaddr);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_print_info);
+ 
+ /**
+  * drm_gem_shmem_get_sg_table - Provide a scatter/gather table of pinned
+@@ -701,7 +688,6 @@ struct sg_table *drm_gem_shmem_get_sg_table(struct drm_gem_shmem_object *shmem)
+ 
+ 	return drm_prime_pages_to_sg(obj->dev, shmem->pages, obj->size >> PAGE_SHIFT);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_get_sg_table);
+ 
+ static struct sg_table *drm_gem_shmem_get_pages_sgt_locked(struct drm_gem_shmem_object *shmem)
+ {
+@@ -769,7 +755,6 @@ struct sg_table *drm_gem_shmem_get_pages_sgt(struct drm_gem_shmem_object *shmem)
+ 
+ 	return sgt;
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_get_pages_sgt);
+ 
+ /**
+  * drm_gem_shmem_prime_import_sg_table - Produce a shmem GEM object from
+@@ -804,8 +789,8 @@ drm_gem_shmem_prime_import_sg_table(struct drm_device *dev,
+ 
+ 	return &shmem->base;
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_prime_import_sg_table);
+ 
++#if 0	/* mobarchy: unused by Panthor; needs drm_gem_is_prime_exported_dma_buf() (6.15+). */
+ /**
+  * drm_gem_shmem_prime_import_no_map - Import dmabuf without mapping its sg_table
+  * @dev: Device to import into
+@@ -861,7 +846,7 @@ fail_detach:
+ 
+ 	return ERR_PTR(ret);
+ }
+-EXPORT_SYMBOL_GPL(drm_gem_shmem_prime_import_no_map);
++#endif
+ 
+ /*
+  * Kunit helpers
+@@ -881,7 +866,6 @@ int drm_gem_shmem_vmap(struct drm_gem_shmem_object *shmem, struct iosys_map *map
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL_IF_KUNIT(drm_gem_shmem_vmap);
+ 
+ void drm_gem_shmem_vunmap(struct drm_gem_shmem_object *shmem, struct iosys_map *map)
+ {
+@@ -891,7 +875,6 @@ void drm_gem_shmem_vunmap(struct drm_gem_shmem_object *shmem, struct iosys_map *
+ 	drm_gem_shmem_vunmap_locked(shmem, map);
+ 	dma_resv_unlock(obj->resv);
+ }
+-EXPORT_SYMBOL_IF_KUNIT(drm_gem_shmem_vunmap);
+ 
+ int drm_gem_shmem_madvise(struct drm_gem_shmem_object *shmem, int madv)
+ {
+@@ -906,7 +889,6 @@ int drm_gem_shmem_madvise(struct drm_gem_shmem_object *shmem, int madv)
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL_IF_KUNIT(drm_gem_shmem_madvise);
+ 
+ int drm_gem_shmem_purge(struct drm_gem_shmem_object *shmem)
+ {
+@@ -921,9 +903,8 @@ int drm_gem_shmem_purge(struct drm_gem_shmem_object *shmem)
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL_IF_KUNIT(drm_gem_shmem_purge);
+ #endif
+ 
+ MODULE_DESCRIPTION("DRM SHMEM memory-management helpers");
+-MODULE_IMPORT_NS("DMA_BUF");
++MODULE_IMPORT_NS(DMA_BUF);	/* 6.1: unquoted */
+ MODULE_LICENSE("GPL");
+diff --git a/drm_gpuvm.c b/drm_gpuvm.c
+index 61c3df0..10285ad 100644
+--- a/drm_gpuvm.c
++++ b/drm_gpuvm.c
+@@ -1007,7 +1007,6 @@ drm_gpuvm_range_valid(struct drm_gpuvm *gpuvm,
+ 	       drm_gpuvm_in_mm_range(gpuvm, addr, range) &&
+ 	       !drm_gpuvm_in_kernel_node(gpuvm, addr, range);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_range_valid);
+ 
+ static void
+ drm_gpuvm_gem_object_free(struct drm_gem_object *obj)
+@@ -1044,7 +1043,6 @@ drm_gpuvm_resv_object_alloc(struct drm_device *drm)
+ 
+ 	return obj;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_resv_object_alloc);
+ 
+ /**
+  * drm_gpuvm_init() - initialize a &drm_gpuvm
+@@ -1107,7 +1105,6 @@ drm_gpuvm_init(struct drm_gpuvm *gpuvm, const char *name,
+ 			__drm_gpuva_insert(gpuvm, &gpuvm->kernel_alloc_node);
+ 	}
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_init);
+ 
+ static void
+ drm_gpuvm_fini(struct drm_gpuvm *gpuvm)
+@@ -1157,7 +1154,6 @@ drm_gpuvm_put(struct drm_gpuvm *gpuvm)
+ 	if (gpuvm)
+ 		kref_put(&gpuvm->kref, drm_gpuvm_free);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_put);
+ 
+ static int
+ exec_prepare_obj(struct drm_exec *exec, struct drm_gem_object *obj,
+@@ -1188,7 +1184,6 @@ drm_gpuvm_prepare_vm(struct drm_gpuvm *gpuvm,
+ {
+ 	return exec_prepare_obj(exec, gpuvm->r_obj, num_fences);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_prepare_vm);
+ 
+ static int
+ __drm_gpuvm_prepare_objects(struct drm_gpuvm *gpuvm,
+@@ -1266,7 +1261,6 @@ drm_gpuvm_prepare_objects(struct drm_gpuvm *gpuvm,
+ 	else
+ 		return __drm_gpuvm_prepare_objects(gpuvm, exec, num_fences);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_prepare_objects);
+ 
+ /**
+  * drm_gpuvm_prepare_range() - prepare all BOs mapped within a given range
+@@ -1303,7 +1297,6 @@ drm_gpuvm_prepare_range(struct drm_gpuvm *gpuvm, struct drm_exec *exec,
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_prepare_range);
+ 
+ /**
+  * drm_gpuvm_exec_lock() - lock all dma-resv of all associated BOs
+@@ -1354,7 +1347,6 @@ err:
+ 	drm_exec_fini(exec);
+ 	return ret;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_exec_lock);
+ 
+ static int
+ fn_lock_array(struct drm_gpuvm_exec *vm_exec)
+@@ -1397,7 +1389,6 @@ drm_gpuvm_exec_lock_array(struct drm_gpuvm_exec *vm_exec,
+ 
+ 	return drm_gpuvm_exec_lock(vm_exec);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_exec_lock_array);
+ 
+ /**
+  * drm_gpuvm_exec_lock_range() - prepare all BOs mapped within a given range
+@@ -1434,7 +1425,6 @@ err:
+ 	drm_exec_fini(exec);
+ 	return ret;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_exec_lock_range);
+ 
+ static int
+ __drm_gpuvm_validate(struct drm_gpuvm *gpuvm, struct drm_exec *exec)
+@@ -1502,7 +1492,6 @@ drm_gpuvm_validate(struct drm_gpuvm *gpuvm, struct drm_exec *exec)
+ 	else
+ 		return __drm_gpuvm_validate(gpuvm, exec);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_validate);
+ 
+ /**
+  * drm_gpuvm_resv_add_fence - add fence to private and all extobj
+@@ -1529,7 +1518,6 @@ drm_gpuvm_resv_add_fence(struct drm_gpuvm *gpuvm,
+ 				   extobj_usage : private_usage);
+ 	}
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_resv_add_fence);
+ 
+ /**
+  * drm_gpuvm_bo_create() - create a new instance of struct drm_gpuvm_bo
+@@ -1569,7 +1557,6 @@ drm_gpuvm_bo_create(struct drm_gpuvm *gpuvm,
+ 
+ 	return vm_bo;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_bo_create);
+ 
+ static void
+ drm_gpuvm_bo_destroy(struct kref *kref)
+@@ -1625,7 +1612,6 @@ drm_gpuvm_bo_put(struct drm_gpuvm_bo *vm_bo)
+ 
+ 	return false;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_bo_put);
+ 
+ static struct drm_gpuvm_bo *
+ __drm_gpuvm_bo_find(struct drm_gpuvm *gpuvm,
+@@ -1661,7 +1647,6 @@ drm_gpuvm_bo_find(struct drm_gpuvm *gpuvm,
+ 
+ 	return vm_bo ? drm_gpuvm_bo_get(vm_bo) : NULL;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_bo_find);
+ 
+ /**
+  * drm_gpuvm_bo_obtain() - obtains an instance of the &drm_gpuvm_bo for the
+@@ -1693,11 +1678,10 @@ drm_gpuvm_bo_obtain(struct drm_gpuvm *gpuvm,
+ 		return ERR_PTR(-ENOMEM);
+ 
+ 	drm_gem_gpuva_assert_lock_held(gpuvm, obj);
+-	list_add_tail(&vm_bo->list.entry.gem, &obj->gpuva.list);
++	list_add_tail(&vm_bo->list.entry.gem, &mob_gpuva(obj)->list);
+ 
+ 	return vm_bo;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_bo_obtain);
+ 
+ /**
+  * drm_gpuvm_bo_obtain_prealloc() - obtains an instance of the &drm_gpuvm_bo
+@@ -1729,11 +1713,10 @@ drm_gpuvm_bo_obtain_prealloc(struct drm_gpuvm_bo *__vm_bo)
+ 	}
+ 
+ 	drm_gem_gpuva_assert_lock_held(gpuvm, obj);
+-	list_add_tail(&__vm_bo->list.entry.gem, &obj->gpuva.list);
++	list_add_tail(&__vm_bo->list.entry.gem, &mob_gpuva(obj)->list);
+ 
+ 	return __vm_bo;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_bo_obtain_prealloc);
+ 
+ /**
+  * drm_gpuvm_bo_extobj_add() - adds the &drm_gpuvm_bo to its &drm_gpuvm's
+@@ -1756,7 +1739,6 @@ drm_gpuvm_bo_extobj_add(struct drm_gpuvm_bo *vm_bo)
+ 	if (drm_gpuvm_is_extobj(gpuvm, vm_bo->obj))
+ 		drm_gpuvm_bo_list_add(vm_bo, extobj, lock);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_bo_extobj_add);
+ 
+ /**
+  * drm_gpuvm_bo_evict() - add / remove a &drm_gpuvm_bo to / from the &drm_gpuvms
+@@ -1788,7 +1770,6 @@ drm_gpuvm_bo_evict(struct drm_gpuvm_bo *vm_bo, bool evict)
+ 	else
+ 		drm_gpuvm_bo_list_del_init(vm_bo, evict, lock);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_bo_evict);
+ 
+ static int
+ __drm_gpuva_insert(struct drm_gpuvm *gpuvm,
+@@ -1853,7 +1834,6 @@ drm_gpuva_insert(struct drm_gpuvm *gpuvm,
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_insert);
+ 
+ static void
+ __drm_gpuva_remove(struct drm_gpuva *va)
+@@ -1886,7 +1866,6 @@ drm_gpuva_remove(struct drm_gpuva *va)
+ 	__drm_gpuva_remove(va);
+ 	drm_gpuvm_put(va->vm);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_remove);
+ 
+ /**
+  * drm_gpuva_link() - link a &drm_gpuva
+@@ -1918,7 +1897,6 @@ drm_gpuva_link(struct drm_gpuva *va, struct drm_gpuvm_bo *vm_bo)
+ 	drm_gem_gpuva_assert_lock_held(gpuvm, obj);
+ 	list_add_tail(&va->gem.entry, &vm_bo->list.gpuva);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_link);
+ 
+ /**
+  * drm_gpuva_unlink() - unlink a &drm_gpuva
+@@ -1952,7 +1930,6 @@ drm_gpuva_unlink(struct drm_gpuva *va)
+ 	va->vm_bo = NULL;
+ 	drm_gpuvm_bo_put(vm_bo);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_unlink);
+ 
+ /**
+  * drm_gpuva_find_first() - find the first &drm_gpuva in the given range
+@@ -1970,7 +1947,6 @@ drm_gpuva_find_first(struct drm_gpuvm *gpuvm,
+ 
+ 	return drm_gpuva_it_iter_first(&gpuvm->rb.tree, addr, last);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_find_first);
+ 
+ /**
+  * drm_gpuva_find() - find a &drm_gpuva
+@@ -1999,7 +1975,6 @@ drm_gpuva_find(struct drm_gpuvm *gpuvm,
+ out:
+ 	return NULL;
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_find);
+ 
+ /**
+  * drm_gpuva_find_prev() - find the &drm_gpuva before the given address
+@@ -2021,7 +1996,6 @@ drm_gpuva_find_prev(struct drm_gpuvm *gpuvm, u64 start)
+ 
+ 	return drm_gpuva_it_iter_first(&gpuvm->rb.tree, start - 1, start);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_find_prev);
+ 
+ /**
+  * drm_gpuva_find_next() - find the &drm_gpuva after the given address
+@@ -2043,7 +2017,6 @@ drm_gpuva_find_next(struct drm_gpuvm *gpuvm, u64 end)
+ 
+ 	return drm_gpuva_it_iter_first(&gpuvm->rb.tree, end, end + 1);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_find_next);
+ 
+ /**
+  * drm_gpuvm_interval_empty() - indicate whether a given interval of the VA space
+@@ -2059,7 +2032,6 @@ drm_gpuvm_interval_empty(struct drm_gpuvm *gpuvm, u64 addr, u64 range)
+ {
+ 	return !drm_gpuva_find_first(gpuvm, addr, range);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_interval_empty);
+ 
+ /**
+  * drm_gpuva_map() - helper to insert a &drm_gpuva according to a
+@@ -2078,7 +2050,6 @@ drm_gpuva_map(struct drm_gpuvm *gpuvm,
+ 	drm_gpuva_init_from_op(va, op);
+ 	drm_gpuva_insert(gpuvm, va);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_map);
+ 
+ /**
+  * drm_gpuva_remap() - helper to remap a &drm_gpuva according to a
+@@ -2110,7 +2081,6 @@ drm_gpuva_remap(struct drm_gpuva *prev,
+ 		drm_gpuva_insert(gpuvm, next);
+ 	}
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_remap);
+ 
+ /**
+  * drm_gpuva_unmap() - helper to remove a &drm_gpuva according to a
+@@ -2124,7 +2094,6 @@ drm_gpuva_unmap(struct drm_gpuva_op_unmap *op)
+ {
+ 	drm_gpuva_remove(op->va);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_unmap);
+ 
+ static int
+ op_map_cb(const struct drm_gpuvm_ops *fn, void *priv,
+@@ -2457,7 +2426,6 @@ drm_gpuvm_sm_map(struct drm_gpuvm *gpuvm, void *priv,
+ 
+ 	return __drm_gpuvm_sm_map(gpuvm, ops, priv, req, false);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_sm_map);
+ 
+ /**
+  * drm_gpuvm_sm_unmap() - calls the &drm_gpuva_ops to split on unmap
+@@ -2499,7 +2467,6 @@ drm_gpuvm_sm_unmap(struct drm_gpuvm *gpuvm, void *priv,
+ 	return __drm_gpuvm_sm_unmap(gpuvm, ops, priv,
+ 				    req_addr, req_range);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_sm_unmap);
+ 
+ static int
+ drm_gpuva_sm_step_lock(struct drm_gpuva_op *op, void *priv)
+@@ -2596,7 +2563,6 @@ drm_gpuvm_sm_map_exec_lock(struct drm_gpuvm *gpuvm,
+ 	return __drm_gpuvm_sm_map(gpuvm, &lock_ops, exec, req, false);
+ 
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_sm_map_exec_lock);
+ 
+ /**
+  * drm_gpuvm_sm_unmap_exec_lock() - locks the objects touched by drm_gpuvm_sm_unmap()
+@@ -2619,7 +2585,6 @@ drm_gpuvm_sm_unmap_exec_lock(struct drm_gpuvm *gpuvm, struct drm_exec *exec,
+ 	return __drm_gpuvm_sm_unmap(gpuvm, &lock_ops, exec,
+ 				    req_addr, req_range);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_sm_unmap_exec_lock);
+ 
+ static struct drm_gpuva_op *
+ gpuva_op_alloc(struct drm_gpuvm *gpuvm)
+@@ -2779,7 +2744,6 @@ drm_gpuvm_sm_map_ops_create(struct drm_gpuvm *gpuvm,
+ {
+ 	return __drm_gpuvm_sm_map_ops_create(gpuvm, req, false);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_sm_map_ops_create);
+ 
+ /**
+  * drm_gpuvm_madvise_ops_create() - creates the &drm_gpuva_ops to split
+@@ -2816,7 +2780,6 @@ drm_gpuvm_madvise_ops_create(struct drm_gpuvm *gpuvm,
+ {
+ 	return __drm_gpuvm_sm_map_ops_create(gpuvm, req, true);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_madvise_ops_create);
+ 
+ /**
+  * drm_gpuvm_sm_unmap_ops_create() - creates the &drm_gpuva_ops to split on
+@@ -2878,7 +2841,6 @@ err_free_ops:
+ 	drm_gpuva_ops_free(gpuvm, ops);
+ 	return ERR_PTR(ret);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_sm_unmap_ops_create);
+ 
+ /**
+  * drm_gpuvm_prefetch_ops_create() - creates the &drm_gpuva_ops to prefetch
+@@ -2932,7 +2894,6 @@ err_free_ops:
+ 	drm_gpuva_ops_free(gpuvm, ops);
+ 	return ERR_PTR(ret);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_prefetch_ops_create);
+ 
+ /**
+  * drm_gpuvm_bo_unmap_ops_create() - creates the &drm_gpuva_ops to unmap a GEM
+@@ -2986,7 +2947,6 @@ err_free_ops:
+ 	drm_gpuva_ops_free(vm_bo->vm, ops);
+ 	return ERR_PTR(ret);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuvm_bo_unmap_ops_create);
+ 
+ /**
+  * drm_gpuva_ops_free() - free the given &drm_gpuva_ops
+@@ -3016,7 +2976,6 @@ drm_gpuva_ops_free(struct drm_gpuvm *gpuvm,
+ 
+ 	kfree(ops);
+ }
+-EXPORT_SYMBOL_GPL(drm_gpuva_ops_free);
+ 
+ MODULE_DESCRIPTION("DRM GPUVM");
+ MODULE_LICENSE("GPL");
+diff --git a/gpu_scheduler_trace.h b/gpu_scheduler_trace.h
+index 261713d..7a1be68 100644
+--- a/gpu_scheduler_trace.h
++++ b/gpu_scheduler_trace.h
+@@ -68,11 +68,11 @@ DECLARE_EVENT_CLASS(drm_sched_job,
+ 			     ),
+ 
+ 	    TP_fast_assign(
+-			   __assign_str(name);
++			   __assign_str(name, sched_job->sched->name);	/* 6.1: 2 args */
+ 			   __entry->job_count = spsc_queue_count(&entity->job_queue);
+ 			   __entry->hw_job_count = atomic_read(
+ 				   &sched_job->sched->credit_count);
+-			   __assign_str(dev);
++			   __assign_str(dev, dev_name(sched_job->sched->dev));	/* 6.1: 2 args */
+ 			   __entry->fence_context = sched_job->s_fence->finished.context;
+ 			   __entry->fence_seqno = sched_job->s_fence->finished.seqno;
+ 			   __entry->client_id = sched_job->s_fence->drm_client_id;
+@@ -155,5 +155,5 @@ TRACE_EVENT(drm_sched_job_unschedulable,
+ 
+ /* This part must be outside protection */
+ #undef TRACE_INCLUDE_PATH
+-#define TRACE_INCLUDE_PATH ../../drivers/gpu/drm/scheduler
++#define TRACE_INCLUDE_PATH .
+ #include <trace/define_trace.h>
+diff --git a/include/drm/drm_gem_shmem_helper.h b/include/drm/drm_gem_shmem_helper.h
+index 6802896..0428795 100644
+--- a/include/drm/drm_gem_shmem_helper.h
++++ b/include/drm/drm_gem_shmem_helper.h
+@@ -26,6 +26,15 @@ struct drm_gem_shmem_object {
+ 	 */
+ 	struct drm_gem_object base;
+ 
++	/**
++	 * @gpuva: GPUVM bookkeeping (drm_gem_object.gpuva in 6.5+, which the 6.1 core
++	 * lacks; see compat.h).
++	 */
++	struct {
++		struct list_head list;
++		struct mutex lock;
++	} gpuva;
++
+ 	/**
+ 	 * @pages: Page table
+ 	 */
+diff --git a/include/drm/drm_gpuvm.h b/include/drm/drm_gpuvm.h
+index 476990e..a9c12c6 100644
+--- a/include/drm/drm_gpuvm.h
++++ b/include/drm/drm_gpuvm.h
+@@ -32,6 +32,7 @@
+ 
+ #include <drm/drm_device.h>
+ #include <drm/drm_gem.h>
++#include <drm/drm_gem_shmem_helper.h>	/* mob_gpuva(), see compat.h */
+ #include <drm/drm_exec.h>
+ 
+ struct drm_gpuvm;
+diff --git a/sched_entity.c b/sched_entity.c
+index fe174a4..bd27c26 100644
+--- a/sched_entity.c
++++ b/sched_entity.c
+@@ -113,7 +113,6 @@ int drm_sched_entity_init(struct drm_sched_entity *entity,
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL(drm_sched_entity_init);
+ 
+ /**
+  * drm_sched_entity_modify_sched - Modify sched of an entity
+@@ -138,7 +137,6 @@ void drm_sched_entity_modify_sched(struct drm_sched_entity *entity,
+ 	entity->num_sched_list = num_sched_list;
+ 	spin_unlock(&entity->lock);
+ }
+-EXPORT_SYMBOL(drm_sched_entity_modify_sched);
+ 
+ static bool drm_sched_entity_is_idle(struct drm_sched_entity *entity)
+ {
+@@ -171,7 +169,6 @@ int drm_sched_entity_error(struct drm_sched_entity *entity)
+ 
+ 	return r;
+ }
+-EXPORT_SYMBOL(drm_sched_entity_error);
+ 
+ static void drm_sched_entity_kill_jobs_cb(struct dma_fence *f,
+ 					  struct dma_fence_cb *cb);
+@@ -313,7 +310,6 @@ long drm_sched_entity_flush(struct drm_sched_entity *entity, long timeout)
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL(drm_sched_entity_flush);
+ 
+ /**
+  * drm_sched_entity_fini - Destroy a context entity
+@@ -344,7 +340,6 @@ void drm_sched_entity_fini(struct drm_sched_entity *entity)
+ 	dma_fence_put(rcu_dereference_check(entity->last_scheduled, true));
+ 	RCU_INIT_POINTER(entity->last_scheduled, NULL);
+ }
+-EXPORT_SYMBOL(drm_sched_entity_fini);
+ 
+ /**
+  * drm_sched_entity_destroy - Destroy a context entity
+@@ -358,7 +353,6 @@ void drm_sched_entity_destroy(struct drm_sched_entity *entity)
+ 	drm_sched_entity_flush(entity, MAX_WAIT_SCHED_ENTITY_Q_EMPTY);
+ 	drm_sched_entity_fini(entity);
+ }
+-EXPORT_SYMBOL(drm_sched_entity_destroy);
+ 
+ /*
+  * drm_sched_entity_wakeup - callback to clear the entity's dependency and
+@@ -390,7 +384,6 @@ void drm_sched_entity_set_priority(struct drm_sched_entity *entity,
+ 	entity->priority = priority;
+ 	spin_unlock(&entity->lock);
+ }
+-EXPORT_SYMBOL(drm_sched_entity_set_priority);
+ 
+ /*
+  * Add a callback to the current dependency of the entity to wake up the
+@@ -628,4 +621,3 @@ void drm_sched_entity_push_job(struct drm_sched_job *sched_job)
+ 		drm_sched_wakeup(sched);
+ 	}
+ }
+-EXPORT_SYMBOL(drm_sched_entity_push_job);
+diff --git a/sched_fence.c b/sched_fence.c
+index 9391d6f..e4a6f0b 100644
+--- a/sched_fence.c
++++ b/sched_fence.c
+@@ -33,7 +33,7 @@
+ 
+ static struct kmem_cache *sched_fence_slab;
+ 
+-static int __init drm_sched_fence_slab_init(void)
++int __init drm_sched_fence_slab_init(void)
+ {
+ 	sched_fence_slab = KMEM_CACHE(drm_sched_fence, SLAB_HWCACHE_ALIGN);
+ 	if (!sched_fence_slab)
+@@ -42,7 +42,7 @@ static int __init drm_sched_fence_slab_init(void)
+ 	return 0;
+ }
+ 
+-static void __exit drm_sched_fence_slab_fini(void)
++void drm_sched_fence_slab_fini(void)
+ {
+ 	rcu_barrier();
+ 	kmem_cache_destroy(sched_fence_slab);
+@@ -149,7 +149,7 @@ static void drm_sched_fence_release_finished(struct dma_fence *f)
+ 	dma_fence_put(&fence->scheduled);
+ }
+ 
+-static void drm_sched_fence_set_deadline_finished(struct dma_fence *f,
++static void __maybe_unused drm_sched_fence_set_deadline_finished(struct dma_fence *f,
+ 						  ktime_t deadline)
+ {
+ 	struct drm_sched_fence *fence = to_drm_sched_fence(f);
+@@ -190,7 +190,7 @@ static const struct dma_fence_ops drm_sched_fence_ops_finished = {
+ 	.get_driver_name = drm_sched_fence_get_driver_name,
+ 	.get_timeline_name = drm_sched_fence_get_timeline_name,
+ 	.release = drm_sched_fence_release_finished,
+-	.set_deadline = drm_sched_fence_set_deadline_finished,
++	/* 6.1's dma_fence has no deadlines (a power/latency hint); see compat.h. */
+ };
+ 
+ struct drm_sched_fence *to_drm_sched_fence(struct dma_fence *f)
+@@ -203,7 +203,6 @@ struct drm_sched_fence *to_drm_sched_fence(struct dma_fence *f)
+ 
+ 	return NULL;
+ }
+-EXPORT_SYMBOL(to_drm_sched_fence);
+ 
+ struct drm_sched_fence *drm_sched_fence_alloc(struct drm_sched_entity *entity,
+ 					      void *owner,
+@@ -235,8 +234,7 @@ void drm_sched_fence_init(struct drm_sched_fence *fence,
+ 		       &fence->lock, entity->fence_context + 1, seq);
+ }
+ 
+-module_init(drm_sched_fence_slab_init);
+-module_exit(drm_sched_fence_slab_fini);
++/* mobarchy: one module with Panthor, which calls these from its init/exit. */
+ 
+ MODULE_DESCRIPTION("DRM GPU scheduler");
+ MODULE_LICENSE("GPL and additional rights");
+diff --git a/sched_main.c b/sched_main.c
+index 3f13877..1859212 100644
+--- a/sched_main.c
++++ b/sched_main.c
+@@ -430,7 +430,6 @@ void drm_sched_tdr_queue_imm(struct drm_gpu_scheduler *sched)
+ 	drm_sched_start_timeout(sched);
+ 	spin_unlock(&sched->job_list_lock);
+ }
+-EXPORT_SYMBOL(drm_sched_tdr_queue_imm);
+ 
+ /**
+  * drm_sched_fault - immediately start timeout handler
+@@ -444,7 +443,6 @@ void drm_sched_fault(struct drm_gpu_scheduler *sched)
+ 	if (sched->timeout_wq)
+ 		mod_delayed_work(sched->timeout_wq, &sched->work_tdr, 0);
+ }
+-EXPORT_SYMBOL(drm_sched_fault);
+ 
+ /**
+  * drm_sched_suspend_timeout - Suspend scheduler job timeout
+@@ -474,7 +472,6 @@ unsigned long drm_sched_suspend_timeout(struct drm_gpu_scheduler *sched)
+ 	else
+ 		return sched->timeout;
+ }
+-EXPORT_SYMBOL(drm_sched_suspend_timeout);
+ 
+ /**
+  * drm_sched_resume_timeout - Resume scheduler job timeout
+@@ -496,7 +493,6 @@ void drm_sched_resume_timeout(struct drm_gpu_scheduler *sched,
+ 
+ 	spin_unlock(&sched->job_list_lock);
+ }
+-EXPORT_SYMBOL(drm_sched_resume_timeout);
+ 
+ static void drm_sched_job_begin(struct drm_sched_job *s_job)
+ {
+@@ -669,7 +665,6 @@ void drm_sched_stop(struct drm_gpu_scheduler *sched, struct drm_sched_job *bad)
+ 	 */
+ 	cancel_delayed_work(&sched->work_tdr);
+ }
+-EXPORT_SYMBOL(drm_sched_stop);
+ 
+ /**
+  * drm_sched_start - recover jobs after a reset
+@@ -713,7 +708,6 @@ void drm_sched_start(struct drm_gpu_scheduler *sched, int errno)
+ 	drm_sched_start_timeout_unlocked(sched);
+ 	drm_sched_wqueue_start(sched);
+ }
+-EXPORT_SYMBOL(drm_sched_start);
+ 
+ /**
+  * drm_sched_resubmit_jobs - Deprecated, don't use in new code!
+@@ -766,7 +760,6 @@ void drm_sched_resubmit_jobs(struct drm_gpu_scheduler *sched)
+ 		}
+ 	}
+ }
+-EXPORT_SYMBOL(drm_sched_resubmit_jobs);
+ 
+ /**
+  * drm_sched_job_init - init a scheduler job
+@@ -834,7 +827,6 @@ int drm_sched_job_init(struct drm_sched_job *job,
+ 
+ 	return 0;
+ }
+-EXPORT_SYMBOL(drm_sched_job_init);
+ 
+ /**
+  * drm_sched_job_arm - arm a scheduler job for execution
+@@ -867,7 +859,6 @@ void drm_sched_job_arm(struct drm_sched_job *job)
+ 
+ 	drm_sched_fence_init(job->s_fence, job->entity);
+ }
+-EXPORT_SYMBOL(drm_sched_job_arm);
+ 
+ /**
+  * drm_sched_job_add_dependency - adds the fence as a job dependency
+@@ -913,7 +904,6 @@ int drm_sched_job_add_dependency(struct drm_sched_job *job,
+ 
+ 	return ret;
+ }
+-EXPORT_SYMBOL(drm_sched_job_add_dependency);
+ 
+ /**
+  * drm_sched_job_add_syncobj_dependency - adds a syncobj's fence as a job dependency
+@@ -941,7 +931,6 @@ int drm_sched_job_add_syncobj_dependency(struct drm_sched_job *job,
+ 
+ 	return drm_sched_job_add_dependency(job, fence);
+ }
+-EXPORT_SYMBOL(drm_sched_job_add_syncobj_dependency);
+ 
+ /**
+  * drm_sched_job_add_resv_dependencies - add all fences from the resv to the job
+@@ -977,7 +966,6 @@ int drm_sched_job_add_resv_dependencies(struct drm_sched_job *job,
+ 	}
+ 	return 0;
+ }
+-EXPORT_SYMBOL(drm_sched_job_add_resv_dependencies);
+ 
+ /**
+  * drm_sched_job_add_implicit_dependencies - adds implicit dependencies as job
+@@ -1001,7 +989,6 @@ int drm_sched_job_add_implicit_dependencies(struct drm_sched_job *job,
+ 	return drm_sched_job_add_resv_dependencies(job, obj->resv,
+ 						   dma_resv_usage_rw(write));
+ }
+-EXPORT_SYMBOL(drm_sched_job_add_implicit_dependencies);
+ 
+ /**
+  * drm_sched_job_has_dependency - check whether fence is the job's dependency
+@@ -1024,7 +1011,6 @@ bool drm_sched_job_has_dependency(struct drm_sched_job *job,
+ 
+ 	return false;
+ }
+-EXPORT_SYMBOL(drm_sched_job_has_dependency);
+ 
+ /**
+  * drm_sched_job_cleanup - clean up scheduler job resources
+@@ -1068,7 +1054,6 @@ void drm_sched_job_cleanup(struct drm_sched_job *job)
+ 	xa_destroy(&job->dependencies);
+ 
+ }
+-EXPORT_SYMBOL(drm_sched_job_cleanup);
+ 
+ /**
+  * drm_sched_wakeup - Wake up the scheduler if it is ready to queue
+@@ -1197,7 +1182,6 @@ drm_sched_pick_best(struct drm_gpu_scheduler **sched_list,
+ 
+ 	return picked_sched;
+ }
+-EXPORT_SYMBOL(drm_sched_pick_best);
+ 
+ /**
+  * drm_sched_free_job_work - worker to call free_job
+@@ -1383,7 +1367,6 @@ Out_check_own:
+ 	dev_err(sched->dev, "%s: Failed to setup GPU scheduler--out of memory\n", __func__);
+ 	return -ENOMEM;
+ }
+-EXPORT_SYMBOL(drm_sched_init);
+ 
+ static void drm_sched_cancel_remaining_jobs(struct drm_gpu_scheduler *sched)
+ {
+@@ -1467,7 +1450,6 @@ void drm_sched_fini(struct drm_gpu_scheduler *sched)
+ 	if (!list_empty(&sched->pending_list))
+ 		dev_warn(sched->dev, "Tearing down scheduler while jobs are pending!\n");
+ }
+-EXPORT_SYMBOL(drm_sched_fini);
+ 
+ /**
+  * drm_sched_increase_karma - Update sched_entity guilty flag
+@@ -1510,7 +1492,6 @@ void drm_sched_increase_karma(struct drm_sched_job *bad)
+ 		}
+ 	}
+ }
+-EXPORT_SYMBOL(drm_sched_increase_karma);
+ 
+ /**
+  * drm_sched_wqueue_ready - Is the scheduler ready for submission
+@@ -1523,7 +1504,6 @@ bool drm_sched_wqueue_ready(struct drm_gpu_scheduler *sched)
+ {
+ 	return sched->ready;
+ }
+-EXPORT_SYMBOL(drm_sched_wqueue_ready);
+ 
+ /**
+  * drm_sched_wqueue_stop - stop scheduler submission
+@@ -1538,7 +1518,6 @@ void drm_sched_wqueue_stop(struct drm_gpu_scheduler *sched)
+ 	cancel_work_sync(&sched->work_run_job);
+ 	cancel_work_sync(&sched->work_free_job);
+ }
+-EXPORT_SYMBOL(drm_sched_wqueue_stop);
+ 
+ /**
+  * drm_sched_wqueue_start - start scheduler submission
+@@ -1555,4 +1534,3 @@ void drm_sched_wqueue_start(struct drm_gpu_scheduler *sched)
+ 	queue_work(sched->submit_wq, &sched->work_run_job);
+ 	queue_work(sched->submit_wq, &sched->work_free_job);
+ }
+-EXPORT_SYMBOL(drm_sched_wqueue_start);

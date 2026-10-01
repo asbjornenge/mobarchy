@@ -63,7 +63,9 @@ if ! cmp -s "$config.new" "$obj/.config.device" 2>/dev/null; then
         rm -f "$obj/.config.device"; exit 1
     fi
     run "$mk -j\$(nproc) modules_prepare >/dev/null 2>&1"
-    cat "$kout/vmlinux.symvers" "$kout"/*_Module.symvers | sort -u -k2,2 > "$obj/Module.symvers"
+    # Merge the symbol lists on the symbol name. LC_ALL=C: locale collation treats some
+    # distinct names as equal, and sort -u then silently drops symbols (memset, ...).
+    cat "$kout/vmlinux.symvers" "$kout"/*_Module.symvers | LC_ALL=C sort -u -t$'\t' -k2,2 > "$obj/Module.symvers"
     echo "kernel release: $(cat "$obj/include/config/kernel.release")"
 fi
 

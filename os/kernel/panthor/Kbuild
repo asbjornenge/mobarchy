@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-2.0
+# Panthor backport for 6.1 vendor kernels (ADR 0008). See prepare.
+obj-m := panthor.o
+
+panthor-y := \
+	panthor_devfreq.o panthor_device.o panthor_drv.o panthor_fw.o panthor_gem.o \
+	panthor_gpu.o panthor_heap.o panthor_hw.o panthor_mmu.o panthor_sched.o \
+	drm_gpuvm.o drm_exec.o drm_gem_shmem_helper.o \
+	sched_main.o sched_entity.o sched_fence.o
+
+# Our headers (newer DRM helpers, compat shims) must come before the kernel's. ccflags-y
+# lands after LINUXINCLUDE on the command line, so use NOSTDINC_FLAGS, which comes first
+# (the same trick as the kernel backports project).
+NOSTDINC_FLAGS += -I$(src)/compat/include -I$(src)/include -I$(src)/include/uapi -include $(src)/compat/compat.h
+ccflags-y := -I$(src)

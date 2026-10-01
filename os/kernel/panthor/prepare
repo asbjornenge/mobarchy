@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Assemble the Panthor backport module (ADR 0008) from a pinned upstream kernel tree.
+#
+#   os/kernel/panthor/prepare --upstream <linux-6.18.y checkout> --out <dir>
+#
+# The repo holds only our part (Kbuild, compat/, patches/); the GPL upstream sources are
+# copied from the checkout at the pinned tag. Then build <dir> with
+# tools/kernel-build/extmod --module <dir>.
+#
+# What the module bundles, because the 6.1 core lacks it or has an older version:
+#   drm_gpuvm, drm_exec          not in 6.1
+#   drm/scheduler                6.1 has an older one (and comet's config doesn't build it)
+#   drm_gem_shmem_helper         6.1 has an older one built in: ours gets renamed symbols
+# Their headers go into include/ and take precedence over the kernel's.
+set -euo pipefail
+TAG=v6.18.54
+here="$(cd "$(dirname "$0")" && pwd)"
+up="" out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --upstream) up="$(realpath "$2")"; shift 2 ;;
+        --out) out="$(realpath -m "$2")"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$up" ] && [ -n "$out" ] || { echo "usage: $0 --upstream <linux checkout> --out <dir>" >&2; exit 2; }
+v=$(sed -n 's/^VERSION = //p;s/^PATCHLEVEL = //p;s/^SUBLEVEL = //p' "$up/Makefile" | paste -sd.)
+[ "v$v" = "$TAG" ] || { echo "upstream checkout is v$v, expected $TAG" >&2; exit 1; }
+
+rm -rf "$out" && mkdir -p "$out/include/drm" "$out/include/uapi/drm" "$out/include/linux"
+d="$up/drivers/gpu/drm"
+cp "$d"/panthor/*.[ch] "$out/"
+cp "$d/drm_gpuvm.c" "$d/drm_exec.c" "$d/drm_gem_shmem_helper.c" "$out/"
+cp "$d"/scheduler/*.[ch] "$out/"
+for h in drm_gpuvm.h drm_exec.h gpu_scheduler.h drm_gem_shmem_helper.h; do
+    cp "$up/include/drm/$h" "$out/include/drm/"
+done
+cp "$up/include/uapi/drm/panthor_drm.h" "$out/include/uapi/drm/"
+# The out dir is a git repo: commit 1 is upstream as copied, so `git diff HEAD` there shows
+# exactly our changes (that is how patches/ is produced).
+git -C "$out" init -q && git -C "$out" add -A
+git -C "$out" -c user.name=mobarchy -c user.email=mobarchy@localhost commit -q -m "upstream $TAG"
+cp "$here/Kbuild" "$out/"
+cp -r "$here/compat" "$out/"
+for p in "$here"/patches/*.patch; do
+    [ -e "$p" ] || continue
+    git -C "$out" apply "$p" || { echo "patch failed: $(basename "$p")" >&2; exit 1; }
+done
+echo "prepared $out from $TAG"

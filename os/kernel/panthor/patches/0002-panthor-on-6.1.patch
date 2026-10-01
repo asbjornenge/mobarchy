@@ -1,0 +1,240 @@
+Panthor (6.18) on 6.1: no fdinfo memory stats (6.5+ core), int platform remove,
+no custom io-pgtable allocators, client_id label, uapi include path.
+
+diff --git a/include/uapi/drm/panthor_drm.h b/include/uapi/drm/panthor_drm.h
+index 467d365..6840d50 100644
+--- a/include/uapi/drm/panthor_drm.h
++++ b/include/uapi/drm/panthor_drm.h
+@@ -3,7 +3,7 @@
+ #ifndef _PANTHOR_DRM_H_
+ #define _PANTHOR_DRM_H_
+ 
+-#include "drm.h"
++#include <drm/drm.h>
+ 
+ #if defined(__cplusplus)
+ extern "C" {
+diff --git a/panthor_drv.c b/panthor_drv.c
+index 687fa28..7dfe413 100644
+--- a/panthor_drv.c
++++ b/panthor_drv.c
+@@ -997,7 +997,7 @@ static int panthor_ioctl_group_submit(struct drm_device *ddev, void *data,
+ 		struct drm_sched_job *job;
+ 
+ 		job = panthor_job_create(pfile, args->group_handle, qsubmit,
+-					 file->client_id);
++					 mob_drm_file_client_id(file));
+ 		if (IS_ERR(job)) {
+ 			ret = PTR_ERR(job);
+ 			goto out_cleanup_submit_ctx;
+@@ -1501,6 +1501,7 @@ static int panthor_mmap(struct file *filp, struct vm_area_struct *vma)
+ 	return ret;
+ }
+ 
++#if 0	/* mobarchy: fdinfo needs the 6.5+ core (drm_show_memory_stats, drm_show_fdinfo). */
+ static void panthor_gpu_show_fdinfo(struct panthor_device *ptdev,
+ 				    struct panthor_file *pfile,
+ 				    struct drm_printer *p)
+@@ -1545,6 +1546,7 @@ static void panthor_show_fdinfo(struct drm_printer *p, struct drm_file *file)
+ 
+ 	drm_show_memory_stats(p, file);
+ }
++#endif
+ 
+ static const struct file_operations panthor_drm_driver_fops = {
+ 	.owner = THIS_MODULE,
+@@ -1556,8 +1558,7 @@ static const struct file_operations panthor_drm_driver_fops = {
+ 	.read = drm_read,
+ 	.llseek = noop_llseek,
+ 	.mmap = panthor_mmap,
+-	.show_fdinfo = drm_show_fdinfo,
+-	.fop_flags = FOP_UNSIGNED_OFFSET,
++	/* mobarchy: no .show_fdinfo (see above); .fop_flags is 6.12+. */
+ };
+ 
+ #ifdef CONFIG_DEBUG_FS
+@@ -1607,7 +1608,6 @@ static const struct drm_driver panthor_drm_driver = {
+ 			   DRIVER_SYNCOBJ_TIMELINE | DRIVER_GEM_GPUVA,
+ 	.open = panthor_open,
+ 	.postclose = panthor_postclose,
+-	.show_fdinfo = panthor_show_fdinfo,
+ 	.ioctls = panthor_drm_driver_ioctls,
+ 	.num_ioctls = ARRAY_SIZE(panthor_drm_driver_ioctls),
+ 	.fops = &panthor_drm_driver_fops,
+@@ -1694,9 +1694,16 @@ static DEFINE_RUNTIME_DEV_PM_OPS(panthor_pm_ops,
+ 				 panthor_device_resume,
+ 				 NULL);
+ 
++/* 6.1: platform_driver.remove returns int (void since 6.11). */
++static int mob_panthor_remove(struct platform_device *pdev)
++{
++	panthor_remove(pdev);
++	return 0;
++}
++
+ static struct platform_driver panthor_driver = {
+ 	.probe = panthor_probe,
+-	.remove = panthor_remove,
++	.remove = mob_panthor_remove,
+ 	.driver = {
+ 		.name = "panthor",
+ 		.pm = pm_ptr(&panthor_pm_ops),
+@@ -1713,14 +1720,24 @@ static struct platform_driver panthor_driver = {
+  */
+ struct workqueue_struct *panthor_cleanup_wq;
+ 
++/* mobarchy: the bundled DRM scheduler's init/exit (it is a module of its own upstream). */
++int drm_sched_fence_slab_init(void);
++void drm_sched_fence_slab_fini(void);
++
+ static int __init panthor_init(void)
+ {
+ 	int ret;
+ 
+-	ret = panthor_mmu_pt_cache_init();
++	ret = drm_sched_fence_slab_init();
+ 	if (ret)
+ 		return ret;
+ 
++	ret = panthor_mmu_pt_cache_init();
++	if (ret) {
++		drm_sched_fence_slab_fini();
++		return ret;
++	}
++
+ 	panthor_cleanup_wq = alloc_workqueue("panthor-cleanup", WQ_UNBOUND, 0);
+ 	if (!panthor_cleanup_wq) {
+ 		pr_err("panthor: Failed to allocate the workqueues");
+@@ -1739,6 +1756,7 @@ err_destroy_cleanup_wq:
+ 
+ err_mmu_pt_cache_fini:
+ 	panthor_mmu_pt_cache_fini();
++	drm_sched_fence_slab_fini();
+ 	return ret;
+ }
+ module_init(panthor_init);
+@@ -1748,6 +1766,7 @@ static void __exit panthor_exit(void)
+ 	platform_driver_unregister(&panthor_driver);
+ 	destroy_workqueue(panthor_cleanup_wq);
+ 	panthor_mmu_pt_cache_fini();
++	drm_sched_fence_slab_fini();
+ }
+ module_exit(panthor_exit);
+ 
+diff --git a/panthor_gem.c b/panthor_gem.c
+index 43471ba..1d3db85 100644
+--- a/panthor_gem.c
++++ b/panthor_gem.c
+@@ -193,7 +193,7 @@ panthor_gem_prime_export(struct drm_gem_object *obj, int flags)
+ 	return drm_gem_prime_export(obj, flags);
+ }
+ 
+-static enum drm_gem_object_status panthor_gem_status(struct drm_gem_object *obj)
++static enum drm_gem_object_status __maybe_unused panthor_gem_status(struct drm_gem_object *obj)
+ {
+ 	struct panthor_gem_object *bo = to_panthor_bo(obj);
+ 	enum drm_gem_object_status res = 0;
+@@ -213,7 +213,7 @@ static const struct drm_gem_object_funcs panthor_gem_funcs = {
+ 	.vmap = drm_gem_shmem_object_vmap,
+ 	.vunmap = drm_gem_shmem_object_vunmap,
+ 	.mmap = drm_gem_shmem_object_mmap,
+-	.status = panthor_gem_status,
++	/* mobarchy: .status (fdinfo memory accounting) is 6.5+. */
+ 	.export = panthor_gem_prime_export,
+ 	.vm_ops = &drm_gem_shmem_vm_ops,
+ };
+diff --git a/panthor_mmu.c b/panthor_mmu.c
+index 5647a24..b36cd7d 100644
+--- a/panthor_mmu.c
++++ b/panthor_mmu.c
+@@ -434,7 +434,7 @@ static struct kmem_cache *pt_cache;
+  * Return: non-NULL on success, NULL if the allocation failed for any
+  * reason.
+  */
+-static void *alloc_pt(void *cookie, size_t size, gfp_t gfp)
++static void * __maybe_unused alloc_pt(void *cookie, size_t size, gfp_t gfp)
+ {
+ 	struct panthor_vm *vm = cookie;
+ 	void *page;
+@@ -486,7 +486,7 @@ static void *alloc_pt(void *cookie, size_t size, gfp_t gfp)
+  * @size: Size of the page table. This size should be fixed,
+  * and determined at creation time based on the granule size.
+  */
+-static void free_pt(void *cookie, void *data, size_t size)
++static void __maybe_unused free_pt(void *cookie, void *data, size_t size)
+ {
+ 	struct panthor_vm *vm = cookie;
+ 
+@@ -1099,9 +1099,9 @@ static void panthor_vm_bo_put(struct drm_gpuvm_bo *vm_bo)
+ 	 * GEM vm_bo list.
+ 	 */
+ 	dma_resv_lock(drm_gpuvm_resv(vm), NULL);
+-	mutex_lock(&bo->base.base.gpuva.lock);
++	mutex_lock(&mob_gpuva(&bo->base.base)->lock);
+ 	unpin = drm_gpuvm_bo_put(vm_bo);
+-	mutex_unlock(&bo->base.base.gpuva.lock);
++	mutex_unlock(&mob_gpuva(&bo->base.base)->lock);
+ 	dma_resv_unlock(drm_gpuvm_resv(vm));
+ 
+ 	/* If the vm_bo object was destroyed, release the pin reference that
+@@ -1292,9 +1292,9 @@ static int panthor_vm_prepare_map_op_ctx(struct panthor_vm_op_ctx *op_ctx,
+ 	 * calling this function.
+ 	 */
+ 	dma_resv_lock(panthor_vm_resv(vm), NULL);
+-	mutex_lock(&bo->base.base.gpuva.lock);
++	mutex_lock(&mob_gpuva(&bo->base.base)->lock);
+ 	op_ctx->map.vm_bo = drm_gpuvm_bo_obtain_prealloc(preallocated_vm_bo);
+-	mutex_unlock(&bo->base.base.gpuva.lock);
++	mutex_unlock(&mob_gpuva(&bo->base.base)->lock);
+ 	dma_resv_unlock(panthor_vm_resv(vm));
+ 
+ 	/* If the a vm_bo for this <VM,BO> combination exists, it already
+@@ -2050,10 +2050,10 @@ static void panthor_vma_link(struct panthor_vm *vm,
+ {
+ 	struct panthor_gem_object *bo = to_panthor_bo(vma->base.gem.obj);
+ 
+-	mutex_lock(&bo->base.base.gpuva.lock);
++	mutex_lock(&mob_gpuva(&bo->base.base)->lock);
+ 	drm_gpuva_link(&vma->base, vm_bo);
+ 	drm_WARN_ON(&vm->ptdev->base, drm_gpuvm_bo_put(vm_bo));
+-	mutex_unlock(&bo->base.base.gpuva.lock);
++	mutex_unlock(&mob_gpuva(&bo->base.base)->lock);
+ }
+ 
+ static void panthor_vma_unlink(struct panthor_vm *vm,
+@@ -2062,9 +2062,9 @@ static void panthor_vma_unlink(struct panthor_vm *vm,
+ 	struct panthor_gem_object *bo = to_panthor_bo(vma->base.gem.obj);
+ 	struct drm_gpuvm_bo *vm_bo = drm_gpuvm_bo_get(vma->base.vm_bo);
+ 
+-	mutex_lock(&bo->base.base.gpuva.lock);
++	mutex_lock(&mob_gpuva(&bo->base.base)->lock);
+ 	drm_gpuva_unlink(&vma->base);
+-	mutex_unlock(&bo->base.base.gpuva.lock);
++	mutex_unlock(&mob_gpuva(&bo->base.base)->lock);
+ 
+ 	/* drm_gpuva_unlink() release the vm_bo, but we manually retained it
+ 	 * when entering this function, so we can implement deferred VMA
+@@ -2402,8 +2402,12 @@ panthor_vm_create(struct panthor_device *ptdev, bool for_mcu,
+ 		.coherent_walk	= ptdev->coherent,
+ 		.tlb		= &mmu_tlb_ops,
+ 		.iommu_dev	= ptdev->base.dev,
+-		.alloc		= alloc_pt,
+-		.free		= free_pt,
++		/*
++		 * mobarchy: 6.1's io-pgtable has no custom allocators (.alloc/.free), so page
++		 * tables come from io-pgtable itself and the pages reserved in the op_ctx go
++		 * unused. Upstream avoids allocating in the fence signalling path this way;
++		 * restoring that is on the hardening list (ADR 0008, step 5).
++		 */
+ 	};
+ 
+ 	vm->pgtbl_ops = alloc_io_pgtable_ops(ARM_64_LPAE_S1, &pgtbl_cfg, vm);
+@@ -2557,7 +2561,7 @@ panthor_vm_bind_job_create(struct drm_file *file,
+ 	kref_init(&job->refcount);
+ 	job->vm = panthor_vm_get(vm);
+ 
+-	ret = drm_sched_job_init(&job->base, &vm->entity, 1, vm, file->client_id);
++	ret = drm_sched_job_init(&job->base, &vm->entity, 1, vm, mob_drm_file_client_id(file));
+ 	if (ret)
+ 		goto err_put_job;
+ 
