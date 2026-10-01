@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# Build Mesa from a git checkout for an aarch64 Mobarchy device, with only the drivers the
+# device needs, into a prefix that can sit next to the distribution's Mesa.
+#
+#   os/mesa/build --src <mesa checkout> --out <dir> [--prefix /opt/mesa-main]
+#                 [--gallium panfrost] [--vulkan panfrost] [--jobs N]
+#
+# Why: Arch's Mesa can lag behind what a GPU needs (comet's Mali-G715, Valhall v11, is
+# only supported on Mesa main as of 2026-10; see ADR 0008).
+#
+# Builds natively in the arm64 Arch Linux ARM container (qemu-user), because Panfrost
+# needs Mesa's own OpenCL compiler (mesa-clc, LLVM + libclc) at build time, which is far
+# simpler native than cross. Result: <out>/mesa-<version>-<rev>.tar.zst, rooted at /.
+set -euo pipefail
+src="" out="" prefix=/opt/mesa-main gallium=panfrost vulkan=panfrost jobs=12
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --src) src="$(realpath "$2")"; shift 2 ;;
+        --out) out="$(realpath -m "$2")"; shift 2 ;;
+        --prefix) prefix="$2"; shift 2 ;;
+        --gallium) gallium="$2"; shift 2 ;;
+        --vulkan) vulkan="$2"; shift 2 ;;
+        --jobs) jobs="$2"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$src" ] && [ -n "$out" ] || { echo "usage: $0 --src <mesa checkout> --out <dir>" >&2; exit 2; }
+[ -f "$src/meson.build" ] || { echo "$src is not a Mesa checkout" >&2; exit 1; }
+mkdir -p "$out"
+image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
+    echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
+rev=$(git -C "$src" rev-parse --short HEAD)
+version=$(cat "$src/VERSION")
+
+docker run --rm --platform linux/arm64 -v "$src:/src:ro" -v "$out:/out" "$image" bash -euo pipefail -c "
+    pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+    pacman -Syu --noconfirm --needed --disable-sandbox >/dev/null
+    pacman -S --noconfirm --needed --disable-sandbox base-devel meson ninja python-mako \
+        python-packaging python-yaml python-ply llvm clang libclc spirv-llvm-translator \
+        spirv-tools spirv-headers glslang libdrm wayland wayland-protocols libelf zstd expat \
+        libglvnd >/dev/null
+    meson setup /tmp/build /src --prefix=$prefix --libdir=lib -Dbuildtype=release -Db_ndebug=true \
+        -Dplatforms=wayland -Dgallium-drivers=$gallium -Dvulkan-drivers=$vulkan \
+        -Dglx=disabled -Dgbm=enabled -Degl=enabled -Dgles1=disabled -Dgles2=enabled \
+        -Dglvnd=enabled -Dllvm=enabled -Dshared-llvm=enabled -Dvalgrind=disabled \
+        -Dlibunwind=disabled -Dvideo-codecs= -Dbuild-tests=false > /out/meson-setup.log
+    ninja -C /tmp/build -j$jobs > /out/ninja.log
+    DESTDIR=/tmp/root ninja -C /tmp/build install > /out/install.log
+    tar -C /tmp/root -c --zstd -f /out/mesa-$version-$rev.tar.zst .
+    chmod a+r /out/*
+"
+echo "built $out/mesa-$version-$rev.tar.zst"

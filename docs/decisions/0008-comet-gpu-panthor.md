@@ -1,6 +1,6 @@
 # 0008: comet GPU acceleration via Panthor (backported) and stock Mesa
 
-- Status: proposed
+- Status: accepted (Asbjørn, 2026-10-01: "no quick wins, the very good solution"); in progress
 - Date: 2026-10-01
 - Amends: [0007](0007-comet-kernel.md), which assumed GPU acceleration would come from libhybris and the Mali blob.
 
@@ -56,6 +56,25 @@
 3. Mesa. Done when `eglinfo`/`vulkaninfo` show Panfrost/PanVK on G715, and the GL/Vulkan smoke tests pass (`kmscube`, `vkcube`).
 4. Hyprland on the GPU. Done when the scroll benchmark and real usage both run at 60 Hz without stutter (120 Hz later).
 5. Hardening: GPU DVFS (cal-if levels), suspend/resume with the panels, thermal, and an upstream-style write-up.
+
+## Progress
+
+- **2026-10-01, step 1 done.**
+  - The backport module builds and loads: `os/kernel/panthor` assembles Panthor and the bundled helpers from v6.18.54; `tools/kernel-build/extmod` builds it against our kernel.
+  - `panthor_pixel` (`devices/comet/kernel/panthor-pixel`) provides the cal-if clock, the OPPs, the power domain and S2MPU links, and the driver override.
+  - Panthor reads `GPU_ID 0xb8a2` r1p3 with `shader_present 0x1110055`.
+- **2026-10-01, step 2 done.**
+  - The CSF firmware boots (upstream linux-firmware `arch11.8/mali_csffw.bin`, interface v2.8.0).
+  - The missing pieces were Pixel-specific: the GPU master's bus protection must be set by a secure monitor call (`SMC_PROTECTION_SET`, G3D) after every power-up and cleared before every power-down, exactly as kbase does. Without the first, every GPU access is a bus error. Without the second, powering off the domain hard-locks the SoC.
+  - Also needed: the L2 slice hash from DT and a soft reset before the first boot.
+  - Runtime suspend/resume and module reload work.
+- **Step 3 is blocked on Mesa.** Arch's Mesa 26.2.3 has no Valhall v11 (G615/G715). Mesa main (26.3-devel) has it: `PAN_PROD_ID(11, 8, 2)`, variant 4. `os/mesa/build` builds Mesa main for the device into `/opt/mesa-main`, next to the distribution's Mesa.
+
+Hardening list (step 5), found along the way:
+- Custom io-pgtable allocators: Panthor's page table pre-reservation. 6.1 lacks the hooks.
+- fdinfo memory stats.
+- Fence deadlines.
+- `disable_work_sync` semantics (mapped to `cancel_work_sync`).
 
 ## Consequences
 

@@ -128,6 +128,20 @@ Fixes found on the device, now in the repo:
 - On every change, workspaces move to the active panel, and the bar and keyboard (layer surfaces tied to an output) are restarted.
 - Touch mapping: `goodix_ts0` → DSI-1 and `synaptics_tcm_touch` → DSI-2. The touch drivers suspend and resume with their panel.
 
+**GPU (ADR 0008).** The Mali-G715 runs on the upstream Panthor driver, backported (`os/kernel/panthor`) with Pixel glue (`kernel/panthor-pixel`).
+- What works: the CSF firmware boots, and runtime PM works.
+- To use it:
+  1. Unbind or don't load `mali_kbase`.
+  2. Load `panthor_pixel.ko`, then `panthor.ko`.
+  3. Install `arm/mali/arch11.8/mali_csffw.bin` from linux-firmware.
+- Pixel specifics learned the hard way:
+  - **Bus protection SMC:** `SMC_PROTECTION_SET` for G3D on every power-up and clear on every power-down. Missing the first gives GPU bus errors; missing the second gives a hard lockup in `blkpwr_g3d`.
+  - The GPU clocks go through cal-if, not CCF.
+  - Two power domains plus an S2MPU.
+  - Uppercase IRQ names in the DT.
+- Userspace needs Mesa main for Valhall v11.
+- Any crash or hang in this area lands the phone in fastboot. A plain `fastboot reboot` (which writes nothing) brings it back.
+
 **Driving the phone through MCP.** `mobarchy-mcp` runs in the session and listens on the phone's loopback only. Run `tools/device/mcp-tunnel` on the host, then use `uv run mobarchy-mcp-call --url http://127.0.0.1:18765/mcp ...` from `agent/mobarchy-mcp`. Verified on the phone (2026-10-01): `device_info`, `screenshot`, `list_windows`, `tap`, `type_text`, `press_key` and `close_window`.
 
 **Host setup for USB networking.** The gadget uses fixed MACs (phone `02:6d:6f:62:00:02`, host side `02:6d:6f:62:00:01`), so the host interface is always `enx026d6f620001`. After a reboot, NetworkManager's DHCP profile raced networkd's DHCP server, so the host uses a static profile instead:
