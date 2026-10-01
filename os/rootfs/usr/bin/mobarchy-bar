@@ -21,7 +21,9 @@ itself with LD_PRELOAD set.
 import json
 import os
 import re
+import socket
 import subprocess
+import threading
 import sys
 
 LAYER_SHELL_LIB = "/usr/lib/libgtk4-layer-shell.so"
@@ -65,6 +67,7 @@ class Assistant(Gtk.Application):
         if self.bar:  # already running: a second launch just activates us
             return
         self.build_bar()
+        threading.Thread(target=self.watch_compositor, daemon=True).start()
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)
         Gtk.StyleContext.add_provider_for_display(self.bar.get_display(), provider,
@@ -117,6 +120,40 @@ class Assistant(Gtk.Application):
         # Through the compositor, not as our child: the bar is a user service that gets
         # restarted (e.g. on fold changes) and would take the terminal down with it.
         subprocess.Popen(["hyprctl", "dispatch", "exec", TERMINAL], stdout=subprocess.DEVNULL)
+
+    # --- one app per screen -------------------------------------------------------------
+
+    def watch_compositor(self):
+        """Follow Hyprland's event socket. Every window has its own workspace (see
+        hyprland.conf); when one closes, show the most recently used window instead of an
+        empty screen."""
+        sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+        runtime = os.environ.get("XDG_RUNTIME_DIR", "")
+        if not sig:
+            return
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.connect(f"{runtime}/hypr/{sig}/.socket2.sock")
+        except OSError:
+            return
+        for line in sock.makefile(encoding="utf-8", errors="replace"):
+            if line.startswith("closewindow>>"):
+                GLib.timeout_add(150, self.show_recent_window)
+
+    @staticmethod
+    def hypr_json(what):
+        out = subprocess.run(["hyprctl", "-j", what], capture_output=True, text=True).stdout
+        return json.loads(out or "null")
+
+    def show_recent_window(self):
+        active = self.hypr_json("activeworkspace") or {}
+        if active.get("windows", 1) == 0:
+            clients = [c for c in self.hypr_json("clients") or [] if c.get("mapped")]
+            if clients:
+                recent = min(clients, key=lambda c: c.get("focusHistoryID", 1 << 30))
+                subprocess.run(["hyprctl", "dispatch", "focuswindow", f"address:{recent['address']}"],
+                               stdout=subprocess.DEVNULL)
+        return False
 
     # --- the app grid (normal window) ----------------------------------------------------
 
