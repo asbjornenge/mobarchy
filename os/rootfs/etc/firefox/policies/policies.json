@@ -1,0 +1,12 @@
+{
+  "policies": {
+    "DontCheckDefaultBrowser": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "Preferences": {
+      "browser.uidensity": { "Value": 2, "Status": "default" },
+      "apz.overscroll.enabled": { "Value": true, "Status": "default" },
+      "browser.aboutwelcome.enabled": { "Value": false, "Status": "default" }
+    }
+  }
+}
