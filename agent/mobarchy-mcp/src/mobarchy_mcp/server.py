@@ -21,6 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
+from . import network
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -213,6 +214,34 @@ def close_window(window_id: str) -> str:
 
 
 # --- confirm ----------------------------------------------------------------------
+
+
+@tool(Risk.READ, "Wifi status")
+def wifi_status() -> dict:
+    """Wifi connection state: network (SSID), state, frequency and IP addresses."""
+    try:
+        return network.status()
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"wifi unavailable: {e}") from e
+
+
+@tool(Risk.READ, "Scan for wifi networks")
+def wifi_scan() -> dict:
+    """Wifi networks in range, strongest first, with signal (dBm) and whether they are secured."""
+    try:
+        return {"networks": network.scan()}
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"wifi unavailable: {e}") from e
+
+
+@tool(Risk.CONFIRM, "Connect to a wifi network")
+def wifi_connect(ssid: str, passphrase: str = "") -> dict:
+    """Connect to a wifi network and remember it. Leave passphrase empty for an open network.
+    The passphrase is stored only on the device (wpa_supplicant)."""
+    try:
+        return network.connect(ssid, passphrase or None)
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"wifi connect failed: {e}") from e
 
 
 @tool(Risk.CONFIRM, "Run shell command")
