@@ -152,7 +152,7 @@ Fixes found on the device, now in the repo:
 Open points for v0.2:
 - **Display setup:** which DRM connector belongs to which panel (inner/outer), and the panel power sequencing without Android's HWC.
 - **Touch firmware:** touch firmware loading and the touch driver's userspace expectations.
-- **Resizing userdata:** growing the filesystem to fill userdata on first boot.
+- ~~**Resizing userdata:** growing the filesystem to fill userdata on first boot.~~ Done: `/etc/fstab` has `x-systemd.growfs` (2026-10-01: 7.8 GB grew to 225 GB online).
 
 ## Sources
 

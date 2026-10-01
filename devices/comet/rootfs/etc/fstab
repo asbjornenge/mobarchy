@@ -1,0 +1,4 @@
+# comet: the rootfs lives on Android's userdata partition (mounted by the initramfs).
+# x-systemd.growfs: the image is smaller than the partition; grow the filesystem to fill
+# it at boot (online, ext4).
+PARTLABEL=userdata  /  ext4  rw,noatime,x-systemd.growfs  0 1
