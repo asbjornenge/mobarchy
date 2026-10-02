@@ -1,0 +1,30 @@
+diff --git a/aoc/alsa/aoc_alsa_pcm.c b/aoc/alsa/aoc_alsa_pcm.c
+index b99d9e2..9cc0c12 100644
+--- a/aoc/alsa/aoc_alsa_pcm.c
++++ b/aoc/alsa/aoc_alsa_pcm.c
+@@ -16,6 +16,16 @@
+ 
+ #include <linux/hrtimer.h>
+ #include <linux/ktime.h>
++#include <linux/moduleparam.h>
++
++/*
++ * Mobarchy: track the playback position with the timer instead of AoC's PCM mailbox
++ * interrupts. On Mobarchy those interrupts do not arrive for PCM playback (AoC still
++ * plays), so the position never moves and ALSA gives up after 100 ms (-EIO).
++ */
++static bool pcm_timer = true;
++module_param(pcm_timer, bool, 0644);
++MODULE_PARM_DESC(pcm_timer, "Poll the PCM position with a timer instead of mailbox interrupts");
+ 
+ static bool is_aaudio_mmaped_service(const char *name)
+ {
+@@ -399,7 +409,7 @@ static int snd_aoc_pcm_open(struct snd_soc_component *component,
+ 	alsa_stream->open = 1;
+ 	alsa_stream->draining = 1;
+ 
+-	if (aoc_pcm_support_interrupt(alsa_stream->dev->mbox_index)) {
++	if (!pcm_timer && aoc_pcm_support_interrupt(alsa_stream->dev->mbox_index)) {
+ 		dev->prvdata = alsa_stream;
+ 		alsa_stream->isr_type = INTR;
+ 	} else {

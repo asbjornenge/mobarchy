@@ -53,6 +53,31 @@ needs per-device calibration (on Android it comes from the persist partition). D
 amps without it, or with the wrong calibration, can overheat the small speakers. That needs
 a deliberate, supervised first test at low volume.
 
+## First playback attempt (2026-10-02)
+
+Set up as the HAL would: mixer defaults plus the `speaker`, `adapted-speaker` and
+`primary-playback -> speaker` paths from mixer_paths.xml, amp protection firmware loaded
+(`DSP1 Preload Switch`), and calibration written to `DSP1 Protection cd CAL_R / CAL_STATUS /
+CAL_CHECKSUM / CAL_AMBIENT` (both amps). The calibration comes from
+`/mnt/vendor/persist/audio/speaker.cal`: per amp six little-endian u32, of which the first
+four are R, status, checksum (R + status) and ambient temperature; the firmware's own
+default CAL_AMBIENT (23) matches. Amp level −20 dB (`Digital PCM Volume` 657; Android uses 817 = 0 dB).
+
+`aplay -D hw:0,1` (EP2) fails after ~100 ms with -EIO: the PCM position never moves.
+- AoC reads exactly one ring buffer's worth (16 KB, `audio_playback1` Tx/Rx in
+  `.../17000000.aoc/services`) and then stops reading. The playback chain inside AoC does
+  not run; the stuck position is a symptom.
+- AoC's PCM mailbox interrupts do not arrive either. Patch
+  `devices/comet/kernel/patches/private/google-modules/aoc/0001` lets the driver poll the
+  position with its timer instead (module parameter `aoc_alsa_dev_util.pcm_timer`, on by
+  default); it does not help while AoC is not consuming.
+- Linux 6.1 ALSA times out a stalled stream after 100 ms (not 10 s as older kernels).
+
+Probably missing: whatever the Android audio HAL (closed source) tells AoC to start the
+output (commands through the `audio_output_control` service or controls not in mixer_paths).
+The way to learn it: boot Android (slot a) and record mixer changes and AoC commands
+during playback.
+
 ## Next steps
 
 1. A comet unit that starts AoC at boot (`devices/comet/rootfs`), after confirming that touch
