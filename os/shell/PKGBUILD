@@ -9,8 +9,8 @@ pkgrel=1
 pkgdesc='The Mobarchy phone shell: status bar, swipe-up app drawer, agent home screen'
 arch=(aarch64 x86_64)
 depends=(qt6-base qt6-declarative qt6-wayland qt6-svg layer-shell-qt ttf-jetbrains-mono-nerd
-         adwaita-icon-theme iw systemd)
-makedepends=(cmake ninja wayland)
+         adwaita-icon-theme iw systemd libpulse)
+makedepends=(cmake ninja wayland pkgconf)
 options=(!debug)
 
 prepare() {

@@ -14,6 +14,7 @@ QtObject {
     readonly property Device device: Device {}
     readonly property Wifi wifi: Wifi {}
     readonly property Rfkill rfkill: Rfkill {}
+    readonly property Volume volume: Volume {}
     readonly property Notifications notifications: Notifications {}
     readonly property Banner banner: Banner {
         notifications: shell.notifications
@@ -101,6 +102,7 @@ QtObject {
         wifi: shell.wifi
         rfkill: shell.rfkill
         notifications: shell.notifications
+        volume: shell.volume
         onPassphraseNeeded: (ssid) => {
             shell.quick.close()
             shell.wifiPassword.ask(ssid)

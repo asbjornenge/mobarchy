@@ -16,6 +16,7 @@ Sheet {
     required property Wifi wifi
     required property Rfkill rfkill
     required property Notifications notifications
+    required property Volume volume
 
     // A secured network without a saved passphrase was picked.
     signal passphraseNeeded(string ssid)
@@ -231,46 +232,22 @@ Sheet {
                     }
                 }
 
-                // Brightness
-                Item {
+                LevelSlider {
                     width: parent.width
-                    height: 40
                     visible: quick.brightness.available
-                    Text {
-                        id: sun
-                        anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                        text: "󰃠"
-                        color: Theme.fg
-                        font { family: Theme.font; pixelSize: 20 }
-                    }
-                    Item {
-                        id: track
-                        anchors { left: sun.right; leftMargin: 16; right: parent.right; rightMargin: 12
-                                  top: parent.top; bottom: parent.bottom }
-                        Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width; height: 8; radius: 4
-                            color: Theme.panel
-                            Rectangle {
-                                width: quick.brightness.level * parent.width; height: parent.height
-                                radius: 4
-                                color: Theme.accent
-                            }
-                        }
-                        Rectangle {
-                            x: quick.brightness.level * track.width - width / 2
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: 24; height: 24; radius: 12
-                            color: Theme.fg
-                        }
-                        MouseArea {
-                            anchors { fill: parent; leftMargin: -12; rightMargin: -12 }
-                            preventStealing: true
-                            function set(m) { quick.brightness.level = (m.x - 12) / track.width }
-                            onPressed: (m) => set(m)
-                            onPositionChanged: (m) => set(m)
-                        }
-                    }
+                    icon: "󰃠"
+                    value: quick.brightness.level
+                    onMoved: (v) => quick.brightness.level = v
+                }
+                LevelSlider {
+                    width: parent.width
+                    visible: quick.volume.available
+                    icon: quick.volume.muted || quick.volume.volume === 0 ? "󰖁"
+                        : quick.volume.volume < 0.34 ? "󰕿" : quick.volume.volume < 0.67 ? "󰖀" : "󰕾"
+                    iconActive: quick.volume.muted
+                    value: quick.volume.muted ? 0 : quick.volume.volume
+                    onMoved: (v) => quick.volume.volume = v
+                    onIconClicked: quick.volume.muted = !quick.volume.muted
                 }
 
                 Grid {
@@ -311,10 +288,14 @@ Sheet {
                         supported: false
                     }
                     Tile {
-                        icon: "󰕾"
+                        icon: quick.volume.muted ? "󰖁" : "󰕾"
                         label: qsTr("Sound")
-                        detail: qsTr("No audio driver yet")
-                        supported: false
+                        detail: !quick.volume.available ? qsTr("No audio output")
+                              : quick.volume.muted ? qsTr("Muted")
+                              : Math.round(quick.volume.volume * 100) + " %"
+                        active: quick.volume.available && !quick.volume.muted
+                        supported: quick.volume.available
+                        onClicked: quick.volume.muted = !quick.volume.muted
                     }
                     Tile {
                         icon: "󰂯"
