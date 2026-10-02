@@ -1,0 +1,24 @@
+# Asahi Linux's Widevine installer for aarch64 (ADR 0011): the script and the browser
+# configuration. The CDM itself is downloaded on the device (mobarchy-widevine.service).
+# Build: tools/pkg-build widevine-installer
+
+pkgname=widevine-installer
+pkgver=0+eab8c66
+pkgrel=1
+pkgdesc='Download and set up the Widevine CDM for Firefox and Chromium on aarch64'
+arch=(any)
+url='https://github.com/AsahiLinux/widevine-installer'
+license=(MIT)
+depends=(curl squashfs-tools python)
+makedepends=(git)
+_commit=eab8c668ad3f9db27a444ee1f94b82d8f3ab5336
+source=("git+$url#commit=$_commit")
+sha256sums=('SKIP')
+
+package() {
+    cd widevine-installer
+    # Arch's paths; the script itself reads the same variables when it runs.
+    DESTDIR="$pkgdir" LIBDIR=/usr/lib LIBEXECDIR=/usr/lib CHROME_WIDEVINE_BASE=/usr/lib/chromium \
+        MOZ_PREF_BASE=/usr/lib/firefox/defaults/pref ./widevine-installer --distinstall
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,18 @@
+[Unit]
+Description=Download and install the Widevine CDM (DRM for the browsers, ADR 0011)
+ConditionPathExists=/usr/bin/widevine-installer
+ConditionPathExists=!/var/lib/widevine/libwidevinecdm.so
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# The installer asks twice for Enter (its notice, then Widevine's license); the browser
+# configuration comes with the package (COPY_CONFIGS=0).
+Environment=COPY_CONFIGS=0 LIBDIR=/usr/lib LIBEXECDIR=/usr/lib CHROME_WIDEVINE_BASE=/usr/lib/chromium MOZ_PREF_BASE=/usr/lib/firefox/defaults/pref
+ExecStart=/bin/sh -c 'printf "\\n\\n" | /usr/bin/widevine-installer'
+Restart=on-failure
+RestartSec=10min
+
+[Install]
+WantedBy=multi-user.target
