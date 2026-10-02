@@ -1,0 +1,94 @@
+diff --git a/touch/synaptics/syna_gtd/syna_tcm2.c b/touch/synaptics/syna_gtd/syna_tcm2.c
+index efbee11..cce4e1c 100644
+--- a/touch/synaptics/syna_gtd/syna_tcm2.c
++++ b/touch/synaptics/syna_gtd/syna_tcm2.c
+@@ -38,6 +38,17 @@
+  */
+ 
+ #include "syna_tcm2.h"
++
++#include <linux/moduleparam.h>
++
++/*
++ * Mobarchy: the controller's low-power wake gesture (LPWG) while the screen is off; a
++ * gesture reports KEY_WAKEUP. Google ships it disabled (Pixel runs tap-to-wake in AoC).
++ * Read at every suspend, so it can be switched at runtime.
++ */
++static bool wake_gesture;
++module_param(wake_gesture, bool, 0644);
++MODULE_PARM_DESC(wake_gesture, "Wake gesture (KEY_WAKEUP) while the screen is off");
+ #include "syna_tcm2_cdev.h"
+ #include "syna_tcm2_platform.h"
+ #include "syna_tcm2_testing_limits.h"
+@@ -155,6 +166,18 @@ static int syna_dev_enable_lowpwr_gesture(struct syna_tcm *tcm, bool en)
+ 			LOGE("Fail to enable wakeup gesture via DC command\n");
+ 			return retval;
+ 		}
++
++		/* Mobarchy: a single tap wakes (the firmware's STTW gesture). The reset on
++		 * suspend cleared any type set before.
++		 */
++		retval = syna_tcm_set_dynamic_config(tcm->tcm_dev,
++				DC_GESTURE_TYPE,
++				GESTURE_TYPE_STTW,
++				RESP_IN_ATTN);
++		if (retval < 0) {
++			LOGE("Fail to set the wakeup gesture type\n");
++			return retval;
++		}
+ 	} else {
+ 		if (tcm->irq_wake) {
+ 			disable_irq_wake(attn->irq_id);
+@@ -1722,17 +1745,14 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
+ 		if (touch_data->gesture_id) {
+ 			LOGD("Gesture detected, id:%d\n",
+ 				touch_data->gesture_id);
+-#if IS_ENABLED(CONFIG_GOOG_TOUCH_INTERFACE)
+-			goog_input_report_key(tcm->gti, input_dev, KEY_WAKEUP, 1);
+-			goog_input_sync(tcm->gti, input_dev);
+-			goog_input_report_key(tcm->gti, input_dev, KEY_WAKEUP, 0);
+-			goog_input_sync(tcm->gti, input_dev);
+-#else
++			/* Mobarchy: straight to the input device. GTI's
++			 * goog_input_report_key() drops keys (Android gets the
++			 * gesture from GTI's firmware status event instead).
++			 */
+ 			input_report_key(input_dev, KEY_WAKEUP, 1);
+ 			input_sync(input_dev);
+ 			input_report_key(input_dev, KEY_WAKEUP, 0);
+ 			input_sync(input_dev);
+-#endif
+ 		}
+ 	}
+ #endif
+@@ -2899,13 +2919,18 @@ static int syna_dev_suspend(struct device *dev)
+ 	/* clear all input events  */
+ 	syna_dev_free_input_events(tcm);
+ #endif
++	tcm->lpwg_enabled = wake_gesture;
++
+ 	/* once lpwg is enabled, irq should be alive.
+ 	 * otherwise, disable irq in suspend.
+ 	 */
+ 	irq_disabled = (!tcm->lpwg_enabled);
+ 
+-	/* disable irq */
+-	if (irq_disabled && (hw_if->ops_enable_irq))
++	/* disable irq. Mobarchy: also with lpwg, during the reset below: it polls for
++	 * the identify report, which the irq thread would take first (3 failed resets).
++	 * The irq comes back before the gesture mode is set, whose responses need it.
++	 */
++	if (hw_if->ops_enable_irq)
+ 		hw_if->ops_enable_irq(hw_if, false);
+ 
+ #ifdef POWER_ALIVE_AT_SUSPEND
+@@ -2934,6 +2959,9 @@ static int syna_dev_suspend(struct device *dev)
+ 	}
+ #endif
+ 
++	if (!irq_disabled && (hw_if->ops_enable_irq))
++		hw_if->ops_enable_irq(hw_if, true);
++
+ 	/* enter power saved mode if power is not off */
+ 	retval = syna_dev_enter_lowpwr_sensing(tcm);
+ 	if (retval < 0) {

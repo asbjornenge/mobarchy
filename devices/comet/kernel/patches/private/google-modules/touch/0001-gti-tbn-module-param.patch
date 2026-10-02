@@ -1,0 +1,28 @@
+diff --git a/touch/common/goog_touch_interface.c b/touch/common/goog_touch_interface.c
+index 288e59b..250ad29 100644
+--- a/touch/common/goog_touch_interface.c
++++ b/touch/common/goog_touch_interface.c
+@@ -4143,11 +4143,22 @@ void goog_input_release_all_fingers(struct goog_touch_interface *gti)
+ 	goog_input_process(gti, true);
+ }
+ 
++/*
++ * Mobarchy: the touch bus negotiator hands the touch bus to AoC while the screen is off,
++ * for Android's touch offload (tap gestures run in AoC). Nothing on Mobarchy takes the
++ * bus on the AoC side, so every hand-over times out (~2.5 s with the touch dead), and
++ * while the bus is "away" GTI drops the controller's own wake-gesture interrupts.
++ * tbn=0 keeps the bus with the AP; the device tree's goog,tbn-enabled is then ignored.
++ */
++static bool tbn = true;
++module_param(tbn, bool, 0444);
++MODULE_PARM_DESC(tbn, "Hand the touch bus to AoC while the screen is off (goog,tbn-enabled)");
++
+ void goog_register_tbn(struct goog_touch_interface *gti)
+ {
+ 	struct device_node *np = gti->vendor_dev->of_node;
+ 
+-	gti->tbn_enabled = of_property_read_bool(np, "goog,tbn-enabled");
++	gti->tbn_enabled = tbn && of_property_read_bool(np, "goog,tbn-enabled");
+ 	if (gti->tbn_enabled) {
+ 		if (register_tbn(&gti->tbn_register_mask)) {
+ 			GOOG_ERR(gti, "Fail to register tbn context!\n");

@@ -140,7 +140,8 @@ HardwareKeys::HardwareKeys(QObject *parent)
             continue;
         unsigned long keys[KEY_MAX / (8 * sizeof(long)) + 1] = {};
         const bool wanted = ::ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) >= 0
-            && (hasKey(keys, KEY_POWER) || hasKey(keys, KEY_VOLUMEUP) || hasKey(keys, KEY_VOLUMEDOWN));
+            && (hasKey(keys, KEY_POWER) || hasKey(keys, KEY_VOLUMEUP) || hasKey(keys, KEY_VOLUMEDOWN)
+                || hasKey(keys, KEY_WAKEUP));
         if (!wanted) {
             ::close(fd);
             continue;
@@ -157,7 +158,7 @@ HardwareKeys::HardwareKeys(QObject *parent)
         });
     }
     if (m_fds.isEmpty())
-        qWarning() << "hardware keys: no input device with power or volume keys (is the user in the input group?)";
+        qWarning() << "hardware keys: no input device with power, volume or wake keys (is the user in the input group?)";
 }
 
 HardwareKeys::~HardwareKeys()
@@ -180,6 +181,9 @@ bool HardwareKeys::read(int fd)
                 m_powerHold.stop();
                 emit powerPressed();
             }
+        } else if (ev.code == KEY_WAKEUP) {
+            if (ev.value == 1)
+                emit wakeGesture();
         } else if (ev.code == KEY_VOLUMEUP || ev.code == KEY_VOLUMEDOWN) {
             if (ev.value == 1) {
                 m_volumeKey = ev.code;

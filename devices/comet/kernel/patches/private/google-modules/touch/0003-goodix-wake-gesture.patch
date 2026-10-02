@@ -1,0 +1,73 @@
+diff --git a/touch/goodix/goodix_ts_core.c b/touch/goodix/goodix_ts_core.c
+index b1453eb..79a514d 100644
+--- a/touch/goodix/goodix_ts_core.c
++++ b/touch/goodix/goodix_ts_core.c
+@@ -27,6 +27,30 @@
+ #endif
+ 
+ #include "goodix_ts_core.h"
++
++#include <linux/moduleparam.h>
++
++/*
++ * Mobarchy: the controller's single-tap gesture while the screen is off reports
++ * KEY_WAKEUP (only that: no touch). Google ships it disabled (Pixel runs tap-to-wake in
++ * AoC). Read at every suspend, so it can be switched at runtime.
++ */
++static bool wake_gesture;
++module_param(wake_gesture, bool, 0644);
++MODULE_PARM_DESC(wake_gesture, "Wake gesture (KEY_WAKEUP) while the screen is off");
++
++static void goodix_ts_report_wakeup(struct goodix_ts_core *cd)
++{
++	struct input_dev *dev = cd->input_dev;
++
++	ts_info("wake gesture");
++	mutex_lock(&dev->mutex);
++	input_report_key(dev, KEY_WAKEUP, 1);
++	input_sync(dev);
++	input_report_key(dev, KEY_WAKEUP, 0);
++	input_sync(dev);
++	mutex_unlock(&dev->mutex);
++}
+ /* goodix fb test */
+ // #include "../../../video/fbdev/core/fb_firefly.h"
+ 
+@@ -1894,6 +1918,10 @@ static irqreturn_t goodix_ts_threadirq_func(int irq, void *data)
+ 			memcpy(&core_data->gesture_data, &core_data->ts_event.temp_gesture_data,
+ 				sizeof(core_data->gesture_data));
+ 			mutex_unlock(&core_data->gesture_data_lock);
++			if (atomic_read(&core_data->suspended) &&
++				(core_data->gesture_type & GESTURE_SINGLE_TAP) &&
++				ts_event->temp_gesture_data.event_type == GOODIX_GESTURE_SINGLE_TAP)
++				goodix_ts_report_wakeup(core_data);
+ 		}
+ 		if (core_data->board_data.pen_enable &&
+ 			ts_event->event_type & EVENT_PEN) {
+@@ -2462,6 +2490,11 @@ static int goodix_ts_suspend(struct goodix_ts_core *core_data)
+ 	hw_ops->disable_irq_nosync(core_data);
+ 	goodix_ts_esd_off(core_data);
+ 
++	if (wake_gesture)
++		core_data->gesture_type |= GESTURE_SINGLE_TAP;
++	else
++		core_data->gesture_type &= ~GESTURE_SINGLE_TAP;
++
+ 	if (core_data->gesture_type) {
+ 		/* enter gesture mode */
+ 		hw_ops->gesture(core_data, 0);
+@@ -2518,8 +2551,12 @@ static void monitor_gesture_event(struct work_struct *work)
+ 		return;
+ 	}
+ 
+-	if (event_type == GOODIX_GESTURE_FOD_UP ||
+-		event_type == GOODIX_GESTURE_UNKNOWN) {
++	/* Mobarchy: the finger-up at the fingerprint sensor is for FOD gestures only, not
++	 * for waking up from a tap.
++	 */
++	if ((cd->gesture_type & GESTURE_FOD_PRESS) &&
++		(event_type == GOODIX_GESTURE_FOD_UP ||
++		event_type == GOODIX_GESTURE_UNKNOWN)) {
+ 		if (event_type == GOODIX_GESTURE_UNKNOWN)
+ 			cd->coords_timestamp = now;
+ 		goodix_ts_report_gesture_up(cd);

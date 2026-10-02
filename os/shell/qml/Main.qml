@@ -28,6 +28,9 @@ QtObject {
     }
     readonly property HardwareKeys keys: HardwareKeys {
         onPowerPressed: shell.screen.on ? shell.screenOff() : shell.wake()
+        // A tap on the dark screen (where the touchscreen supports it) shows the lock
+        // screen for a glance: the clock and notifications, dark again after a while.
+        onWakeGesture: if (!shell.screen.on) shell.wake()
         onVolumeUp: shell.stepVolume(+1)
         onVolumeDown: shell.stepVolume(-1)
         onPowerLongPressed: {
@@ -36,9 +39,12 @@ QtObject {
                 shell.quick.open()
         }
     }
-    // Screen off after a minute without input (apps that play video inhibit this).
+    // Apps that keep the screen on (a playing video) through org.freedesktop.ScreenSaver.
+    readonly property Inhibitors inhibitors: Inhibitors {}
+    // Screen off after a minute without input, unless an app keeps it on (Wayland idle
+    // inhibitors count too: the compositor holds the notification back).
     readonly property Idle idle: Idle {
-        timeout: 60
+        timeout: shell.inhibitors.active ? 0 : 60
         onIdleChanged: if (idle && shell.screen.on) shell.screenOff()
     }
     // A woken but untouched lock screen goes dark again soon.

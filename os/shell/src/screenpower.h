@@ -3,7 +3,7 @@
 //  - Idle: no input for a while, through ext-idle-notify (respects idle inhibitors, e.g.
 //    a playing video)
 //  - HardwareKeys: the power and volume keys from evdev (the session user is in the input
-//    group)
+//    group), and KEY_WAKEUP: a touchscreen's wake gesture while the screen is off
 #pragma once
 
 #include "qwayland-ext-idle-notify-v1.h"
@@ -131,6 +131,7 @@ signals:
     void powerLongPressed();  // held for a while (emitted while still held)
     void volumeUp();          // on press, then repeated while held
     void volumeDown();
+    void wakeGesture();       // KEY_WAKEUP, e.g. a tap on the dark touchscreen
 
 private:
     bool read(int fd);  // false: the device is gone
