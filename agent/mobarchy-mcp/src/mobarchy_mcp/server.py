@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import bluetooth, clock, media, network, power, webapps
+from . import bluetooth, clock, media, network, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -333,6 +333,42 @@ def media_seek(seconds: float, relative: bool = False) -> dict:
     """Jump to a position in the current track (seconds), or by an offset (relative=true,
     negative goes back)."""
     return _media(media.seek, seconds, relative)
+
+
+@tool(Risk.READ, "Browse the app store")
+def store_list(category: str = "", query: str = "") -> dict:
+    """Apps known to work on this phone (Mobarchy's curated store): native apps and web
+    apps, with what each does and whether it is installed. Filter by category (music,
+    video, communication, internet, reading, photos, maps, productivity, utilities) or by
+    words in the name and description."""
+    try:
+        apps = store.entries()
+    except (OSError, ValueError, KeyError) as e:
+        raise ToolError(f"store: {e}") from e
+    words = query.lower().split()
+    apps = [a for a in apps if (not category or a["category"] == category)
+            and all(w in f"{a['name']} {a['summary']} {a['description']}".lower() for w in words)]
+    return {"apps": [{k: a[k] for k in ("id", "kind", "name", "summary", "category", "installed", "tested", "note")}
+                     for a in apps]}
+
+
+@tool(Risk.ACT, "Install an app from the store")
+def store_install(id: str) -> dict:
+    """Install an app from the store by id (from store_list): a package, or a web app on
+    the home screen."""
+    try:
+        return store.install(id)
+    except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"could not install {id}: {e}") from e
+
+
+@tool(Risk.ACT, "Remove an app installed from the store")
+def store_remove(id: str) -> dict:
+    """Uninstall an app that came from the store (id from store_list)."""
+    try:
+        return store.remove(id)
+    except (ValueError, RuntimeError, OSError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"could not remove {id}: {e}") from e
 
 
 @tool(Risk.ACT, "Add a web app to the home screen")

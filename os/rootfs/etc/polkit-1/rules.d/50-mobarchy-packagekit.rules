@@ -1,0 +1,10 @@
+// The owner (group wheel) installs and removes apps from the store without a password
+// prompt (ADR 0012): there is no prompt on screen, and the owner can sudo anyway.
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.packagekit.package-install" ||
+         action.id == "org.freedesktop.packagekit.package-remove" ||
+         action.id == "org.freedesktop.packagekit.system-sources-refresh") &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});

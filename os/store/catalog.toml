@@ -1,0 +1,203 @@
+# Apps known to work on Mobarchy (ADR 0012). Packages get their name, summary, description,
+# icon and screenshots from AppStream; web apps carry their own. `tested` lists device
+# codenames.
+#
+#   [[app]]
+#   id = "amberol"            unique, stable
+#   kind = "package"          package | webapp
+#   package = "amberol"       (package) the pacman package
+#   url = "https://..."       (webapp) the start page
+#   name, summary, icon       (webapp, or to override AppStream)
+#   category = "music"        music, video, communication, internet, reading, photos,
+#                             maps, productivity, utilities
+#   tested = ["comet"]
+#   note = "..."              shown with the app: what works, what doesn't
+
+# --- music & audio ---------------------------------------------------------------------
+[[app]]
+id = "spotify"
+kind = "webapp"
+name = "Spotify"
+summary = "Music and podcasts (the web player; playback needs Premium)"
+url = "https://open.spotify.com"
+category = "music"
+tested = ["comet"]
+
+[[app]]
+id = "amberol"
+kind = "package"
+package = "amberol"
+category = "music"
+tested = []
+
+[[app]]
+id = "shortwave"
+kind = "package"
+package = "shortwave"
+category = "music"
+tested = []
+
+[[app]]
+id = "gnome-podcasts"
+kind = "package"
+package = "gnome-podcasts"
+category = "music"
+tested = []
+
+# --- video -----------------------------------------------------------------------------
+[[app]]
+id = "youtube"
+kind = "webapp"
+name = "YouTube"
+summary = "Videos, in their mobile layout"
+url = "https://m.youtube.com"
+category = "video"
+tested = ["comet"]
+
+[[app]]
+id = "netflix"
+kind = "webapp"
+name = "Netflix"
+summary = "Films and series"
+url = "https://www.netflix.com"
+category = "video"
+tested = []
+
+[[app]]
+id = "nrk-tv"
+kind = "webapp"
+name = "NRK TV"
+summary = "NRK's TV and radio"
+url = "https://tv.nrk.no"
+category = "video"
+tested = []
+
+[[app]]
+id = "showtime"
+kind = "package"
+package = "showtime"
+category = "video"
+tested = []
+
+# --- communication ---------------------------------------------------------------------
+[[app]]
+id = "fractal"
+kind = "package"
+package = "fractal"
+category = "communication"
+tested = []
+
+[[app]]
+id = "tuba"
+kind = "package"
+package = "tuba"
+category = "communication"
+tested = []
+
+[[app]]
+id = "gmail"
+kind = "webapp"
+name = "Gmail"
+summary = "Google's mail"
+url = "https://mail.google.com"
+category = "communication"
+tested = []
+
+# --- reading & news --------------------------------------------------------------------
+[[app]]
+id = "foliate"
+kind = "package"
+package = "foliate"
+category = "reading"
+tested = []
+
+[[app]]
+id = "newsflash"
+kind = "package"
+package = "newsflash"
+category = "reading"
+tested = []
+
+[[app]]
+id = "papers"
+kind = "package"
+package = "papers"
+category = "reading"
+tested = []
+
+# --- maps & weather --------------------------------------------------------------------
+[[app]]
+id = "yr"
+kind = "webapp"
+name = "Yr"
+summary = "Weather from the Norwegian Meteorological Institute and NRK"
+url = "https://www.yr.no"
+category = "maps"
+tested = ["comet"]
+
+[[app]]
+id = "gnome-maps"
+kind = "package"
+package = "gnome-maps"
+category = "maps"
+tested = []
+
+[[app]]
+id = "google-maps"
+kind = "webapp"
+name = "Google Maps"
+summary = "Maps, places and directions"
+url = "https://www.google.com/maps"
+category = "maps"
+tested = []
+
+# --- photos ----------------------------------------------------------------------------
+[[app]]
+id = "loupe"
+kind = "package"
+package = "loupe"
+category = "photos"
+tested = []
+
+# --- productivity & utilities ----------------------------------------------------------
+[[app]]
+id = "gnome-calculator"
+kind = "package"
+package = "gnome-calculator"
+category = "utilities"
+tested = []
+
+[[app]]
+id = "gnome-clocks"
+kind = "package"
+package = "gnome-clocks"
+category = "utilities"
+tested = []
+
+[[app]]
+id = "authenticator"
+kind = "package"
+package = "authenticator"
+category = "utilities"
+tested = []
+
+[[app]]
+id = "secrets"
+kind = "package"
+package = "secrets"
+category = "utilities"
+tested = []
+
+[[app]]
+id = "gnome-text-editor"
+kind = "package"
+package = "gnome-text-editor"
+category = "productivity"
+tested = []
+
+[[app]]
+id = "gnome-calendar"
+kind = "package"
+package = "gnome-calendar"
+category = "productivity"
+tested = []

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Store
+Comment=Apps that work well on Mobarchy
+Exec=mobarchy-shell --store
+Icon=org.mobarchy.Store
+Categories=System;PackageManager;

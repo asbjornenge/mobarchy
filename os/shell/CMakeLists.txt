@@ -26,6 +26,7 @@ qt_add_qml_module(mobarchy-shell
         src/apps.cpp src/apps.h
         src/device.cpp src/device.h
         src/agent.cpp src/agent.h
+        src/appstore.cpp src/appstore.h
         src/bluetooth.cpp src/bluetooth.h
         src/iconprovider.h
         src/inhibit.cpp src/inhibit.h
@@ -60,6 +61,7 @@ qt_add_qml_module(mobarchy-shell
         qml/VolumeOsd.qml
         qml/WifiPassword.qml
         qml/Home.qml
+        qml/Store.qml
 )
 qt6_generate_wayland_protocol_client_sources(mobarchy-shell
     FILES
@@ -73,7 +75,9 @@ target_link_libraries(mobarchy-shell PRIVATE
 include(GNUInstallDirs)
 install(TARGETS mobarchy-shell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # The app ID of the shell's windows (portals look it up).
-install(FILES data/org.mobarchy.Shell.desktop DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES data/org.mobarchy.Shell.desktop data/org.mobarchy.Store.desktop
+        DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
+install(FILES data/org.mobarchy.Store.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 
 enable_testing()
 qt_add_executable(tst_desktopentry tests/tst_desktopentry.cpp)

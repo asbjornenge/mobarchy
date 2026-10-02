@@ -10,3 +10,5 @@ mobarchy-whisper-cpp
 # Firefox's phone UI; DRM for the browsers (ADR 0011)
 mobile-config-firefox
 widevine-installer
+# The app store's catalog (ADR 0012); it brings PackageKit and the AppStream data
+mobarchy-store-catalog

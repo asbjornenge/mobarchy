@@ -1,0 +1,12 @@
+# The app store's curated catalog (ADR 0012), from this directory. It is a package so it
+# updates with the system. Build: tools/repo-build os/store
+pkgname=mobarchy-store-catalog
+pkgver=1
+pkgrel=1
+pkgdesc='Apps known to work on Mobarchy: the catalog behind its store'
+arch=(any)
+depends=(packagekit archlinux-appstream-data libjxl)
+
+package() {
+    install -Dm644 "$startdir/catalog.toml" "$pkgdir/usr/share/mobarchy/store/catalog.toml"
+}

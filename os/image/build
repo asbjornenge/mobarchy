@@ -55,7 +55,7 @@ docker run --platform linux/arm64 --name "$name" -e MOBARCHY_SSH_PUBKEY="$(cat "
     # The stock kernel and bootloader bits are for SBCs; the device brings its own kernel.
     pacman -Rdd --disable-sandbox --noconfirm linux-aarch64 $(pacman -Qq | grep "^linux-firmware") >/dev/null 2>&1 || true
     # The pacman download sandbox (Landlock, alpm user) does not work under qemu-user emulation.
-    # Mobarchy's repository first: its packages win over Arch's of the same name.
+    # The Mobarchy repository first: its packages win over those of the same name in Arch.
     sed -i "/^\[core\]/i [mobarchy]\nSigLevel = Optional TrustAll\nServer = file:///extra/mobarchy-repo\n" /etc/pacman.conf
     grep -q "^\[mobarchy\]" /etc/pacman.conf
     grep -hv "^#" /src/os/image/packages.txt /src/os/image/packages-mobarchy.txt \
@@ -112,6 +112,9 @@ EOP
     [ -x /src/devices/$device/scripts/rootfs-hook ] && /src/devices/$device/scripts/rootfs-hook
     echo "rootfs ready"
 '
+
+# A quote inside the script above ends it early, silently: check that it got to the end.
+docker logs "$name" 2>/dev/null | grep -q "^rootfs ready$" || { echo "the rootfs script stopped early (see above)" >&2; exit 1; }
 
 # 3. Export and pack into an ext4 image.
 docker export "$name" > "$out/rootfs.tar"

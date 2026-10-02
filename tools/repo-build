@@ -4,7 +4,7 @@
 #
 #   tools/repo-build --repo <dir> [--builder container|device] [--add <pkg file>]... [what...]
 #
-#   what       os/shell, agent, or a name in os/packages (default: all of them)
+#   what       os/shell, agent, os/store, or a name in os/packages (default: all of them)
 #   --builder  container: the Arch Linux ARM container under qemu-user (tools/pkg-build);
 #              slow for big C/C++ builds.
 #              device: on a connected device over ssh (MOBARCHY_DEVICE, default
@@ -26,7 +26,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$repo" ] || { echo "usage: $0 --repo <dir> [--builder container|device] [--add <pkg>]... [what...]" >&2; exit 2; }
-[ ${#what[@]} -gt 0 ] || what=(os/shell agent $(cd "$repo_root/os/packages" && ls))
+[ ${#what[@]} -gt 0 ] || what=(os/shell agent os/store $(cd "$repo_root/os/packages" && ls))
 mkdir -p "$repo"
 
 pkgdir_of() {  # name or path -> directory with the PKGBUILD
@@ -50,6 +50,8 @@ work=$1 name=$2
 cd "$work/src/$name"
 deps=$(bash -c 'source PKGBUILD; printf "%s\n" "${depends[@]}" "${makedepends[@]}" "${checkdepends[@]}"' | sed 's/[<>=].*//' | sort -u)
 sudo -n pacman -S --needed --noconfirm --disable-sandbox $deps >/dev/null
+# A phone has no thermal management yet: a few jobs, or it gets hot enough to shut down.
+export MAKEFLAGS=-j3 CMAKE_BUILD_PARALLEL_LEVEL=3
 BUILDDIR=$work/makepkg/$name PKGDEST=$work/out PKGEXT=.pkg.tar.zst makepkg -fC --noconfirm \
     > "$work/makepkg-$name.log" 2>&1 || { tail -30 "$work/makepkg-$name.log" >&2; exit 1; }
 REMOTE

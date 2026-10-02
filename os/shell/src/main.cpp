@@ -1,5 +1,6 @@
 // mobarchy-shell: status bar, bottom edge with swipe-up app drawer, and the agent home
 // screen. See ADR 0009.
+//   mobarchy-shell --store    the app store (ADR 0012), an app of its own
 #include "iconprovider.h"
 
 #include <QGuiApplication>
@@ -14,19 +15,22 @@ int main(int argc, char *argv[])
     if (!qEnvironmentVariableIsSet("QML_NO_TOUCH_COMPRESSION"))
         qputenv("QML_NO_TOUCH_COMPRESSION", "1");
 
-    // The app_id of the shell's own windows: the window list leaves them out.
-    QGuiApplication::setDesktopFileName(QStringLiteral("org.mobarchy.Shell"));
+    const bool store = argc > 1 && qstrcmp(argv[1], "--store") == 0;
+    // The app_id of the shell's own windows: the window list leaves them out. The store is
+    // an app like any other.
+    QGuiApplication::setDesktopFileName(store ? QStringLiteral("org.mobarchy.Store")
+                                              : QStringLiteral("org.mobarchy.Shell"));
     QGuiApplication app(argc, argv);
-    app.setApplicationName(QStringLiteral("mobarchy-shell"));
+    app.setApplicationName(store ? QStringLiteral("mobarchy-store") : QStringLiteral("mobarchy-shell"));
     // Layer surfaces are closed by the compositor when their output goes away (a fold);
     // the shell puts them back, so a moment without windows is not the end.
-    app.setQuitOnLastWindowClosed(false);
+    app.setQuitOnLastWindowClosed(store);
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("icon"), new IconProvider(qEnvironmentVariable(
         "MOBARCHY_ICON_THEME", QStringLiteral("Adwaita"))));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
-    engine.loadFromModule("Mobarchy.Shell", "Main");
+    engine.loadFromModule("Mobarchy.Shell", store ? "Store" : "Main");
     return app.exec();
 }
