@@ -192,7 +192,7 @@ def install(app_id: str) -> dict:
         if r.returncode != 0:
             raise RuntimeError((r.stderr or r.stdout).strip().splitlines()[-1] if (r.stderr or r.stdout).strip() else "pkgcli failed")
     else:
-        result = webapps.add(a["url"], a["name"])
+        result = webapps.add(a["url"], a["name"], keep_url=True)
         return {"id": app_id, "installed": True, "app_id": result["app_id"]}
     return {"id": app_id, "installed": True}
 

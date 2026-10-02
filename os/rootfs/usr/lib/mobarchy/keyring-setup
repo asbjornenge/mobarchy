@@ -1,0 +1,41 @@
+#!/usr/bin/env python3
+"""Give the session a default keyring (the Secret Service: apps' stored logins and keys)
+without asking for a password.
+
+There is no login password to unlock it with (the phone logs in by itself), and an app
+that needs secrets would otherwise put up GNOME Keyring's "choose a password" dialog
+(Chromium does at every start). So the keyring is created with an empty password, which
+GNOME Keyring stores unencrypted and opens by itself: the same protection as today's
+lock screen without a PIN. With a PIN, the keyring should be encrypted with it (PAM).
+"""
+import sys
+
+from gi.repository import Gio, GLib
+
+SERVICE = "org.freedesktop.secrets"
+PATH = "/org/freedesktop/secrets"
+
+
+def call(bus, iface, method, args, sig):
+    return bus.call_sync(SERVICE, PATH, iface, method, GLib.Variant(sig, args), None,
+                         Gio.DBusCallFlags.NONE, -1, None).unpack()
+
+
+def main() -> int:
+    bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+    (default,) = call(bus, "org.freedesktop.Secret.Service", "ReadAlias", ("default",), "(s)")
+    if default != "/":
+        return 0  # there is one already
+    _, session = call(bus, "org.freedesktop.Secret.Service", "OpenSession", ("plain", GLib.Variant("s", "")), "(sv)")
+    label = {"org.freedesktop.Secret.Collection.Label": GLib.Variant("s", "Login")}
+    # GNOME Keyring's own interface for creating a keyring with a given password, no prompt.
+    (collection,) = call(bus, "org.gnome.keyring.InternalUnsupportedGuiltRiddenInterface",
+                         "CreateWithMasterPassword", (label, (session, b"", b"", "text/plain")),
+                         "(a{sv}(oayays))")
+    call(bus, "org.freedesktop.Secret.Service", "SetAlias", ("default", collection), "(so)")
+    print(f"created the default keyring {collection}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

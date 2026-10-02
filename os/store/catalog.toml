@@ -28,21 +28,21 @@ id = "amberol"
 kind = "package"
 package = "amberol"
 category = "music"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "shortwave"
 kind = "package"
 package = "shortwave"
 category = "music"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "gnome-podcasts"
 kind = "package"
 package = "gnome-podcasts"
 category = "music"
-tested = []
+tested = ["comet"]
 
 # --- video -----------------------------------------------------------------------------
 [[app]]
@@ -61,7 +61,8 @@ name = "Netflix"
 summary = "Films and series"
 url = "https://www.netflix.com"
 category = "video"
-tested = []
+tested = ["comet"]
+note = "The site runs on the phone; playback (DRM) is not tried with an account yet."
 
 [[app]]
 id = "nrk-tv"
@@ -70,14 +71,14 @@ name = "NRK TV"
 summary = "NRK's TV and radio"
 url = "https://tv.nrk.no"
 category = "video"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "showtime"
 kind = "package"
 package = "showtime"
 category = "video"
-tested = []
+tested = ["comet"]
 
 # --- communication ---------------------------------------------------------------------
 [[app]]
@@ -85,14 +86,14 @@ id = "fractal"
 kind = "package"
 package = "fractal"
 category = "communication"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "tuba"
 kind = "package"
 package = "tuba"
 category = "communication"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "gmail"
@@ -101,7 +102,7 @@ name = "Gmail"
 summary = "Google's mail"
 url = "https://mail.google.com"
 category = "communication"
-tested = []
+tested = ["comet"]
 
 # --- reading & news --------------------------------------------------------------------
 [[app]]
@@ -109,21 +110,21 @@ id = "foliate"
 kind = "package"
 package = "foliate"
 category = "reading"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "newsflash"
 kind = "package"
 package = "newsflash"
 category = "reading"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "papers"
 kind = "package"
 package = "papers"
 category = "reading"
-tested = []
+tested = ["comet"]
 
 # --- maps & weather --------------------------------------------------------------------
 [[app]]
@@ -140,7 +141,7 @@ id = "gnome-maps"
 kind = "package"
 package = "gnome-maps"
 category = "maps"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "google-maps"
@@ -149,7 +150,7 @@ name = "Google Maps"
 summary = "Maps, places and directions"
 url = "https://www.google.com/maps"
 category = "maps"
-tested = []
+tested = ["comet"]
 
 # --- photos ----------------------------------------------------------------------------
 [[app]]
@@ -157,7 +158,7 @@ id = "loupe"
 kind = "package"
 package = "loupe"
 category = "photos"
-tested = []
+tested = ["comet"]
 
 # --- productivity & utilities ----------------------------------------------------------
 [[app]]
@@ -165,39 +166,39 @@ id = "gnome-calculator"
 kind = "package"
 package = "gnome-calculator"
 category = "utilities"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "gnome-clocks"
 kind = "package"
 package = "gnome-clocks"
 category = "utilities"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "authenticator"
 kind = "package"
 package = "authenticator"
 category = "utilities"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "secrets"
 kind = "package"
 package = "secrets"
 category = "utilities"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "gnome-text-editor"
 kind = "package"
 package = "gnome-text-editor"
 category = "productivity"
-tested = []
+tested = ["comet"]
 
 [[app]]
 id = "gnome-calendar"
 kind = "package"
 package = "gnome-calendar"
 category = "productivity"
-tested = []
+tested = ["comet"]

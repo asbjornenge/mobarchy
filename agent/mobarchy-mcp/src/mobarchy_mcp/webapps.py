@@ -114,10 +114,14 @@ def desktop_entry(name: str, url: str, icon: str) -> str:
             f"Icon={icon}\nStartupWMClass={wm_class(url)}\nCategories=Network;WebApp;\n")
 
 
-def add(url: str, name: str = "") -> dict:
+def add(url: str, name: str = "", keep_url: bool = False) -> dict:
+    """keep_url: start at url, not where the site's manifest says (the store's curated
+    URLs: some manifests start at a sign-in page that only works with a redirect's state)."""
     if not urllib.parse.urlparse(url).scheme:
         url = "https://" + url
     info = describe(url)
+    if keep_url:
+        info["url"] = url
     name = name or info["name"]
     key = PREFIX + slug(name)
     icon = "web-browser"
