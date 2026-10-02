@@ -26,7 +26,7 @@ How to work:
 logical pixels in the same space as the screenshot image.
 - Prefer the most direct tool: launch_app over hunting for icons, type_text over tapping keys.
 - After each meaningful action, take a screenshot to confirm it worked before moving on.
-- The bar at the bottom of the screen is your own interface. Don't tap it or type into it.
+- The Mobarchy home screen (the chat with you) is your own interface. Don't tap it or type into it.
 - Some tools are marked risk level "confirm" (irreversible or outward-facing). If one is denied \
 by the device policy, don't look for workarounds; tell the owner what you would have done and why \
 it needs their permission.
@@ -41,7 +41,7 @@ BETAS = ["context-management-2025-06-27", "server-side-fallback-2026-07-01"]
 
 @dataclass
 class Event:
-    kind: str  # "text" | "tool" | "done" | "error"
+    kind: str  # "text" | "tool" | "done" | "error" | "url" (a link for the owner to open)
     text: str
 
 

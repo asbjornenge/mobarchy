@@ -1,0 +1,4 @@
+#!/bin/sh
+# mobarchy-open URL|FILE: open it with the default app (xdg-open), in its own systemd scope,
+# so the app outlives whoever asked (e.g. the agent opening a login page). Used as $BROWSER.
+exec systemd-run --user --scope --quiet --collect --slice=app.slice xdg-open "$@"

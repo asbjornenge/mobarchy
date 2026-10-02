@@ -1,5 +1,6 @@
 #include "agent.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -22,6 +23,58 @@ Agent::Agent(QObject *parent)
         }
     });
     connect(&m_proc, &QProcess::stateChanged, this, &Agent::runningChanged);
+    connect(&m_list, &QProcess::finished, this, [this] {
+        const QJsonObject o = QJsonDocument::fromJson(m_list.readAllStandardOutput()).object();
+        m_agents = o.value(QStringLiteral("agents")).toArray().toVariantList();
+        m_active = o.value(QStringLiteral("active")).toString();
+        emit agentsChanged();
+    });
+    refresh();
+}
+
+QString Agent::program() const
+{
+    return qEnvironmentVariable("MOBARCHY_AGENT_BIN", QString::fromLatin1(DefaultAgent));
+}
+
+void Agent::refresh()
+{
+    if (m_list.state() == QProcess::NotRunning)
+        m_list.start(program(), {QStringLiteral("agents"), QStringLiteral("--json")});
+}
+
+void Agent::start(const QStringList &args)
+{
+    m_stderr.clear();
+    m_sawError = m_stopped = false;
+    m_proc.start(program(), args);
+}
+
+void Agent::choose(const QString &id)
+{
+    if (running())
+        return;
+    for (const QVariant &a : std::as_const(m_agents)) {
+        const QVariantMap m = a.toMap();
+        if (m.value(QStringLiteral("id")).toString() != id)
+            continue;
+        if (m.value(QStringLiteral("ready")).toBool()) {
+            auto *use = new QProcess(this);
+            connect(use, &QProcess::finished, this, [this, use] {
+                use->deleteLater();
+                refresh();
+            });
+            use->start(program(), {QStringLiteral("use"), id});
+        } else {
+            start({QStringLiteral("setup"), id, QStringLiteral("--json")});
+        }
+        return;
+    }
+}
+
+void Agent::openUrl(const QString &url)
+{
+    QProcess::startDetached(QStringLiteral("mobarchy-open"), {url});
 }
 
 Agent::~Agent()
@@ -36,10 +89,11 @@ void Agent::ask(const QString &task)
 {
     if (running() || task.trimmed().isEmpty())
         return;
-    m_stderr.clear();
-    m_sawError = m_stopped = false;
-    m_proc.start(qEnvironmentVariable("MOBARCHY_AGENT_BIN", QString::fromLatin1(DefaultAgent)),
-                 {QStringLiteral("--json"), task.trimmed()});
+    QStringList args{QStringLiteral("--json")};
+    if (m_new)
+        args << QStringLiteral("--new");
+    m_new = false;
+    start(args << task.trimmed());
 }
 
 void Agent::stop()
@@ -70,6 +124,7 @@ void Agent::readEvents()
 void Agent::finished(int code, QProcess::ExitStatus status)
 {
     readEvents();
+    refresh();  // a setup may have logged in, a run may have found the login expired
     if (m_stopped) {
         emit event(QStringLiteral("error"), tr("Stopped."));
     } else if ((code != 0 || status != QProcess::NormalExit) && !m_sawError) {
