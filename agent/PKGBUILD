@@ -1,0 +1,53 @@
+# Mobarchy's agent layer, built from this directory: mobarchy-agent (the agents, ADR 0010)
+# and mobarchy-mcp (the phone's OS as MCP tools), each with its Python environment.
+#   tools/repo-build agent                         into the Mobarchy package repository
+#   BUILDDIR=/tmp/makepkg makepkg                  elsewhere (./src is not makepkg's)
+# The environments are uv's relocatable virtualenvs on the system Python: rebuild this
+# package when Arch moves to a new Python minor version (like Arch's own Python packages).
+pkgname=mobarchy-agent
+pkgver=0.1
+pkgrel=1
+pkgdesc='The Mobarchy agent (Claude, OpenAI, local) and the phone OS as MCP tools'
+arch=(aarch64 x86_64)
+depends=(python)
+makedepends=(uv)
+options=(!debug !strip)
+_projects=(mobarchy-agent mobarchy-mcp)
+_prefix=/opt/mobarchy/agent
+
+prepare() {
+    if [[ $srcdir == "$startdir/src" ]]; then
+        echo "set BUILDDIR: makepkg's default work directory is inside the source tree" >&2
+        return 1
+    fi
+}
+
+build() {
+    for p in "${_projects[@]}"; do
+        rm -rf "$srcdir/$p"
+        mkdir -p "$srcdir/$p"
+        # The project without what a developer checkout has lying around.
+        tar -C "$startdir/$p" --exclude=.venv --exclude=__pycache__ --exclude=.pytest_cache -cf - . \
+            | tar -C "$srcdir/$p" -xf -
+        (
+            cd "$srcdir/$p"
+            uv venv -q --relocatable --python /usr/bin/python3 .venv
+            # --no-editable: the project itself goes into the environment, not a link back
+            # to this build directory.
+            UV_PROJECT_ENVIRONMENT=.venv uv sync -q --frozen --no-dev --no-editable --python /usr/bin/python3
+        )
+    done
+}
+
+check() {
+    for p in "${_projects[@]}"; do
+        "$srcdir/$p/.venv/bin/python" -c "import ${p//-/_}"
+    done
+}
+
+package() {
+    for p in "${_projects[@]}"; do
+        install -d "$pkgdir$_prefix"
+        cp -a "$srcdir/$p" "$pkgdir$_prefix/$p"
+    done
+}

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# What a device has that a fresh image would not: hand-made changes to fold back into the
+# repo (packages, overlays) before they get lost.
+#
+#   tools/device-drift --device <codename>    (MOBARCHY_DEVICE, default mob@172.16.42.1)
+#
+# Reports
+#   - packages installed explicitly that no package list asks for
+#   - files under /etc, /opt, /usr/local and /usr/lib that no package owns and the
+#     overlays (os/rootfs, devices/<codename>/rootfs) don't provide
+#   - package files that were changed (pacman -Qkk), config files included
+# Expected differences (user data, machine state, generated files) are skipped.
+set -euo pipefail
+repo="$(cd "$(dirname "$0")/.." && pwd)"
+device=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --device) device="$2"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$device" ] || { echo "usage: $0 --device <codename>" >&2; exit 2; }
+target=${MOBARCHY_DEVICE:-mob@172.16.42.1}
+ssh_opts=(-i "$HOME/.config/mobarchy/device_ed25519" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+on_device() { ssh "${ssh_opts[@]}" "$target" "$@"; }
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+
+echo "== packages installed by hand"
+grep -hv '^#' "$repo/os/image/packages.txt" "$repo/os/image/packages-mobarchy.txt" | sed '/^$/d' | LC_ALL=C sort -u > "$tmp/wanted"
+on_device 'pacman -Qqe' | LC_ALL=C sort > "$tmp/explicit"
+# Explicit packages that a wanted package needs anyway are fine (pacman marks some explicit).
+on_device 'pacman -Qqtt' | LC_ALL=C sort > "$tmp/leaves"
+LC_ALL=C comm -23 "$tmp/explicit" "$tmp/wanted" | LC_ALL=C comm -12 - "$tmp/leaves" | sed 's/^/  /'
+
+echo "== files no package or overlay provides"
+{ (cd "$repo/os/rootfs" && find . -type f -o -type l); \
+  [ -d "$repo/devices/$device/rootfs" ] && (cd "$repo/devices/$device/rootfs" && find . -type f -o -type l); } \
+    | sed 's|^\.||' | LC_ALL=C sort -u > "$tmp/overlay"
+on_device 'sudo -n find /etc /opt /usr/local /usr/lib -xdev \( -type f -o -type l \) 2>/dev/null' | LC_ALL=C sort > "$tmp/files"
+on_device 'pacman -Qlq | grep -v "/$"' | LC_ALL=C sort -u > "$tmp/owned"
+LC_ALL=C comm -23 "$tmp/files" "$tmp/owned" | LC_ALL=C comm -23 - "$tmp/overlay" \
+    | grep -vE '^/etc/(machine-id|hostname|localtime|adjtime|passwd|group|shadow|gshadow|subuid|subgid|.*-$|ld.so.cache|pacman.d/gnupg/|ssh/ssh_host_|systemd/system/.*\.wants/|systemd/user/.*\.wants/|systemd/system/[a-z.-]+\.service$|udev/hwdb.bin|ca-certificates/|ssl/certs/|fonts/conf.d/|xml/catalog|resolv.conf|.pwd.lock|sudoers.d/wheel|locale.conf|os-release|pacman.d/mirrorlist|wpa_supplicant/wpa_supplicant-wlan0.conf)' \
+    | grep -vE '^/usr/lib/(modules/|firmware/|locale/locale-archive|udev/hwdb.bin|.*/__pycache__/|python3[.0-9]*/.*\.pyc$|gdk-pixbuf-2.0/.*/loaders.cache|gio/modules/giomodule.cache)' \
+    | grep -vE '^/usr/local/share/applications/mimeinfo.cache$|^/etc/mobarchy/device.toml$|/icon-theme.cache$|^/etc/systemd/system/(dbus-|default.target|getty|autovt@)' \
+    | grep -vE '/__pycache__/|\.pacnew$|^/etc/\.updated$|^/etc/vconsole.conf$|^/etc/systemd/network/(en|eth)\.network$' \
+    | grep -vE '^/etc/modules-load.d/mobarchy-comet(-late)?\.conf$|^/etc/systemd/system/(sleep|suspend|hibernate|hybrid-sleep)\.target$|^/etc/systemd/user/pipewire-session-manager.service$' \
+    | sed 's/^/  /'
+
+echo "== package files changed on the device"
+on_device 'sudo -n pacman -Qkk 2>/dev/null | grep -E "(Modification time|Size|SHA256|Permissions|UID|GID) mismatch|No such file" | grep -vE "/var/|/etc/(passwd|group|shadow|gshadow|locale.gen|pacman.conf|sudoers)"' | sed 's/^/  /' || true

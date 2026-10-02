@@ -1,0 +1,12 @@
+# From Mobarchy's own package repository (tools/repo-build); os/image/build installs these
+# with packages.txt. Mesa for a device's GPU comes with the device's hook (ADR 0008).
+mobarchy-shell
+mobarchy-agent
+# Patched: a fix for a hang on ARM (os/packages/hyprgraphics)
+hyprgraphics
+# The local agent's model server and speech to text (models are downloaded on the phone)
+mobarchy-llama-cpp
+mobarchy-whisper-cpp
+# Firefox's phone UI; DRM for the browsers (ADR 0011)
+mobile-config-firefox
+widevine-installer

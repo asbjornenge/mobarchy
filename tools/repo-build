@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Build Mobarchy's packages into its pacman repository (a directory with mobarchy.db):
+# Mobarchy's own software (os/shell, agent) and the packages in os/packages.
+#
+#   tools/repo-build --repo <dir> [--builder container|device] [--add <pkg file>]... [what...]
+#
+#   what       os/shell, agent, or a name in os/packages (default: all of them)
+#   --builder  container: the Arch Linux ARM container under qemu-user (tools/pkg-build);
+#              slow for big C/C++ builds.
+#              device: on a connected device over ssh (MOBARCHY_DEVICE, default
+#              mob@172.16.42.1, key ~/.config/mobarchy/device_ed25519), natively. Build
+#              dependencies get installed there.
+#   --add      a package built elsewhere (e.g. os/mesa/build's mesa-mobarchy)
+#
+# os/image/build installs from this repository (--repo). Unsigned for now.
+set -euo pipefail
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+repo="" builder=container adds=() what=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --repo) repo="$(realpath -m "$2")"; shift 2 ;;
+        --builder) builder="$2"; shift 2 ;;
+        --add) adds+=("$(realpath "$2")"); shift 2 ;;
+        -*) echo "unknown argument: $1" >&2; exit 2 ;;
+        *) what+=("$1"); shift ;;
+    esac
+done
+[ -n "$repo" ] || { echo "usage: $0 --repo <dir> [--builder container|device] [--add <pkg>]... [what...]" >&2; exit 2; }
+[ ${#what[@]} -gt 0 ] || what=(os/shell agent $(cd "$repo_root/os/packages" && ls))
+mkdir -p "$repo"
+
+pkgdir_of() {  # name or path -> directory with the PKGBUILD
+    if [ -f "$repo_root/$1/PKGBUILD" ]; then echo "$repo_root/$1"
+    elif [ -f "$repo_root/os/packages/$1/PKGBUILD" ]; then echo "$repo_root/os/packages/$1"
+    else echo "no PKGBUILD for $1" >&2; return 1; fi
+}
+
+device=${MOBARCHY_DEVICE:-mob@172.16.42.1}
+ssh_opts=(-i "$HOME/.config/mobarchy/device_ed25519" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR)
+on_device() { ssh "${ssh_opts[@]}" "$device" "$@"; }
+
+build_on_device() {  # <pkgdir>
+    local dir=$1 name work=/var/tmp/mobarchy-build
+    name=$(basename "$dir")
+    on_device "mkdir -p $work/src $work/out && rm -f $work/out/*"
+    rsync -a --delete --exclude .venv --exclude __pycache__ --exclude .pytest_cache --exclude build \
+        -e "ssh ${ssh_opts[*]}" "$dir/" "$device:$work/src/$name/"
+    on_device bash -euo pipefail -s -- "$work" "$name" <<'REMOTE'
+work=$1 name=$2
+cd "$work/src/$name"
+deps=$(bash -c 'source PKGBUILD; printf "%s\n" "${depends[@]}" "${makedepends[@]}" "${checkdepends[@]}"' | sed 's/[<>=].*//' | sort -u)
+sudo -n pacman -S --needed --noconfirm --disable-sandbox $deps >/dev/null
+BUILDDIR=$work/makepkg/$name PKGDEST=$work/out PKGEXT=.pkg.tar.zst makepkg -f --noconfirm \
+    > "$work/makepkg-$name.log" 2>&1 || { tail -30 "$work/makepkg-$name.log" >&2; exit 1; }
+REMOTE
+    rsync -a -e "ssh ${ssh_opts[*]}" "$device:$work/out/" "$repo/"
+}
+
+for w in "${what[@]}"; do
+    dir=$(pkgdir_of "$w")
+    echo "== $w ($builder)"
+    case $builder in
+        container) "$repo_root/tools/pkg-build" "$dir" --out "$repo" ;;
+        device) build_on_device "$dir" ;;
+        *) echo "unknown builder: $builder" >&2; exit 2 ;;
+    esac
+done
+for p in "${adds[@]}"; do cp "$p" "$repo/"; done
+
+# The database: every package file in the directory, the newest version of each wins (-R
+# removes the files of the versions it replaces).
+image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
+    echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
+docker run --rm --platform linux/arm64 -u "$(id -u):$(id -g)" -v "$repo:/repo" "$image" \
+    bash -c 'cd /repo && repo-add -q -R -n mobarchy.db.tar.zst *.pkg.tar.zst'
+ls "$repo"

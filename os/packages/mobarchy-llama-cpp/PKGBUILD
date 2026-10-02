@@ -1,0 +1,36 @@
+# llama.cpp's server for the local agent (ADR 0010), under /opt/mobarchy/llama.
+# The CPU backend is built for several ARM generations and picks the best one at start
+# (GGML_CPU_ALL_VARIANTS): dotprod and i8mm matter (Q4_0 prompts ~1.7x faster on comet),
+# and the package stays usable on other aarch64 phones. Own prefix: whisper.cpp ships its
+# own copy of the ggml libraries. Build: tools/repo-build mobarchy-llama-cpp
+
+pkgname=mobarchy-llama-cpp
+_commit=254b177307b14d055bbe4c050c9c441a1e06d8a4
+pkgver=0+254b177
+pkgrel=1
+pkgdesc="llama.cpp's server for Mobarchy's local agent"
+arch=(aarch64 x86_64)
+url='https://github.com/ggml-org/llama.cpp'
+license=(MIT)
+depends=(gcc-libs glibc)
+makedepends=(cmake git)
+options=(!debug)
+source=("llama.cpp::git+$url#commit=$_commit")
+sha256sums=('SKIP')
+_prefix=/opt/mobarchy/llama
+
+build() {
+    cmake -S llama.cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$_prefix \
+        -DCMAKE_INSTALL_RPATH=$_prefix/lib -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON \
+        -DGGML_CPU_ALL_VARIANTS=ON -DLLAMA_CURL=OFF -DLLAMA_BUILD_TESTS=OFF \
+        -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_TOOLS=ON
+    cmake --build build --parallel
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+    # Only the server is used; the CLI tools stay in the prefix.
+    install -d "$pkgdir/usr/bin"
+    ln -s $_prefix/bin/llama-server "$pkgdir/usr/bin/llama-server"
+    install -Dm644 llama.cpp/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -2,6 +2,7 @@
 # Build the Mobarchy aarch64 rootfs image (Arch Linux ARM + Mobarchy stack) for a device.
 #
 #   os/image/build --device <codename> --base <ArchLinuxARM-aarch64-latest.tar.gz> --out <dir>
+#                  --repo <Mobarchy package repository> [--repo-url URL]
 #                  [--size 8G] [--extra NAME=DIR ...]
 #
 # Runs pacman inside an arm64 container (needs qemu-user binfmt on the host). The
@@ -9,25 +10,31 @@
 # (kernel modules, firmware links, fstab) come from devices/<codename>/scripts/rootfs-hook
 # if that script exists. It runs inside the container with the rootfs at /, and sees each
 # --extra NAME=DIR read-only at /extra/NAME (e.g. kernel build output, vendor firmware).
-# --extra packages=DIR is special: every *.pkg.tar.zst in DIR is installed after
-# packages.txt (Mobarchy's patched packages, tools/pkg-build).
+# --repo is Mobarchy's own package repository (tools/repo-build): it comes before Arch's,
+# so its packages win (patched ones too), and packages-mobarchy.txt is installed from it.
+# --repo-url is where devices find that repository later (pacman -Syu); without it, the
+# image has no [mobarchy] section and takes Mobarchy updates only from new images.
 #
 # Access: ssh as "mob" with the key ~/.config/mobarchy/device_ed25519 (created on first
 # build, kept outside the repo).
 set -euo pipefail
-repo="$(cd "$(dirname "$0")/../.." && pwd)"
-device="" base="" out="" size=8G extra=()
+repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
+device="" base="" out="" repo="" repo_url="" size=8G extra=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --device) device="$2"; shift 2 ;;
         --base) base="$(realpath "$2")"; shift 2 ;;
         --out) out="$(realpath -m "$2")"; shift 2 ;;
         --size) size="$2"; shift 2 ;;
+        --repo) repo="$(realpath "$2")"; shift 2 ;;
+        --repo-url) repo_url="$2"; shift 2 ;;
         --extra) extra+=(-v "$(realpath "${2#*=}"):/extra/${2%%=*}:ro"); shift 2 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-[ -n "$device" ] && [ -n "$base" ] && [ -n "$out" ] || { echo "usage: $0 --device <codename> --base <tarball> --out <dir>" >&2; exit 2; }
+[ -n "$device" ] && [ -n "$base" ] && [ -n "$out" ] && [ -n "$repo" ] || {
+    echo "usage: $0 --device <codename> --base <tarball> --repo <dir> --out <dir>" >&2; exit 2; }
+[ -f "$repo/mobarchy.db" ] || { echo "$repo is no Mobarchy package repository (tools/repo-build)" >&2; exit 1; }
 mkdir -p "$out"
 name="mobarchy-rootfs-$device"
 
@@ -41,17 +48,28 @@ pubkey_file="$HOME/.config/mobarchy/device_ed25519.pub"
 mkdir -p "$(dirname "$pubkey_file")"
 [ -f "$pubkey_file" ] || ssh-keygen -q -t ed25519 -N "" -C mobarchy-device -f "${pubkey_file%.pub}"
 docker run --platform linux/arm64 --name "$name" -e MOBARCHY_SSH_PUBKEY="$(cat "$pubkey_file")" \
-    -v "$repo:/src:ro" "${extra[@]}" "$base_img" /bin/bash -euo pipefail -c '
+    -e REPO_URL="$repo_url" -v "$repo_root:/src:ro" -v "$repo:/extra/mobarchy-repo:ro" "${extra[@]}" \
+    "$base_img" /bin/bash -euo pipefail -c '
     device='"$device"'
     pacman-key --init >/dev/null && pacman-key --populate archlinuxarm >/dev/null
     # The stock kernel and bootloader bits are for SBCs; the device brings its own kernel.
     pacman -Rdd --disable-sandbox --noconfirm linux-aarch64 $(pacman -Qq | grep "^linux-firmware") >/dev/null 2>&1 || true
     # The pacman download sandbox (Landlock, alpm user) does not work under qemu-user emulation.
-    grep -v "^#" /src/os/image/packages.txt | xargs pacman -Syu --disable-sandbox --noconfirm --needed >/dev/null
-    if ls /extra/packages/*.pkg.tar.zst >/dev/null 2>&1; then
-        pacman -U --disable-sandbox --noconfirm --ask 4 /extra/packages/*.pkg.tar.zst >/dev/null
-        echo "installed Mobarchy packages: $(ls /extra/packages/*.pkg.tar.zst | xargs -n1 basename | tr "\n" " ")"
-    fi
+    # Mobarchy's repository first: its packages win over Arch's of the same name.
+    sed -i "/^\[core\]/i [mobarchy]\nSigLevel = Optional TrustAll\nServer = file:///extra/mobarchy-repo\n" /etc/pacman.conf
+    grep -q "^\[mobarchy\]" /etc/pacman.conf
+    grep -hv "^#" /src/os/image/packages.txt /src/os/image/packages-mobarchy.txt \
+        | xargs pacman -Syu --disable-sandbox --noconfirm --needed >/dev/null
+    echo "installed from the Mobarchy repository: $(pacman -Sl mobarchy | awk "/\[installed/{print \$2}" | tr "\n" " ")"
+    # Where the device finds the repository from now on (or no repository).
+    python3 - <<EOP
+import os, re
+c = open("/etc/pacman.conf").read()
+url = os.environ.get("REPO_URL", "")
+section = f"[mobarchy]\nSigLevel = Optional TrustAll\nServer = {url}\n\n" if url else ""
+c = re.sub(r"\[mobarchy\]\n(?:[^\[\n].*\n)*\n?", section, c, count=1)
+open("/etc/pacman.conf", "w").write(c)
+EOP
     rm -rf /var/cache/pacman/pkg/*
 
     # Owner account: autologin on tty1 starts Hyprland (same as the simulator).
@@ -85,14 +103,7 @@ EOP
     fi
     glib-compile-schemas /usr/share/glib-2.0/schemas
 
-    # Agent layer, with its Python environments resolved for aarch64.
-    mkdir -p /opt/mobarchy
-    cp -r --no-preserve=ownership /src/agent /opt/mobarchy/agent
-    find /opt/mobarchy/agent -name .venv -prune -exec rm -rf {} +
-    chown -R mob:mob /opt/mobarchy /home/mob
-    for p in /opt/mobarchy/agent/*/pyproject.toml; do
-        su mob -c "cd $(dirname $p) && uv sync -q --no-dev --python /usr/bin/python3"
-    done
+    chown -R mob:mob /home/mob
 
     systemctl enable sshd systemd-networkd systemd-resolved wpa_supplicant@wlan0 mobarchy-usb-gadget mobarchy-session mobarchy-widevine >/dev/null 2>&1
     systemctl set-default graphical.target >/dev/null 2>&1
