@@ -48,3 +48,18 @@ def test_state_roundtrip(tmp_path, monkeypatch):
     st.save()
     again = agents.State.load()
     assert again.active == "claude" and again.sessions == {"claude": "abc"}
+
+
+def test_codex_stream():
+    events, tid = agents.parse_codex_stream(line({"type": "thread.started", "thread_id": "t1"}))
+    assert tid == "t1" and events == []
+    events, _ = agents.parse_codex_stream(line({"type": "item.started", "item": {
+        "id": "i1", "type": "mcp_tool_call", "server": "mobarchy", "tool": "screenshot", "arguments": {}}}))
+    assert [(e.kind, e.text) for e in events] == [("tool", "screenshot")]
+    events, _ = agents.parse_codex_stream(line({"type": "item.completed", "item": {
+        "id": "i2", "type": "agent_message", "text": "Battery is at 100 %."}}))
+    assert [(e.kind, e.text) for e in events] == [("text", "Battery is at 100 %.")]
+    events, _ = agents.parse_codex_stream(line({"type": "turn.completed", "usage": {}}))
+    assert [e.kind for e in events] == ["done"]
+    events, _ = agents.parse_codex_stream(line({"type": "turn.failed", "error": {"message": "401 Unauthorized"}}))
+    assert events[0].kind == "error" and "401" in events[0].text
