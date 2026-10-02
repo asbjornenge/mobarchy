@@ -24,3 +24,8 @@ CONFIG_NF_TABLES_INET=y
 # Landlock (unprivileged sandboxing; e.g. pacman's download sandbox). Already first in
 # the default CONFIG_LSM list.
 CONFIG_SECURITY_LANDLOCK=y
+
+# Usermode helpers. Android builds with a static, empty helper path, which disables them
+# all: core dumps to systemd-coredump ("Core dump to |... disabled"), and the kernel's own
+# requests for modules (request_module -> modprobe). A Linux userspace needs them.
+# CONFIG_STATIC_USERMODEHELPER is not set

@@ -33,6 +33,8 @@ The kernel cmdline from `vendor_boot` includes `console=ttySAC0,115200 earlycon=
 
 These are missing from the stock kernel and matter for a normal Linux userspace: `DEVTMPFS`, `FHANDLE`, `AUTOFS_FS`, `TMPFS_POSIX_ACL`, `TMPFS_XATTR` (all needed by systemd); `SYSVIPC` (libhybris and many programs); `USER_NS` and `PID_NS` (sandboxing); `VT`; and `NF_TABLES`.
 
+Also: `STATIC_USERMODEHELPER` with an empty path disables every usermode helper. Core dumps to systemd-coredump fail ("Core dump to |... disabled"), and so does the kernel's own module loading (request_module). The fragment turns it off; until a kernel with that is flashed, core dumps can go to a file (`kernel.core_pattern=/var/tmp/cores/core.%e.%p`, set by hand for debugging).
+
 - **v0.1** works with the stock kernel: the busybox init uses `mdev` instead of devtmpfs.
 - **v0.2** (systemd rootfs) needs our own kernel build. See [ADR 0007](../../docs/decisions/0007-comet-kernel.md). It builds today with `tools/kernel-build/build --device comet --src <dir>`, which produces `boot`, `vendor_kernel_boot`, `vendor_dlkm`, `system_dlkm` and dtbo. It has not been booted yet.
 
@@ -123,9 +125,9 @@ Fixes found on the device, now in the repo:
 **Fold and panels** (`rootfs/usr/lib/mobarchy/fold`, `rootfs/etc/mobarchy/hyprland-device.conf`): one panel at a time. The hall sensor (`hall effect sensor`, SW_LID) picks it at session start and through Hyprland switch binds on every change.
 - Folded: the outer panel DSI-2, 1080x2424, scale 2.4.
 - Unfolded: the inner panel DSI-1, 2152x2076, scale 2, rotated (`transform 3`, confirmed on the device). The panel is mounted rotated: upright it is 2076x2152, which is the frame its touch controller reports in (`goodix,panel-max-x/y` = 2075/2151), so touch gets `transform = 0` (Hyprland would otherwise rotate it with the monitor).
-- A strip at the top is reserved for the camera cutout.
+- A strip at the top is kept clear for the camera cutout (`top_inset` in device.toml); the status bar covers it.
 - The rules are written to `/run/mobarchy/fold.conf` (sourced by Hyprland), followed by `hyprctl reload`. Rules set with `hyprctl keyword monitor` pile up and eventually stop being applied.
-- On every change, workspaces move to the active panel, and the bar and keyboard (layer surfaces tied to an output) are restarted.
+- On every change, workspaces move to the active panel and squeekboard (a layer surface tied to an output) is restarted. mobarchy-shell moves its own layer surfaces.
 - Touch mapping: `goodix_ts0` → DSI-1 and `synaptics_tcm_touch` → DSI-2. The touch drivers suspend and resume with their panel.
 
 **GPU (ADR 0008).** The Mali-G715 runs on the upstream Panthor driver, backported (`os/kernel/panthor`) with Pixel glue (`kernel/panthor-pixel`).
@@ -153,6 +155,13 @@ Open points for v0.2:
 - **Display setup:** which DRM connector belongs to which panel (inner/outer), and the panel power sequencing without Android's HWC.
 - **Touch firmware:** touch firmware loading and the touch driver's userspace expectations.
 - ~~**Resizing userdata:** growing the filesystem to fill userdata on first boot.~~ Done: `/etc/fstab` has `x-systemd.growfs` (2026-10-01: 7.8 GB grew to 225 GB online).
+
+## Audio (AoC)
+
+Audio runs through the AoC DSP. Its firmware is not started by default; writing
+`aoc.bin` to `/sys/devices/platform/17000000.aoc/firmware` starts it (GSA authenticates
+it) and the `aoc-snd-card` ALSA card appears. Speaker routing and the amp protection
+firmware are still to do. See [docs/research/2026-10-01-comet-audio.md](../../docs/research/2026-10-01-comet-audio.md).
 
 ## Sources
 
