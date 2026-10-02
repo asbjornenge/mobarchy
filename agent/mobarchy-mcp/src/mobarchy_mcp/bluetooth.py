@@ -73,7 +73,7 @@ def scan(seconds: int) -> list[dict]:
 
 def _check(address: str) -> None:
     if not ADDRESS.match(address):
-        raise ValueError(f"not a Bluetooth address: {address!r} (e.g. CC:22:FE:25:22:8E)")
+        raise ValueError(f"not a Bluetooth address: {address!r} (e.g. 00:1A:7D:DA:71:13)")
 
 
 def _run(action: str, address: str, timeout: float = 40) -> str:

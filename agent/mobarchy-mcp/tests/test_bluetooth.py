@@ -2,13 +2,13 @@ from mobarchy_mcp import bluetooth
 
 DEVICES = """Device 5E:67:C4:00:00:01 5E-67-C4-00-00-01
 Device A6:D7:3C:00:00:02 ET-2820 Series
-Device CC:22:FE:25:22:8E Ozzy’s AirPods Pro #3
+Device 00:1A:7D:DA:71:13 Owner’s AirPods
 Waiting to connect to bluetoothd...
 """
 
-INFO = """Device CC:22:FE:25:22:8E (public)
-\tName: Ozzy’s AirPods Pro #3
-\tAlias: Ozzy’s AirPods Pro #3
+INFO = """Device 00:1A:7D:DA:71:13 (public)
+\tName: Owner’s AirPods
+\tAlias: Owner’s AirPods
 \tIcon: audio-headphones
 \tPaired: yes
 \tConnected: yes
@@ -22,7 +22,7 @@ def test_parse_devices():
     assert bluetooth.parse_devices(DEVICES) == {
         "5E:67:C4:00:00:01": "5E-67-C4-00-00-01",
         "A6:D7:3C:00:00:02": "ET-2820 Series",
-        "CC:22:FE:25:22:8E": "Ozzy’s AirPods Pro #3",
+        "00:1A:7D:DA:71:13": "Owner’s AirPods",
     }
 
 
@@ -35,8 +35,8 @@ def test_parse_info():
 
 def test_device(monkeypatch):
     monkeypatch.setattr(bluetooth, "_ctl", lambda *a, **k: INFO)
-    assert bluetooth._device("CC:22:FE:25:22:8E", "x") == {
-        "address": "CC:22:FE:25:22:8E", "name": "Ozzy’s AirPods Pro #3", "paired": True,
+    assert bluetooth._device("00:1A:7D:DA:71:13", "x") == {
+        "address": "00:1A:7D:DA:71:13", "name": "Owner’s AirPods", "paired": True,
         "connected": True, "kind": "audio-headphones", "battery_percent": 80}
 
 
