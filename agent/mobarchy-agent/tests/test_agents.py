@@ -44,10 +44,10 @@ def test_stream_ignores_noise():
 def test_state_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(agents, "STATE_FILE", tmp_path / "state.json")
     assert agents.State.load().active is None
-    st = agents.State(active="claude", sessions={"claude": "abc"})
+    st = agents.State(active="claude", conversation="abc")
     st.save()
     again = agents.State.load()
-    assert again.active == "claude" and again.sessions == {"claude": "abc"}
+    assert again.active == "claude" and again.conversation == "abc"
 
 
 def test_codex_stream():

@@ -23,16 +23,36 @@ Window {
     readonly property var current: agentById(agent.active)
     readonly property bool chosen: current !== undefined && current.ready
     property bool picking: false
+    property bool browsing: false  // the list of conversations
 
     function agentById(id) {
         return agent.agents.find(a => a.id === id)
     }
     readonly property var agentIcons: ({ claude: "󰚩", openai: "󰧑", local: "󰍹", api: "󰌆" })
+    // Names for conversation history, also before the agent list has loaded.
+    readonly property var agentNames: ({ claude: "Claude", openai: "OpenAI", local: "Local agent", api: "Anthropic API" })
 
     ListModel { id: feed }
 
     Connections {
         target: home.agent
+        // A conversation from mobarchy-agent (on start, or one the owner opened).
+        function onConversationLoaded(turns) {
+            feed.clear()
+            let lastAgent = ""
+            for (const t of turns) {
+                if (t.role === "user" && lastAgent && t.agent !== lastAgent) {
+                    feed.append({ who: "note", body: qsTr("Now using %1").arg(home.agentNames[t.agent] ?? t.agent) })
+                }
+                if (t.role === "user")
+                    lastAgent = t.agent
+                feed.append({ who: ({ user: "you", assistant: "mobarchy" })[t.role] ?? t.role, body: t.text })
+            }
+        }
+        function onRunningChanged() {
+            if (!home.agent.running)
+                home.agent.refreshConversations()
+        }
         function onEvent(kind, text) {
             if ((kind === "done" && !text) || kind === "code")
                 return
@@ -63,6 +83,7 @@ Window {
         agent.choose(id)
     }
     function newConversation() {
+        browsing = false
         feed.clear()
         agent.newConversation()
     }
@@ -115,6 +136,22 @@ Window {
             }
         }
         MouseArea {
+            anchors { right: newButton.left; verticalCenter: parent.verticalCenter }
+            width: 44; height: 40
+            onClicked: {
+                home.picking = false
+                home.agent.refreshConversations()
+                home.browsing = !home.browsing
+            }
+            Text {
+                anchors.centerIn: parent
+                text: "󰋚"  // history: earlier conversations
+                color: home.browsing ? Theme.accent : Theme.muted
+                font { family: Theme.font; pixelSize: 20 }
+            }
+        }
+        MouseArea {
+            id: newButton
             anchors { right: parent.right; verticalCenter: parent.verticalCenter }
             width: 44; height: 40
             visible: feed.count > 0
@@ -161,6 +198,9 @@ Window {
                           leftMargin: 12; rightMargin: 12 }
                 wrapMode: Text.Wrap
                 horizontalAlignment: card.who === "note" ? Text.AlignHCenter : Text.AlignLeft
+                // Tool calls can be long (a whole shell script): two lines are enough here.
+                maximumLineCount: card.who === "tool" ? 2 : 10000
+                elide: Text.ElideRight
                 text: ({ you: "❯ ", mobarchy: "✦ ", tool: "→ ", done: "✓ ", error: "✗ " }[card.who] ?? "")
                       + card.body
                 color: ({ mobarchy: Theme.accent, tool: Theme.muted, done: Theme.green,
@@ -177,6 +217,75 @@ Window {
                     text: "󰌹  " + qsTr("Open the login page")
                     color: Theme.accent
                     font { family: Theme.font; pixelSize: 14 }
+                }
+            }
+        }
+    }
+
+    // --- earlier conversations -----------------------------------------------------------------
+    Rectangle {
+        visible: home.browsing && home.chosen
+        anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: composer.top
+                  margins: 16; topMargin: 8 }
+        z: 3
+        radius: 16
+        color: Theme.bg
+        border.color: Theme.line
+
+        Text {
+            id: historyTitle
+            anchors { left: parent.left; top: parent.top; margins: 16 }
+            text: qsTr("Conversations")
+            color: Theme.fg
+            font { family: Theme.font; pixelSize: 16; bold: true }
+        }
+        Text {
+            anchors { left: parent.left; top: historyTitle.bottom; margins: 16 }
+            visible: home.agent.conversations.length === 0
+            text: qsTr("No earlier conversations yet.")
+            color: Theme.muted
+            font { family: Theme.font; pixelSize: 13 }
+        }
+        ListView {
+            anchors { left: parent.left; right: parent.right; top: historyTitle.bottom; bottom: parent.bottom
+                      margins: 12; topMargin: 12 }
+            clip: true
+            spacing: 6
+            currentIndex: -1  // see the feed above
+            highlightFollowsCurrentItem: false
+            model: home.agent.conversations
+            delegate: Rectangle {
+                id: entry
+                required property var modelData
+                width: ListView.view.width
+                height: 56
+                radius: 12
+                color: entryTap.pressed ? Theme.line : (modelData.current ? Theme.panel : "transparent")
+                border.color: modelData.current ? Theme.accent : "transparent"
+                MouseArea {
+                    id: entryTap
+                    anchors.fill: parent
+                    onClicked: {
+                        home.browsing = false
+                        home.agent.openConversation(entry.modelData.id)
+                    }
+                }
+                Column {
+                    anchors { left: parent.left; right: parent.right; margins: 14; verticalCenter: parent.verticalCenter }
+                    spacing: 3
+                    Text {
+                        width: parent.width
+                        text: entry.modelData.title || qsTr("(empty)")
+                        elide: Text.ElideRight
+                        color: Theme.fg
+                        font { family: Theme.font; pixelSize: 14 }
+                    }
+                    Text {
+                        text: entry.modelData.agents.map(a => home.agentIcons[a] ?? a).join(" ") + "   "
+                              + new Date(entry.modelData.updated * 1000).toLocaleString(Qt.locale(), "d MMM HH:mm")
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 11 }
+                    }
                 }
             }
         }

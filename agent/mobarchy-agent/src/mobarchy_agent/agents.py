@@ -19,11 +19,12 @@ import socket
 import sys
 import tempfile
 from collections.abc import AsyncIterator
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from . import local
 from .config import Config
+from .conversations import Conversation
 from .runtime import SYSTEM_PROMPT, Event, EventHandler, _describe_tool_call, _emit, run_task
 
 STATE_FILE = Path.home() / ".config/mobarchy/agent-state.json"
@@ -46,13 +47,13 @@ class Status:
 @dataclass
 class State:
     active: str | None = None
-    sessions: dict[str, str] = field(default_factory=dict)  # agent -> conversation to resume
+    conversation: str | None = None  # the current one (conversations.py)
 
     @classmethod
     def load(cls) -> State:
         try:
             data = json.loads(STATE_FILE.read_text())
-            return cls(active=data.get("active"), sessions=dict(data.get("sessions", {})))
+            return cls(active=data.get("active"), conversation=data.get("conversation"))
         except (OSError, ValueError):
             return cls()
 
@@ -382,9 +383,6 @@ async def codex_setup(on_event: EventHandler) -> bool:
 
 # --- local ----------------------------------------------------------------------------------
 
-LOCAL_HISTORY = WORKDIR / "local-history.json"
-
-
 async def local_status() -> Status:
     s = Status("local", "Local agent", installed=local.installed(), ready=local.installed())
     if s.ready:
@@ -397,17 +395,16 @@ async def local_status() -> Status:
     return s
 
 
-async def local_run(prompt: str, config: Config, on_event: EventHandler, resume: str | None) -> str:
-    history = None
-    if resume and LOCAL_HISTORY.exists():
-        try:
-            history = json.loads(LOCAL_HISTORY.read_text())
-        except ValueError:
-            history = None
-    messages = await local.run(prompt, config, on_event, history)
-    WORKDIR.mkdir(parents=True, exist_ok=True)
-    LOCAL_HISTORY.write_text(json.dumps(messages[-40:] if len(messages) > 40 else messages))
-    return "history"
+async def local_run(prompt: str, config: Config, on_event: EventHandler, conv: Conversation) -> None:
+    """The local model has no session of its own: it gets the conversation so far (every
+    agent's turns) as its history."""
+    history = [{"role": "system", "content": local.LOCAL_PROMPT}]
+    for t in conv.turns[:-1]:  # the last turn is this prompt
+        if t.role == "user":
+            history.append({"role": "user", "content": t.text})
+        elif t.role == "assistant":
+            history.append({"role": "assistant", "content": t.text})
+    await local.run(prompt, config, on_event, history[-41:] if len(history) > 41 else history)
 
 
 def online(timeout: float = 2.0) -> bool:
@@ -457,6 +454,16 @@ async def setup(agent: str, on_event: EventHandler) -> bool:
     return ok
 
 
+def current_conversation(new: bool = False) -> Conversation:
+    st = State.load()
+    conv = None if new or not st.conversation else Conversation.load(st.conversation)
+    if conv is None:
+        conv = Conversation()
+        st.conversation = conv.id
+        st.save()
+    return conv
+
+
 async def run(prompt: str, config: Config, on_event: EventHandler, agent: str | None = None,
               new_conversation: bool = False) -> None:
     st = State.load()
@@ -468,23 +475,35 @@ async def run(prompt: str, config: Config, on_event: EventHandler, agent: str | 
     if agent in ("claude", "openai", "api") and not online() and local.installed():
         await _emit(on_event, Event("tool", "offline: the local agent answers"))
         agent = "local"
-    resume = None if new_conversation else st.sessions.get(agent)
+
+    conv = current_conversation(new_conversation)
+    conv.add("user", prompt, agent)
+    conv.save()
+
+    # Everything the agent says or does goes into the conversation as well.
+    async def record(e: Event) -> None:
+        role = {"text": "assistant", "tool": "tool", "error": "error"}.get(e.kind)
+        if e.kind == "done" and e.text:
+            role = "assistant"
+        if role:
+            conv.add(role, e.text, agent)
+            conv.save()
+        await _emit(on_event, e)
+
+    resume = conv.sessions.get(agent)
+    bridged = conv.bridged_prompt(agent, prompt)
+    session = None
     if agent == "local":
-        st.sessions[agent] = await local_run(prompt, config, on_event, resume)
-        st.save()
+        await local_run(prompt, config, record, conv)
     elif agent == "claude":
-        session = await claude_run(prompt, config, on_event, resume)
-        if session:
-            st = State.load()
-            st.sessions[agent] = session
-            st.save()
+        session = await claude_run(bridged, config, record, resume)
     elif agent == "openai":
-        thread = await codex_run(prompt, config, on_event, resume)
-        if thread:
-            st = State.load()
-            st.sessions[agent] = thread
-            st.save()
+        session = await codex_run(bridged, config, record, resume)
     elif agent == "api":
-        await run_task(prompt, config, on_event)
+        await run_task(bridged, config, record)
     else:
         await _emit(on_event, Event("error", f"The {agent} agent is not available yet."))
+    if session:
+        conv.sessions[agent] = session
+    conv.seen[agent] = len(conv.turns)
+    conv.save()

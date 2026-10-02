@@ -4,6 +4,8 @@
     mobarchy-agent agents [--json]          the agents, and which ones are ready
     mobarchy-agent use AGENT                make AGENT the active one
     mobarchy-agent setup AGENT [--json]     install / log in (opens the browser)
+    mobarchy-agent conversations [--json]   the conversations, newest first
+    mobarchy-agent conversation new|open ID|show [ID] [--json]
 
 Agents: claude (your Claude Code and Claude account), openai, local, api (API key).
 """
@@ -18,6 +20,7 @@ from dataclasses import asdict
 
 from . import agents
 from .config import Config
+from .conversations import Conversation, all_conversations
 from .runtime import Event
 
 PREFIX = {"text": "💬", "tool": "  →", "done": "✓", "error": "✗", "url": "🔗"}
@@ -73,6 +76,52 @@ def cmd_setup(argv: list[str]) -> int:
     return 0 if ok and not failed() else 1
 
 
+def cmd_conversations(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="mobarchy-agent conversations")
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args(argv)
+    current = agents.State.load().conversation
+    items = [{"id": c.id, "title": c.title, "updated": c.updated, "current": c.id == current,
+              "agents": sorted({t.agent for t in c.turns if t.agent})}
+             for c in all_conversations() if c.turns]
+    if args.json:
+        print(json.dumps(items, ensure_ascii=False))
+    else:
+        for i in items:
+            print(f"{'*' if i['current'] else ' '} {i['id']}  {i['title']}")
+    return 0
+
+
+def cmd_conversation(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="mobarchy-agent conversation")
+    p.add_argument("action", choices=["new", "open", "show"])
+    p.add_argument("id", nargs="?")
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args(argv)
+    st = agents.State.load()
+    if args.action == "new":
+        conv = Conversation()
+        conv.save()
+        st.conversation = conv.id
+        st.save()
+        return 0
+    if args.action == "open":
+        if not args.id or not Conversation.load(args.id):
+            print("no such conversation", file=sys.stderr)
+            return 1
+        st.conversation = args.id
+        st.save()
+        return 0
+    conv = Conversation.load(args.id or st.conversation or "")
+    turns = [{"role": t.role, "text": t.text, "agent": t.agent} for t in conv.turns] if conv else []
+    if args.json:
+        print(json.dumps({"id": conv.id if conv else None, "turns": turns}, ensure_ascii=False))
+    else:
+        for t in turns:
+            print(f"[{t['agent'] or '-'}] {t['role']}: {t['text']}")
+    return 0
+
+
 def cmd_task(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="mobarchy-agent", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -99,7 +148,8 @@ def cmd_task(argv: list[str]) -> int:
 
 def main() -> None:
     argv = sys.argv[1:]
-    commands = {"agents": cmd_agents, "use": cmd_use, "setup": cmd_setup}
+    commands = {"agents": cmd_agents, "use": cmd_use, "setup": cmd_setup,
+                "conversations": cmd_conversations, "conversation": cmd_conversation}
     if argv and argv[0] in commands:
         sys.exit(commands[argv[0]](argv[1:]))
     sys.exit(cmd_task(argv))

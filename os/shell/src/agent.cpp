@@ -30,6 +30,7 @@ Agent::Agent(QObject *parent)
         emit agentsChanged();
     });
     refresh();
+    loadConversation();
 }
 
 QString Agent::program() const
@@ -72,6 +73,48 @@ void Agent::choose(const QString &id)
     }
 }
 
+void Agent::command(const QStringList &args, std::function<void(const QByteArray &)> done)
+{
+    auto *p = new QProcess(this);
+    connect(p, &QProcess::finished, this, [p, done] {
+        if (done)
+            done(p->readAllStandardOutput());
+        p->deleteLater();
+    });
+    p->start(program(), args);
+}
+
+void Agent::newConversation()
+{
+    command({QStringLiteral("conversation"), QStringLiteral("new")}, [this](const QByteArray &) {
+        emit conversationLoaded({});
+        refreshConversations();
+    });
+}
+
+void Agent::openConversation(const QString &id)
+{
+    command({QStringLiteral("conversation"), QStringLiteral("open"), id},
+            [this](const QByteArray &) { loadConversation(); refreshConversations(); });
+}
+
+void Agent::loadConversation()
+{
+    command({QStringLiteral("conversation"), QStringLiteral("show"), QStringLiteral("--json")},
+            [this](const QByteArray &out) {
+                const QJsonObject o = QJsonDocument::fromJson(out).object();
+                emit conversationLoaded(o.value(QStringLiteral("turns")).toArray().toVariantList());
+            });
+}
+
+void Agent::refreshConversations()
+{
+    command({QStringLiteral("conversations"), QStringLiteral("--json")}, [this](const QByteArray &out) {
+        m_conversations = QJsonDocument::fromJson(out).array().toVariantList();
+        emit conversationsChanged();
+    });
+}
+
 void Agent::sendCode(const QString &code)
 {
     if (!running() || code.trimmed().isEmpty())
@@ -98,11 +141,7 @@ void Agent::ask(const QString &task)
 {
     if (running() || task.trimmed().isEmpty())
         return;
-    QStringList args{QStringLiteral("--json")};
-    if (m_new)
-        args << QStringLiteral("--new");
-    m_new = false;
-    start(args << task.trimmed());
+    start({QStringLiteral("--json"), task.trimmed()});
 }
 
 void Agent::stop()
