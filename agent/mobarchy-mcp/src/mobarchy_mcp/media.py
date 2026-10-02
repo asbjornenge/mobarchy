@@ -1,10 +1,9 @@
 """Media: whatever plays (MPRIS through playerctl, via playerctld, which follows the player
-that was active last, as the shell does), and Spotify through spotify_player's CLI."""
+that was active last, as the shell does): Spotify's web player, a video, a podcast."""
 
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 import time
 
@@ -72,73 +71,4 @@ def seek(seconds: float, relative: bool) -> dict:
     r = _run([*PLAYERCTL, "position", arg])
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip() or "no player")
-    return status()
-
-
-# --- Spotify ------------------------------------------------------------------------------
-
-SPOTIFY = "spotify_player"
-KINDS = ("track", "album", "artist", "playlist")
-
-
-def _spotify_running() -> bool:
-    return _run(["pgrep", "-x", SPOTIFY]).returncode == 0
-
-
-def _ensure_spotify() -> None:
-    """The player must run to play here: in the background (a Spotify Connect device), unless
-    its app is open already."""
-    if shutil.which(SPOTIFY) is None:
-        raise RuntimeError("spotify_player is not installed")
-    if _spotify_running():
-        return
-    subprocess.Popen(["systemd-run", "--user", "--quiet", "--collect", "--unit=spotify-player-daemon",
-                      SPOTIFY, "--daemon"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(50):
-        time.sleep(0.2)
-        if _spotify_running():
-            time.sleep(2)  # its client and Connect device need a moment
-            return
-    raise RuntimeError("spotify_player did not start")
-
-
-def summarize_search(data: dict, limit: int = 5) -> dict:
-    """spotify_player's search JSON -> short lists the agent can choose from."""
-    out = {}
-    for key, kind in (("tracks", "track"), ("albums", "album"), ("artists", "artist"), ("playlists", "playlist")):
-        items = []
-        for item in data.get(key, [])[:limit]:
-            entry = {"id": item["id"], "name": item["name"]}
-            if item.get("artists"):
-                entry["artists"] = ", ".join(a["name"] for a in item["artists"])
-            if kind == "track" and item.get("album"):
-                entry["album"] = item["album"]["name"]
-            items.append(entry)
-        if items:
-            out[key] = items
-    return out
-
-
-def spotify_search(query: str) -> dict:
-    r = _run([SPOTIFY, "search", query], timeout=30)
-    if r.returncode != 0 or not r.stdout.strip().startswith("{"):
-        raise RuntimeError(r.stderr.strip() or "search failed (is Spotify logged in?)")
-    return summarize_search(json.loads(r.stdout))
-
-
-def spotify_play(kind: str, item_id: str = "", name: str = "", shuffle: bool = False) -> dict:
-    if kind not in KINDS:
-        raise ValueError(f"kind must be one of {', '.join(KINDS)}")
-    if not item_id and not name:
-        raise ValueError("give an id (from spotify_search) or a name")
-    _ensure_spotify()
-    which = ["--id", item_id] if item_id else ["--name", name]
-    if kind == "track":
-        cmd = [SPOTIFY, "playback", "start", "track", *which]
-    else:
-        cmd = [SPOTIFY, "playback", "start", "context", *which, kind] + (["--shuffle"] if shuffle else [])
-    r = _run(cmd, timeout=30)
-    if r.returncode != 0:
-        raise RuntimeError(r.stderr.strip() or r.stdout.strip() or "playback failed")
-    time.sleep(1.5)
     return status()

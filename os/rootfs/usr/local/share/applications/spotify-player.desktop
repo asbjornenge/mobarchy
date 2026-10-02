@@ -1,8 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=Spotify
-Comment=Spotify in the terminal (spotify-player; needs Premium)
-Exec=foot --app-id=spotify-player --title=Spotify spotify_player
-Icon=audio-x-generic
-Categories=Audio;Music;Player;
-Keywords=spotify;music;

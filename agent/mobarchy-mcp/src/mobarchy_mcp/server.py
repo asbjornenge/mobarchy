@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import bluetooth, clock, media, network, power
+from . import bluetooth, clock, media, network, power, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -335,18 +335,29 @@ def media_seek(seconds: float, relative: bool = False) -> dict:
     return _media(media.seek, seconds, relative)
 
 
-@tool(Risk.READ, "Search Spotify")
-def spotify_search(query: str) -> dict:
-    """Search Spotify (the owner's account): tracks, albums, artists and playlists with ids
-    for spotify_play."""
-    return _media(media.spotify_search, query)
+@tool(Risk.ACT, "Add a web app to the home screen")
+def add_web_app(url: str, name: str = "") -> dict:
+    """Put a website on the home screen as its own app (own window, no browser bar), with
+    the name and icon from its web app manifest. name overrides the site's name."""
+    try:
+        return webapps.add(url, name)
+    except (OSError, ValueError) as e:
+        raise ToolError(f"could not add {url}: {e}") from e
 
 
-@tool(Risk.ACT, "Play on Spotify")
-def spotify_play(kind: str, id: str = "", name: str = "", shuffle: bool = False) -> dict:
-    """Play a Spotify track, album, artist or playlist on the phone, by id (from
-    spotify_search) or by name. kind: track, album, artist or playlist."""
-    return _media(media.spotify_play, kind, id, name, shuffle)
+@tool(Risk.READ, "List web apps")
+def list_web_apps() -> dict:
+    """Web apps on the home screen: added here, or installed from Chromium ("Install app")."""
+    return {"web_apps": webapps.listed()}
+
+
+@tool(Risk.ACT, "Remove a web app")
+def remove_web_app(app_id: str) -> dict:
+    """Take a web app (app_id from list_web_apps) off the home screen."""
+    try:
+        return {"result": webapps.remove(app_id)}
+    except (OSError, ValueError) as e:
+        raise ToolError(str(e)) from e
 
 
 @tool(Risk.READ, "Date and time")

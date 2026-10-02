@@ -47,6 +47,10 @@ void AppModel::reload()
         qEnvironmentVariable("LC_ALL", qEnvironmentVariable("LC_MESSAGES", qEnvironmentVariable("LANG"))));
     const QStringList desktops = qEnvironmentVariable("XDG_CURRENT_DESKTOP").split(u':', Qt::SkipEmptyParts);
 
+    // The user's own directory exists, so it is watched: apps added later (a web app
+    // installed from the browser) show up right away.
+    QDir().mkpath(QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation));
+
     QSet<QString> seen;
     QList<DesktopEntry> all;
     QStringList watched;
