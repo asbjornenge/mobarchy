@@ -39,6 +39,7 @@ RFKILL_OP_ADD, RFKILL_OP_CHANGE = 0, 2
 HCI_RESET = 0x0C03
 BCM_WRITE_BDADDR = 0xFC01
 BCM_UPDATE_BAUD = 0xFC18
+BCM_WRITE_SCO_PCM_INT_PARAM = 0xFC1C
 BCM_DOWNLOAD_MINIDRIVER = 0xFC2E
 BCM_LAUNCH_RAM = 0xFC4E
 BAUD = {115200: termios.B115200, 4_000_000: termios.B4000000}
@@ -134,6 +135,10 @@ def bring_up() -> None:
         hci.speed(115200)
         hci.reset()
         hci.fast()
+        # Call audio (SCO) over HCI, to PipeWire. By default it leaves on the chip's PCM pins,
+        # which on Pixel go to the audio DSP (AoC: "BtOffloadCap = AOC" in bt_vendor.conf).
+        # Parameters: routing 1 (transport), then clock, frame, sync and clock mode (unused).
+        hci.command(BCM_WRITE_SCO_PCM_INT_PARAM, bytes([1, 0, 0, 0, 0]))
         try:
             addr = BDADDR.read_bytes().rstrip(b"\0").decode()
             hci.command(BCM_WRITE_BDADDR, bytes.fromhex(addr.replace(":", ""))[::-1])
