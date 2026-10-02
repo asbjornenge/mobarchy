@@ -78,6 +78,13 @@ def test_tap_maps_logical_pixels_to_fractions(fakes):
     assert touch.taps == [(0.5, 0.5)]
 
 
+def test_rotated_output_swaps_logical_size():
+    # comet's inner panel: 2152x2076 scanned out, turned by 270 degrees on screen.
+    out = Output(name="DSI-1", width=2152, height=2076, scale=2, transform=3)
+    assert (out.logical_width, out.logical_height) == (1038, 1076)
+    assert (Output("X", 2152, 2076, 2, transform=2).logical_width) == 1076
+
+
 def test_tap_outside_screen_is_an_error(fakes):
     r = call("tap", {"x": 451, "y": 10})
     assert r.is_error

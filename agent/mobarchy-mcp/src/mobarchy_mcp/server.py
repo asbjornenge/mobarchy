@@ -128,8 +128,13 @@ def screenshot() -> Image:
     """Capture the screen as a PNG at logical resolution. Pixel (x, y) in the image is the coordinate to pass to tap/swipe."""
     out = primary_output()
     # grim's scale is relative to logical size: 1 gives logical resolution.
-    r = subprocess.run(["grim", "-o", out.name, "-s", "1", "-t", "png", "-"],
-                       capture_output=True, timeout=15)
+    try:
+        r = subprocess.run(["grim", "-o", out.name, "-s", "1", "-t", "png", "-"],
+                           capture_output=True, timeout=15)
+    except subprocess.TimeoutExpired:
+        # grim waits for a frame, and a screen that is off renders none.
+        raise ToolError("screenshot timed out: the screen is probably off (the shell turns it off "
+                        "after a minute without input)") from None
     if r.returncode != 0:
         raise ToolError(f"screenshot failed: {r.stderr.decode(errors='replace').strip()}")
     return Image(data=r.stdout, format="png")

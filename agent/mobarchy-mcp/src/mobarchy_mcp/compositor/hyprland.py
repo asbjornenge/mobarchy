@@ -26,7 +26,8 @@ class Hyprland(Compositor):
 
     def outputs(self) -> list[Output]:
         return [
-            Output(name=m["name"], width=m["width"], height=m["height"], scale=m["scale"], x=m["x"], y=m["y"])
+            Output(name=m["name"], width=m["width"], height=m["height"], scale=m["scale"], x=m["x"], y=m["y"],
+                   transform=m.get("transform", 0))
             for m in hyprctl("monitors", json_out=True)
         ]
 

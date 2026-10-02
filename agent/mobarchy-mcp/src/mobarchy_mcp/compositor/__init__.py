@@ -35,14 +35,20 @@ class Output:
     scale: float
     x: int = 0      # logical position in the global layout
     y: int = 0
+    transform: int = 0  # wl_output transform: 1, 3, 5 and 7 turn the screen by 90 degrees
+
+    @property
+    def rotated(self) -> bool:
+        return self.transform % 2 == 1
 
     @property
     def logical_width(self) -> int:
-        return round(self.width / self.scale)
+        """Width as seen on screen (what screenshots and tap/swipe coordinates use)."""
+        return round((self.height if self.rotated else self.width) / self.scale)
 
     @property
     def logical_height(self) -> int:
-        return round(self.height / self.scale)
+        return round((self.width if self.rotated else self.height) / self.scale)
 
     def to_dict(self) -> dict:
         return {**asdict(self), "logical_width": self.logical_width, "logical_height": self.logical_height}
