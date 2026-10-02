@@ -50,7 +50,7 @@ work=$1 name=$2
 cd "$work/src/$name"
 deps=$(bash -c 'source PKGBUILD; printf "%s\n" "${depends[@]}" "${makedepends[@]}" "${checkdepends[@]}"' | sed 's/[<>=].*//' | sort -u)
 sudo -n pacman -S --needed --noconfirm --disable-sandbox $deps >/dev/null
-BUILDDIR=$work/makepkg/$name PKGDEST=$work/out PKGEXT=.pkg.tar.zst makepkg -f --noconfirm \
+BUILDDIR=$work/makepkg/$name PKGDEST=$work/out PKGEXT=.pkg.tar.zst makepkg -fC --noconfirm \
     > "$work/makepkg-$name.log" 2>&1 || { tail -30 "$work/makepkg-$name.log" >&2; exit 1; }
 REMOTE
     rsync -a -e "ssh ${ssh_opts[*]}" "$device:$work/out/" "$repo/"

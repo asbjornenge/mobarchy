@@ -1,14 +1,14 @@
 # whisper.cpp's command line for speech to text on the phone (mobarchy-agent transcribe),
-# under /opt/mobarchy/whisper. CPU backend for several ARM generations, the best one
-# picked at start (GGML_CPU_ALL_VARIANTS); own prefix, as llama.cpp ships its own ggml.
+# under /opt/mobarchy/whisper. Statically linked for ARMv8.6 with dotprod and i8mm, for the
+# same reason as mobarchy-llama-cpp (no SVE: slower on phone cores).
 # Build: tools/repo-build mobarchy-whisper-cpp
 
 pkgname=mobarchy-whisper-cpp
 _commit=60c0be6ac8fa71b1a2ae2dd938a31a34a508e774
 pkgver=0+60c0be6
-pkgrel=1
+pkgrel=3
 pkgdesc="whisper.cpp's speech to text for Mobarchy"
-arch=(aarch64 x86_64)
+arch=(aarch64)
 url='https://github.com/ggml-org/whisper.cpp'
 license=(MIT)
 depends=(gcc-libs glibc)
@@ -20,10 +20,11 @@ _prefix=/opt/mobarchy/whisper
 
 build() {
     cmake -S whisper.cpp -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=$_prefix \
-        -DCMAKE_INSTALL_RPATH=$_prefix/lib -DGGML_NATIVE=OFF -DGGML_BACKEND_DL=ON \
-        -DGGML_CPU_ALL_VARIANTS=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON \
+        -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=armv8.6-a+dotprod+i8mm \
+        -DBUILD_SHARED_LIBS=OFF -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_EXAMPLES=ON \
         -DWHISPER_BUILD_SERVER=OFF
-    cmake --build build --parallel
+    # Bounded: unbounded parallel C++ jobs run a phone out of memory.
+    cmake --build build --parallel "$(( $(nproc) < 6 ? $(nproc) : 6 ))"
 }
 
 package() {
