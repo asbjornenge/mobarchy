@@ -146,9 +146,12 @@ async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume
         return None
     WORKDIR.mkdir(parents=True, exist_ok=True)
     mcp = {"mcpServers": {"mobarchy": {"type": "http", "url": config.mcp_url}}}
+    # The phone's tools, plus Claude Code's file tools for its own memory only (what it
+    # keeps about the owner across conversations). Everything else is denied (dontAsk).
+    memory = "~/.claude/projects/**/memory/**"
     cmd = [exe, "-p", prompt, "--output-format", "stream-json", "--verbose",
-           # The phone's tools; no shell or file tools of Claude Code's own.
-           "--tools", "", "--mcp-config", json.dumps(mcp), "--allowedTools", "mcp__mobarchy",
+           "--tools", "Read,Write,Edit", "--mcp-config", json.dumps(mcp),
+           "--allowedTools", "mcp__mobarchy", f"Read({memory})", f"Write({memory})", f"Edit({memory})",
            "--permission-mode", "dontAsk", "--append-system-prompt", SYSTEM_PROMPT]
     if resume:
         cmd += ["--resume", resume]
