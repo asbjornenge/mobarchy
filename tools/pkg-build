@@ -6,7 +6,8 @@
 #   tools/pkg-build <dir> --out <dir>         any directory with a PKGBUILD (e.g. os/shell)
 #
 # os/packages holds distribution packages Mobarchy patches (fixes not yet upstream), as
-# the distribution's PKGBUILD plus patches with a higher pkgrel. Mobarchy's own software
+# the distribution's PKGBUILD plus patches with a higher pkgrel, and third-party packages
+# Arch doesn't have (e.g. mobile-config-firefox). Mobarchy's own software
 # keeps its PKGBUILD next to its source. Install the result on the device with pacman -U,
 # or put it in the image (os/image/build --extra packages=<dir>).
 set -euo pipefail

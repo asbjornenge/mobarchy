@@ -1,0 +1,18 @@
+# postmarketOS's Firefox configuration for phones: a touch-friendly UI, a mobile user agent
+# (with per-site exceptions), touch zoom. Not in Arch. Build: tools/pkg-build mobile-config-firefox
+
+pkgname=mobile-config-firefox
+pkgver=5.4.1
+pkgrel=1
+pkgdesc='Mobile and privacy friendly configuration for Firefox (postmarketOS)'
+arch=(any)
+url='https://gitlab.postmarketos.org/postmarketOS/mobile-config-firefox'
+license=(MPL-2.0)
+depends=(firefox)
+source=("$url/-/archive/$pkgver/$pkgname-$pkgver.tar.gz")
+sha256sums=('4a380df41608638ef52504a19a668f91461cb0c2147ba30402c15b8d7a8bfb13')
+
+package() {
+    cd "$pkgname-$pkgver"
+    make DESTDIR="$pkgdir" FIREFOX_DIR=/usr/lib/firefox install
+}
