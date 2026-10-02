@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import clock, network, power
+from . import bluetooth, clock, network, power
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -256,6 +256,54 @@ def wifi_connect(ssid: str, passphrase: str = "") -> dict:
         return network.connect(ssid, passphrase or None)
     except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
         raise ToolError(f"wifi connect failed: {e}") from e
+
+
+def _bluetooth(fn, *args):
+    try:
+        return fn(*args)
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+        raise ToolError(f"bluetooth: {e}") from e
+
+
+@tool(Risk.READ, "Bluetooth status")
+def bluetooth_status() -> dict:
+    """Whether Bluetooth is on, and the paired devices (headphones, speakers, ...) with
+    whether they are connected and, if they report it, their battery."""
+    return _bluetooth(bluetooth.status)
+
+
+@tool(Risk.READ, "Scan for Bluetooth devices")
+def bluetooth_scan(seconds: int = 10) -> dict:
+    """Look for Bluetooth devices in range for a few seconds. A device to pair must be in
+    pairing mode (e.g. AirPods: lid open, double-tap the case or hold its button)."""
+    return {"devices": _bluetooth(bluetooth.scan, max(3, min(seconds, 30)))}
+
+
+@tool(Risk.ACT, "Connect a Bluetooth device")
+def bluetooth_connect(address: str) -> dict:
+    """Connect a device by address (from bluetooth_status or bluetooth_scan). A new device
+    is paired and trusted first. Audio devices become the sound output."""
+    return _bluetooth(bluetooth.connect, address)
+
+
+@tool(Risk.ACT, "Disconnect a Bluetooth device")
+def bluetooth_disconnect(address: str) -> dict:
+    """Disconnect a device; it stays paired."""
+    return _bluetooth(bluetooth.disconnect, address)
+
+
+@tool(Risk.ACT, "Bluetooth on/off")
+def set_bluetooth(enabled: bool) -> dict:
+    """Switch Bluetooth on or off (the radio's power, as the quick settings tile does)."""
+    return _bluetooth(bluetooth.set_enabled, enabled)
+
+
+@tool(Risk.CONFIRM, "Forget a Bluetooth device")
+def bluetooth_forget(address: str) -> dict:
+    """Unpair a device: it must be paired again (in pairing mode) to connect."""
+    return {"result": _bluetooth(bluetooth.forget, address)}
 
 
 @tool(Risk.READ, "Date and time")
