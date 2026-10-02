@@ -14,6 +14,8 @@ class Agent : public QObject
     // [{id, name, installed, ready, detail, available}]
     Q_PROPERTY(QVariantList agents READ agents NOTIFY agentsChanged)
     Q_PROPERTY(QString active READ active NOTIFY agentsChanged)
+    // A login is waiting for a code the owner may paste (event kind "code").
+    Q_PROPERTY(bool awaitingCode READ awaitingCode NOTIFY awaitingCodeChanged)
 
 public:
     explicit Agent(QObject *parent = nullptr);
@@ -23,6 +25,7 @@ public:
 
     QVariantList agents() const { return m_agents; }
     QString active() const { return m_active; }
+    bool awaitingCode() const { return m_awaitingCode; }
 
     Q_INVOKABLE void ask(const QString &task);
     Q_INVOKABLE void stop();
@@ -33,12 +36,15 @@ public:
     // The next task starts a new conversation.
     Q_INVOKABLE void newConversation() { m_new = true; }
     Q_INVOKABLE void openUrl(const QString &url);
+    // Hand a pasted login code to the running setup.
+    Q_INVOKABLE void sendCode(const QString &code);
 
 signals:
     // kind: "text" | "tool" | "done" | "error" | "url" (a link to open, e.g. a login page)
     void event(const QString &kind, const QString &text);
     void runningChanged();
     void agentsChanged();
+    void awaitingCodeChanged();
 
 private:
     void readEvents();
@@ -51,6 +57,7 @@ private:
     QVariantList m_agents;
     QString m_active;
     bool m_new = false;
+    bool m_awaitingCode = false;
     QByteArray m_stderr;
     bool m_sawError = false;
     bool m_stopped = false;

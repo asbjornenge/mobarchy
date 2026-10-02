@@ -34,7 +34,7 @@ Window {
     Connections {
         target: home.agent
         function onEvent(kind, text) {
-            if (kind === "done" && !text)
+            if ((kind === "done" && !text) || kind === "code")
                 return
             feed.append({ who: kind === "text" ? "mobarchy" : kind, body: text })
         }
@@ -42,6 +42,11 @@ Window {
 
     function submit() {
         const task = ask.text.trim()
+        if (agent.awaitingCode) {  // a pasted login code
+            agent.sendCode(task)
+            ask.text = ""
+            return
+        }
         if (!task || agent.running || !chosen)
             return
         feed.append({ who: "you", body: task })
@@ -274,7 +279,7 @@ Window {
     // --- ask ---------------------------------------------------------------------------------
     Rectangle {
         id: composer
-        visible: home.chosen
+        visible: home.chosen || home.agent.awaitingCode
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 16 }
         height: 48
         radius: 24
@@ -293,7 +298,8 @@ Window {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: !ask.text && !ask.activeFocus
-                text: home.agent.running ? qsTr("Working …")
+                text: home.agent.awaitingCode ? qsTr("Paste the code from the login page …")
+                    : home.agent.running ? qsTr("Working …")
                     : qsTr("Ask %1 …").arg(home.current ? home.current.name : "Mobarchy")
                 color: Theme.muted
                 font: ask.font
@@ -303,11 +309,12 @@ Window {
             id: action
             anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
             width: 56
-            onClicked: home.agent.running ? home.agent.stop() : home.submit()
+            onClicked: home.agent.running && !home.agent.awaitingCode ? home.agent.stop() : home.submit()
             Text {
                 anchors.centerIn: parent
-                text: home.agent.running ? "󰓛" : "󰒊"
-                color: home.agent.running ? Theme.red : (ask.text ? Theme.accent : Theme.muted)
+                readonly property bool stop: home.agent.running && !home.agent.awaitingCode
+                text: stop ? "󰓛" : "󰒊"
+                color: stop ? Theme.red : (ask.text ? Theme.accent : Theme.muted)
                 font { family: Theme.font; pixelSize: 20 }
             }
         }

@@ -41,7 +41,7 @@ BETAS = ["context-management-2025-06-27", "server-side-fallback-2026-07-01"]
 
 @dataclass
 class Event:
-    kind: str  # "text" | "tool" | "done" | "error" | "url" (a link for the owner to open)
+    kind: str  # "text" | "tool" | "done" | "error" | "url" (a link for the owner to open) | "code" (the owner may paste a code: send it as a line on stdin)
     text: str
 
 

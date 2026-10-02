@@ -16,6 +16,7 @@ import json
 import os
 import shutil
 import socket
+import sys
 import tempfile
 from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
@@ -155,11 +156,16 @@ async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume
         stdin=asyncio.subprocess.DEVNULL, limit=16 * 1024 * 1024)
     session = None
     finished = False
+    last_text = ""
     assert proc.stdout is not None
     async for raw in proc.stdout:
         events, sid = parse_claude_stream(raw.decode(errors="replace"))
         session = sid or session
         for e in events:
+            if e.kind == "text":
+                last_text = e.text
+            elif e.kind == "done" and e.text == last_text:
+                e = Event("done", "")  # the final message was already shown as text
             finished |= e.kind in ("done", "error")
             await _emit(on_event, e)
     err = (await proc.stderr.read()).decode(errors="replace").strip() if proc.stderr else ""
@@ -209,20 +215,48 @@ async def claude_setup(on_event: EventHandler) -> bool:
     await _emit(on_event, Event("text", "Opening the Claude login page in the browser. Log in there, then come back."))
     env = dict(os.environ, BROWSER="mobarchy-open")
     proc = await asyncio.create_subprocess_exec(
-        claude_bin(), "auth", "login", stdin=asyncio.subprocess.DEVNULL,
+        claude_bin(), "auth", "login", stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env)
+    return await _login(proc, on_event, url_marker="visit:", wants_code=True) and (await claude_status()).ready
+
+
+async def _forward_stdin(proc: asyncio.subprocess.Process) -> None:
+    """Lines on our stdin (the shell's code field) go to the login process: the manual login
+    flow ends on a page with a code to paste into the tool."""
+    loop = asyncio.get_running_loop()
+    reader = asyncio.StreamReader()
+    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
+    while line := await reader.readline():
+        if proc.stdin and proc.returncode is None:
+            proc.stdin.write(line)
+            await proc.stdin.drain()
+
+
+async def _login(proc: asyncio.subprocess.Process, on_event: EventHandler, url_marker: str,
+                 wants_code: bool) -> bool:
+    forward = asyncio.create_task(_forward_stdin(proc)) if wants_code else None
+
+    async def watch():
+        async for line in _stream_lines(proc):
+            if url_marker in line:
+                url = line.split(url_marker, 1)[1].strip().split()[0] if url_marker.endswith(":") \
+                    else next((w for w in line.split() if w.startswith(url_marker)), "")
+                if url:
+                    await _emit(on_event, Event("url", url))
+            elif wants_code and "paste code" in line.lower():
+                await _emit(on_event, Event("code", "If the login page shows a code, paste it here."))
+        return await proc.wait()
+
     try:
-        async def watch():
-            async for line in _stream_lines(proc):
-                if "visit:" in line:
-                    await _emit(on_event, Event("url", line.split("visit:", 1)[1].strip()))
-            return await proc.wait()
         await asyncio.wait_for(watch(), 900)
+        return proc.returncode == 0
     except TimeoutError:
         proc.kill()
         await _emit(on_event, Event("error", "The login was not completed in time."))
         return False
-    return (await claude_status()).ready
+    finally:
+        if forward:
+            forward.cancel()
 
 
 # --- OpenAI (Codex) -------------------------------------------------------------------------
@@ -341,19 +375,9 @@ async def codex_setup(on_event: EventHandler) -> bool:
     proc = await asyncio.create_subprocess_exec(
         codex_bin(), "login", stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env)
-    try:
-        async def watch():
-            async for line in _stream_lines(proc):
-                url = next((w for w in line.split() if w.startswith("https://auth.openai.com")), None)
-                if url:
-                    await _emit(on_event, Event("url", url))
-            return await proc.wait()
-        await asyncio.wait_for(watch(), 900)
-    except TimeoutError:
-        proc.kill()
-        await _emit(on_event, Event("error", "The login was not completed in time."))
-        return False
-    return (await codex_status()).ready
+    # Codex's page always calls back to localhost: no code to paste.
+    return await _login(proc, on_event, url_marker="https://auth.openai.com", wants_code=False) \
+        and (await codex_status()).ready
 
 
 # --- local ----------------------------------------------------------------------------------

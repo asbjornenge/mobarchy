@@ -72,6 +72,15 @@ void Agent::choose(const QString &id)
     }
 }
 
+void Agent::sendCode(const QString &code)
+{
+    if (!running() || code.trimmed().isEmpty())
+        return;
+    m_proc.write(code.trimmed().toUtf8() + '\n');
+    m_awaitingCode = false;
+    emit awaitingCodeChanged();
+}
+
 void Agent::openUrl(const QString &url)
 {
     QProcess::startDetached(QStringLiteral("mobarchy-open"), {url});
@@ -117,6 +126,10 @@ void Agent::readEvents()
             continue;
         }
         m_sawError |= kind == u"error";
+        if (kind == u"code" && !m_awaitingCode) {
+            m_awaitingCode = true;
+            emit awaitingCodeChanged();
+        }
         emit event(kind, o.value(QStringLiteral("text")).toString());
     }
 }
@@ -124,6 +137,10 @@ void Agent::readEvents()
 void Agent::finished(int code, QProcess::ExitStatus status)
 {
     readEvents();
+    if (m_awaitingCode) {
+        m_awaitingCode = false;
+        emit awaitingCodeChanged();
+    }
     refresh();  // a setup may have logged in, a run may have found the login expired
     if (m_stopped) {
         emit event(QStringLiteral("error"), tr("Stopped."));
