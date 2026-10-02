@@ -1,0 +1,10 @@
+// The phone's owner (group wheel) and the agent acting for them may change the time zone
+// and network time without a password prompt: the agent has no way to answer one, and
+// there is no on-screen prompt. Setting the clock by hand still asks.
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.timedate1.set-timezone" ||
+         action.id == "org.freedesktop.timedate1.set-ntp") &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});

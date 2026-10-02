@@ -74,7 +74,13 @@ QtObject {
         lock()
         screen.on = false
     }
+    // Touch points whose "up" got lost would make the shell ignore every tap and swipe.
+    readonly property TouchGuard touchGuard: TouchGuard {}
+
     function wake() {
+        // No finger is on the glass while the screen is dark: anything Qt still holds is stale.
+        if (!screen.on)
+            touchGuard.reset("wake")
         screen.on = true
         // Only the lock screen goes dark again by itself. (A fold wakes an unlocked phone
         // too: restarting the timer then turned the screen off 10 s later, video or not.)

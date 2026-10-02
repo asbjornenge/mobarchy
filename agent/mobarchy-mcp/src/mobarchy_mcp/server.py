@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import network, power
+from . import clock, network, power
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -256,6 +256,46 @@ def wifi_connect(ssid: str, passphrase: str = "") -> dict:
         return network.connect(ssid, passphrase or None)
     except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
         raise ToolError(f"wifi connect failed: {e}") from e
+
+
+@tool(Risk.READ, "Date and time")
+def time_status() -> dict:
+    """Local date and time, the time zone, and whether the clock follows network time (NTP)."""
+    try:
+        return clock.status()
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"time settings unavailable: {e}") from e
+
+
+@tool(Risk.READ, "Find time zones")
+def find_timezones(query: str) -> dict:
+    """Time zone names (IANA, e.g. Europe/Oslo) matching a city or region, e.g. "oslo",
+    "new york", "america". Use the exact name with set_timezone."""
+    try:
+        return {"timezones": clock.match_timezones(query, clock.timezones())[:50]}
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"time settings unavailable: {e}") from e
+
+
+@tool(Risk.ACT, "Set time zone")
+def set_timezone(timezone: str) -> dict:
+    """Set the system time zone by IANA name, e.g. Europe/Oslo (see find_timezones).
+    Returns the new local time."""
+    try:
+        return clock.set_timezone(timezone)
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"could not set the time zone: {e}") from e
+
+
+@tool(Risk.ACT, "Network time on/off")
+def set_network_time(enabled: bool) -> dict:
+    """Keep the clock in sync with network time (NTP), or stop doing so."""
+    try:
+        return clock.set_network_time(enabled)
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"could not change network time: {e}") from e
 
 
 @tool(Risk.CONFIRM, "Run shell command")

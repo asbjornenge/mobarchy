@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.21)
 # C: the protocol code from wayland-scanner.
 project(mobarchy-shell VERSION 0.1 LANGUAGES C CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Gui Quick DBus WaylandClient Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Gui GuiPrivate Quick DBus WaylandClient Test)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
 qt_standard_project_setup(REQUIRES 6.5)
@@ -36,6 +36,7 @@ qt_add_qml_module(mobarchy-shell
         src/wifi.cpp src/wifi.h
         src/systemstatus.cpp src/systemstatus.h
         src/toplevels.cpp src/toplevels.h
+        src/touchguard.cpp src/touchguard.h
         src/volume.cpp src/volume.h
     QML_FILES
         qml/Main.qml
@@ -63,7 +64,7 @@ qt6_generate_wayland_protocol_client_sources(mobarchy-shell
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-idle-notify-v1.xml)
 target_include_directories(mobarchy-shell PRIVATE src)
 target_link_libraries(mobarchy-shell PRIVATE
-    core Qt6::Gui Qt6::Quick Qt6::DBus Qt6::WaylandClient PkgConfig::PULSE)
+    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::WaylandClient PkgConfig::PULSE)
 
 include(GNUInstallDirs)
 install(TARGETS mobarchy-shell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
