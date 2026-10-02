@@ -63,3 +63,14 @@ def test_codex_stream():
     assert [e.kind for e in events] == ["done"]
     events, _ = agents.parse_codex_stream(line({"type": "turn.failed", "error": {"message": "401 Unauthorized"}}))
     assert events[0].kind == "error" and "401" in events[0].text
+
+
+def test_local_tool_schema_and_results():
+    from types import SimpleNamespace as NS
+
+    from mobarchy_agent import local
+    tool = NS(name="tap", description="Tap.", input_schema={"type": "object", "properties": {"x": {"type": "number"}}})
+    assert local._openai_tool(tool)["function"]["name"] == "tap"
+    result = NS(is_error=False, content=[NS(type="text", text="ok"), NS(type="image")])
+    assert local._result_text(result) == "ok\n[an image; you cannot see images]"
+    assert local._result_text(NS(is_error=True, content=[NS(type="text", text="denied")])) == "ERROR: denied"

@@ -2,7 +2,7 @@
 
     claude   the owner's own Claude Code (their Claude account), `claude -p`
     openai   the owner's own Codex (their OpenAI account), `codex exec --json`
-    local    a small model on the phone, the offline fallback        [not yet]
+    local    a small model on the phone (llama.cpp), the offline fallback (local.py)
     api      the Anthropic API with a key (runtime.py)
 
 Logins belong to the tools (~/.claude, ~/.codex); Mobarchy never handles tokens. Every
@@ -15,11 +15,13 @@ import asyncio
 import json
 import os
 import shutil
+import socket
 import tempfile
 from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from . import local
 from .config import Config
 from .runtime import SYSTEM_PROMPT, Event, EventHandler, _describe_tool_call, _emit, run_task
 
@@ -354,6 +356,47 @@ async def codex_setup(on_event: EventHandler) -> bool:
     return (await codex_status()).ready
 
 
+# --- local ----------------------------------------------------------------------------------
+
+LOCAL_HISTORY = WORKDIR / "local-history.json"
+
+
+async def local_status() -> Status:
+    s = Status("local", "Local agent", installed=local.installed(), ready=local.installed())
+    if s.ready:
+        s.detail = f"{local.MODEL_NAME} on the phone · works offline"
+    elif not local.server_bin():
+        s.detail = "llama.cpp is not installed"
+        s.available = False
+    else:
+        s.detail = f"downloads {local.MODEL_NAME} (2.5 GB)"
+    return s
+
+
+async def local_run(prompt: str, config: Config, on_event: EventHandler, resume: str | None) -> str:
+    history = None
+    if resume and LOCAL_HISTORY.exists():
+        try:
+            history = json.loads(LOCAL_HISTORY.read_text())
+        except ValueError:
+            history = None
+    messages = await local.run(prompt, config, on_event, history)
+    WORKDIR.mkdir(parents=True, exist_ok=True)
+    LOCAL_HISTORY.write_text(json.dumps(messages[-40:] if len(messages) > 40 else messages))
+    return "history"
+
+
+def online(timeout: float = 2.0) -> bool:
+    """A quick reachability check (no DNS): can we open a connection to the internet?"""
+    for host in ("1.1.1.1", "8.8.8.8"):
+        try:
+            with socket.create_connection((host, 443), timeout=timeout):
+                return True
+        except OSError:
+            continue
+    return False
+
+
 # --- the others -----------------------------------------------------------------------------
 
 async def api_status(config: Config) -> Status:
@@ -366,7 +409,7 @@ async def statuses(config: Config) -> list[Status]:
     return [
         await claude_status(),
         await codex_status(),
-        Status("local", "Local agent", installed=False, ready=False, detail="coming soon", available=False),
+        await local_status(),
         await api_status(config),
     ]
 
@@ -376,6 +419,8 @@ async def setup(agent: str, on_event: EventHandler) -> bool:
         ok = await claude_setup(on_event)
     elif agent == "openai":
         ok = await codex_setup(on_event)
+    elif agent == "local":
+        ok = await local.setup(on_event)
     else:
         await _emit(on_event, Event("error", f"Setting up {agent} is not supported yet."))
         return False
@@ -383,7 +428,7 @@ async def setup(agent: str, on_event: EventHandler) -> bool:
         st = State.load()
         st.active = agent
         st.save()
-        s = await (claude_status() if agent == "claude" else codex_status())
+        s = await {"claude": claude_status, "openai": codex_status, "local": local_status}[agent]()
         await _emit(on_event, Event("done", f"{s.name} is ready{(' (' + s.detail + ')') if s.detail else ''}."))
     return ok
 
@@ -395,8 +440,15 @@ async def run(prompt: str, config: Config, on_event: EventHandler, agent: str | 
     if not agent:
         await _emit(on_event, Event("error", "No agent chosen yet. Choose one on the home screen."))
         return
+    # Without a network, the cloud agents can't answer: the local one does (if it is there).
+    if agent in ("claude", "openai", "api") and not online() and local.installed():
+        await _emit(on_event, Event("tool", "offline: the local agent answers"))
+        agent = "local"
     resume = None if new_conversation else st.sessions.get(agent)
-    if agent == "claude":
+    if agent == "local":
+        st.sessions[agent] = await local_run(prompt, config, on_event, resume)
+        st.save()
+    elif agent == "claude":
         session = await claude_run(prompt, config, on_event, resume)
         if session:
             st = State.load()

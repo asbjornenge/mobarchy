@@ -1,0 +1,9 @@
+[Unit]
+Description=Mobarchy local model (llama.cpp server for the local agent, ADR 0010)
+# Started on demand by mobarchy-agent; listens on localhost only.
+
+[Service]
+ExecStart=/usr/bin/env llama-server --host 127.0.0.1 --port 8766 --jinja --no-webui \
+    -m %h/.local/share/mobarchy/models/qwen3-4b-instruct-q4_0.gguf -c 16384 -t 4
+Restart=on-failure
+RestartSec=5

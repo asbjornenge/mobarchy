@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import network
+from . import network, power
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -219,6 +219,15 @@ def close_window(window_id: str) -> str:
 
 
 # --- confirm ----------------------------------------------------------------------
+
+
+@tool(Risk.READ, "Battery status")
+def battery_status() -> dict:
+    """Battery level (percent), charging state, health and temperature."""
+    info = power.battery()
+    if info is None:
+        raise ToolError("this device reports no battery")
+    return info
 
 
 @tool(Risk.READ, "Wifi status")
