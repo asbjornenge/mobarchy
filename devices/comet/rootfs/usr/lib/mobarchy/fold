@@ -7,8 +7,8 @@
 
 Hyprland calls this from switch binds (see /etc/mobarchy/hyprland-device.conf). The
 monitor rules are written to /run/mobarchy/fold.conf, which that file sources.
-The bar and keyboard are layer surfaces tied to an output, so they are restarted
-on the panel that is now in use.
+The on-screen keyboard is a layer surface tied to an output, so it is restarted on the
+panel that is now in use (mobarchy-shell moves its own layer surfaces).
 """
 import array
 import fcntl
@@ -19,15 +19,16 @@ import subprocess
 import sys
 import time
 
-# (connector, mode, scale, reserved top strip in logical px, transform, position)
-# - The reserved strip keeps content clear of the camera cutout and rounded corners.
+# (connector, mode, scale, transform, position)
+# - The strip at the top kept clear for the camera cutout is in device.toml (top_inset);
+#   mobarchy-shell's status bar covers it.
 # - The inner panel scans out 2152x2076 but is mounted rotated: upright it is 2076x2152,
 #   which is also the frame its touch controller reports in (goodix,panel-max-x/y).
 #   transform 3 (confirmed on the device 2026-10-01); touch gets no transform of its own
 #   (see hyprland-device.conf).
 # - Positions keep the panels apart, so Hyprland never sees overlapping monitors.
-INNER = ("DSI-1", "2152x2076@120", "2", 24, 3, "0x0")
-OUTER = ("DSI-2", "1080x2424@120", "2.4", 32, 0, "1100x0")
+INNER = ("DSI-1", "2152x2076@120", "2", 3, "0x0")
+OUTER = ("DSI-2", "1080x2424@120", "2.4", 0, "1100x0")
 # Sourced by /etc/mobarchy/hyprland-device.conf; created empty at boot (tmpfiles.d).
 RULES = "/run/mobarchy/fold.conf"
 HALL_NAME = "hall effect sensor"
@@ -78,8 +79,7 @@ def apply(folded: bool) -> None:
     # applying them. A reload switches both panels in one step.
     with open(RULES, "w") as f:
         f.write(f"# Written by {sys.argv[0]}: {'folded' if folded else 'unfolded'}\n"
-                f"monitor = {on[0]}, {on[1]}, {on[5]}, {on[2]}, transform, {on[4]}\n"
-                f"monitor = {on[0]}, addreserved, {on[3]}, 0, 0, 0\n"
+                f"monitor = {on[0]}, {on[1]}, {on[4]}, {on[2]}, transform, {on[3]}\n"
                 f"monitor = {off[0]}, disable\n")
     hyprctl("reload")
     # The reload is applied asynchronously, and Hyprland reshuffles workspaces itself
@@ -91,8 +91,7 @@ def apply(folded: bool) -> None:
         time.sleep(0.1)
     hyprctl("dispatch", "focusmonitor", on[0])
     gather_workspaces(on[0], show)
-    # Layer surfaces (bar, on-screen keyboard) stay on the output they were created on.
-    subprocess.run(["systemctl", "--user", "restart", "mobarchy-bar"], check=False)
+    # squeekboard's layer surface stays on the output it was created on.
     subprocess.run(["pkill", "-x", "squeekboard"], check=False)
     subprocess.Popen(["squeekboard"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      start_new_session=True)

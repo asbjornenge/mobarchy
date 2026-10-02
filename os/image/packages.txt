@@ -15,9 +15,6 @@ uv
 rsync
 ttf-dejavu
 noto-fonts
-gtk4
-gtk4-layer-shell
-python-gobject
 squeekboard
 libinput
 # The shell (os/shell, ADR 0009)
@@ -26,6 +23,7 @@ qt6-wayland
 qt6-svg
 layer-shell-qt
 ttf-jetbrains-mono-nerd
+adwaita-icon-theme
 # squeekboard links libbsd.so.0, but the Arch Linux ARM package does not depend on it
 libbsd
 # Wifi (mobarchy-wifi)

@@ -171,7 +171,8 @@ write_files:
 runcmd:
   - [bash, -c, "pacman-key --init && pacman-key --populate archlinux"]
   - [pacman, -Syu, --noconfirm, --needed, hyprland, foot, mesa, grim, wtype, jq, python, uv, rsync, ttf-dejavu, noto-fonts,
-       gtk4, gtk4-layer-shell, python-gobject, squeekboard]
+       squeekboard, iw, adwaita-icon-theme, ttf-jetbrains-mono-nerd,
+       qt6-declarative, qt6-wayland, qt6-svg, layer-shell-qt, cmake, ninja, gcc]
   - [chown, -R, "{GUEST_USER}:{GUEST_USER}", /home/{GUEST_USER}]
   - [mkdir, -p, /var/lib/mobarchy]
   - [touch, /var/lib/mobarchy/provisioned]
@@ -352,6 +353,11 @@ def rsync(src: str, dest: str, *extra: str, sudo: bool = False) -> None:
     subprocess.run(cmd + [src, f"{GUEST_USER}@127.0.0.1:{dest}"], check=True)
 
 
+# What os/shell needs to build and run (see os/shell/PKGBUILD).
+SHELL_BUILD_DEPS = ("qt6-declarative", "qt6-wayland", "qt6-svg", "layer-shell-qt", "ttf-jetbrains-mono-nerd",
+                    "adwaita-icon-theme", "iw", "cmake", "ninja", "gcc")
+
+
 def cmd_sync(args) -> None:
     """Deploy the working tree into the guest: rootfs overlays, user config, and the agent layer."""
     dev_dir = DEVICE.parent
@@ -375,6 +381,14 @@ def cmd_sync(args) -> None:
     rsync(f"{REPO}/agent/", "/opt/mobarchy/agent/", "--delete-after",
           "--exclude", ".venv", "--exclude", "__pycache__", "--exclude", ".pytest_cache")
     ssh(["set -e; for p in /opt/mobarchy/agent/*/pyproject.toml; do (cd $(dirname $p) && uv sync -q --no-dev); done"])
+    # The shell, built in the guest (for the guest's architecture), incrementally.
+    ssh(["sudo install -d -o $(id -u) -g $(id -g) /opt/mobarchy/shell"])
+    rsync(f"{REPO}/os/shell/", "/opt/mobarchy/shell/", "--delete-after", "--exclude", "spike")
+    ssh(["set -e; sudo pacman -S --needed --noconfirm " + " ".join(SHELL_BUILD_DEPS) + " >/dev/null;"
+         " b=~/.cache/mobarchy/shell-build;"
+         " cmake -S /opt/mobarchy/shell -B $b -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr >/dev/null;"
+         " cmake --build $b > /tmp/mobarchy-shell-build.log 2>&1 || { tail -30 /tmp/mobarchy-shell-build.log; exit 1; };"
+         " sudo cmake --install $b >/dev/null"])
     # Agent credentials live on the host outside the repo; copy them in if present.
     host_env = Path.home() / ".config" / "mobarchy" / "agent.env"
     if host_env.is_file():
@@ -387,7 +401,7 @@ def cmd_sync(args) -> None:
          " hyprctl -i 0 reload >/dev/null;"
          " export HYPRLAND_INSTANCE_SIGNATURE=$(hyprctl -i 0 -j instances | jq -r '.[0].instance');"
          " systemctl --user import-environment WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE;"
-         " systemctl --user restart mobarchy-mcp mobarchy-bar;"
+         " systemctl --user restart mobarchy-mcp mobarchy-shell;"
          " for i in $(seq 50); do curl -s -o /dev/null localhost:8765/mcp && break; sleep 0.2; done; fi"])
     print("synced")
 

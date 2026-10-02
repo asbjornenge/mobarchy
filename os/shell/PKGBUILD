@@ -1,0 +1,34 @@
+# The Mobarchy shell, built from this directory (not from a release tarball):
+#   tools/pkg-build os/shell --out <dir>          for the image (arm64 container)
+#   BUILDDIR=/tmp/makepkg makepkg                 elsewhere
+# BUILDDIR is required: makepkg's default work directory, ./src, is the source tree here
+# (and makepkg -c/-C would delete it).
+pkgname=mobarchy-shell
+pkgver=0.1
+pkgrel=1
+pkgdesc='The Mobarchy phone shell: status bar, swipe-up app drawer, agent home screen'
+arch=(aarch64 x86_64)
+depends=(qt6-base qt6-declarative qt6-wayland qt6-svg layer-shell-qt ttf-jetbrains-mono-nerd
+         adwaita-icon-theme iw systemd)
+makedepends=(cmake ninja wayland)
+options=(!debug)
+
+prepare() {
+    if [[ $srcdir == "$startdir/src" ]]; then
+        echo "set BUILDDIR: ./src is the shell's source tree, not makepkg's work directory" >&2
+        return 1
+    fi
+}
+
+build() {
+    cmake -S "$startdir" -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build
+}
+
+check() {
+    ctest --test-dir build --output-on-failure
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}

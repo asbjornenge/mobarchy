@@ -17,12 +17,15 @@ id = "outer"
 connector = "DSI-2"
 width = 1080
 height = 2424
+top_inset = 32      # camera cutout
 
 [[display]]
 id = "inner"
 connector = "DSI-1"
 width = 2152
 height = 2076
+top_inset = 24      # camera cutout
+side_inset = 20     # trial value: the clock was cut off at the left edge
 
 [input]
 touch = "vendor"

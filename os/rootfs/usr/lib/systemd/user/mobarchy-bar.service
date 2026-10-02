@@ -1,9 +1,0 @@
-[Unit]
-Description=Mobarchy assistant bar
-PartOf=graphical-session.target
-After=mobarchy-mcp.service
-
-[Service]
-ExecStart=/usr/bin/mobarchy-bar
-Restart=on-failure
-RestartSec=2

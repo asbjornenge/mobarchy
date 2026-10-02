@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Build one of Mobarchy's Arch packages (os/packages/<name>/PKGBUILD) for aarch64, in the
-# Arch Linux ARM container (qemu-user), with makepkg.
+# Build one of Mobarchy's Arch packages for aarch64, in the Arch Linux ARM container
+# (qemu-user), with makepkg.
 #
-#   tools/pkg-build <name> --out <dir>
+#   tools/pkg-build <name> --out <dir>        os/packages/<name>/PKGBUILD
+#   tools/pkg-build <dir> --out <dir>         any directory with a PKGBUILD (e.g. os/shell)
 #
 # os/packages holds distribution packages Mobarchy patches (fixes not yet upstream), as
-# the distribution's PKGBUILD plus patches with a higher pkgrel. Install the result on the
-# device with pacman -U, or put it in the image.
+# the distribution's PKGBUILD plus patches with a higher pkgrel. Mobarchy's own software
+# keeps its PKGBUILD next to its source. Install the result on the device with pacman -U,
+# or put it in the image (os/image/build --extra packages=<dir>).
 set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 name="${1:-}"; shift || true
@@ -17,9 +19,14 @@ while [ $# -gt 0 ]; do
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
-pkgdir="$repo/os/packages/$name"
+if [ -n "$name" ] && [ -f "$name/PKGBUILD" ]; then
+    pkgdir="$(realpath "$name")"
+else
+    pkgdir="$repo/os/packages/$name"
+fi
 [ -n "$name" ] && [ -n "$out" ] && [ -f "$pkgdir/PKGBUILD" ] || {
-    echo "usage: $0 <name> --out <dir>   (with os/packages/<name>/PKGBUILD)" >&2; exit 2; }
+    echo "usage: $0 <name>|<dir> --out <dir>   (with os/packages/<name>/PKGBUILD or <dir>/PKGBUILD)" >&2; exit 2; }
+name=$(bash -c 'source "$1/PKGBUILD" && echo "$pkgname"' _ "$pkgdir")
 mkdir -p "$out"
 image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
     echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
@@ -33,7 +40,7 @@ docker run --rm --platform linux/arm64 -v "$pkgdir:/pkg:ro" -v "$out:/out" "$ima
     pacman -S --noconfirm --needed --disable-sandbox $deps >/dev/null
     useradd -m builder
     cp -r /pkg /tmp/build && chown -R builder /tmp/build
-    su builder -c "cd /tmp/build && PKGDEST=/tmp/build/out PKGEXT=.pkg.tar.zst makepkg --noconfirm" \
+    su builder -c "cd /tmp/build && PKGDEST=/tmp/build/out BUILDDIR=/tmp/makepkg PKGEXT=.pkg.tar.zst makepkg --noconfirm" \
         > /tmp/makepkg.log 2>&1 || { cp /tmp/makepkg.log /out/makepkg-'"$name"'.log; tail -30 /tmp/makepkg.log >&2; exit 1; }
     cp /tmp/makepkg.log /out/makepkg-'"$name"'.log && cp /tmp/build/out/*.pkg.tar.zst /out/
     chmod a+r /out/*

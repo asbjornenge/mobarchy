@@ -1,6 +1,6 @@
 # 0006: On-device assistant: bar, composer window and squeekboard
 
-- Status: accepted
+- Status: accepted; the bar is superseded by mobarchy-shell (0009). The findings about text input and the keyboard still hold.
 - Date: 2026-09-30
 
 ## Context

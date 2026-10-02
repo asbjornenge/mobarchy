@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Mobarchy
+Comment=The Mobarchy phone shell
+Exec=mobarchy-shell
+Icon=org.mobarchy.Shell
+NoDisplay=true

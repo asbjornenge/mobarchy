@@ -34,6 +34,9 @@ connector = "DSI-1"   # optional: DRM connector name
 width = 1080
 height = 2424
 scale = 2.4           # optional
+top_inset = 24        # optional: logical px at the top that content keeps clear of
+                      # (camera cutout, rounded corners); the status bar covers it
+side_inset = 0        # optional: the same at the left and right edges (panel under the bezel)
 
 [input]
 touch = "..."

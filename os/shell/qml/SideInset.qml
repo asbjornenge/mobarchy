@@ -1,0 +1,22 @@
+import QtQuick
+import org.kde.layershell as LayerShell
+import Mobarchy.Shell
+
+// A black strip along the left or right edge that apps keep clear of, where the panel
+// runs under the bezel (device.toml side_inset).
+LayerWindow {
+    id: strip
+
+    required property bool left
+    required property int inset
+
+    shown: inset > 0
+    width: Math.max(1, inset)
+    color: "black"
+    LayerShell.Window.scope: "mobarchy-inset"
+    LayerShell.Window.layer: LayerShell.Window.LayerBottom
+    LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom
+                               | (left ? LayerShell.Window.AnchorLeft : LayerShell.Window.AnchorRight)
+    LayerShell.Window.exclusionZone: inset
+    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
+}

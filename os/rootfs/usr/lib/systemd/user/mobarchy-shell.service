@@ -1,0 +1,13 @@
+[Unit]
+Description=Mobarchy shell (status bar, app drawer, agent home)
+PartOf=graphical-session.target
+After=mobarchy-mcp.service
+# The shell is the phone's whole UI (and it turns the screen back on when it starts):
+# keep restarting it.
+StartLimitIntervalSec=60
+StartLimitBurst=20
+
+[Service]
+ExecStart=/usr/bin/mobarchy-shell
+Restart=always
+RestartSec=1

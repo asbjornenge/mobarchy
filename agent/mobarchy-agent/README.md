@@ -29,7 +29,7 @@ MOBARCHY_MCP_URL=http://127.0.0.1:8765/mcp
 
 ```sh
 uv run mobarchy-agent "open a terminal and show the uptime"
-uv run mobarchy-agent --json "..."   # JSON-lines events, used by mobarchy-bar
+uv run mobarchy-agent --json "..."   # JSON-lines events, used by mobarchy-shell
 ```
 
 Events: `tool` (a tool call), `text` (the agent speaking), `done` (final message), `error`.

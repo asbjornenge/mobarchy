@@ -42,11 +42,13 @@ Touch reaches Qt correctly: `wl_touch` becomes QTouchEvent and is delivered to Q
 - The shell is written in **Qt Quick/QML** in `os/shell/`. Layer surfaces (status bar, gesture edges, overlays) use `layer-shell-qt`. Anything that needs text input stays a normal xdg window, because Hyprland does not deliver input-method text to layer surfaces (ADR 0006).
 - Logic that is not UI (agent event stream, system state) lives in small C++ or Python helpers, or comes over MCP. QML stays declarative.
 - The shell talks to the agent through the same JSON event stream as today (ADR 0006), so it replaces `mobarchy-bar` without touching the agent.
+- Open windows come from wlr-foreign-toplevel-management (switch, close, and "show the most recent app when the active one closes"), not from Hyprland's IPC. Apps are started in their own systemd scope (`systemd-run --user --scope`), not through the compositor, so they outlive a restart of the shell.
 - The shell is generic. It reads screen and fold data from `device.toml` and the running compositor; it does not hard-code comet.
 
 ## Consequences
 
 - Qt 6 and layer-shell-qt join the image (≈ 60 MB on disk). GTK stays for apps that use it.
 - Continuous animations (for example the spike's `FrameAnimation` FPS counter) keep the GPU awake. Shell code must animate only in response to the user or real events.
-- Startup can be cut further by compiling the QML ahead of time (qmlcachegen or a small C++ host) instead of using the `qml` runner.
-- Next steps: an MCP-exposed shell (the agent can read and drive it), the agent feed wired to `mobarchy-agent --json`, an app drawer from `.desktop` files, quick settings, notifications and a lock screen.
+- `mobarchy-shell` is a small C++ host with the QML compiled in ahead of time (`qt_add_qml_module`), not the `qml` runner.
+- It is packaged next to its source (`os/shell/PKGBUILD`, built with `tools/pkg-build os/shell`), and `sim/mobsim sync` builds it in the simulator.
+- Still to come: quick settings (swipe down), notifications, a lock screen (ext-session-lock), and exposing the shell over MCP so the agent can read and drive it.

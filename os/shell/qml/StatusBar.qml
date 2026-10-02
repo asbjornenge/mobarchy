@@ -1,0 +1,79 @@
+import QtQuick
+import org.kde.layershell as LayerShell
+import Mobarchy.Shell
+
+LayerWindow {
+    id: bar
+
+    required property SystemStatus system
+    required property Sheet quick
+    required property Device device
+    required property Notifications notifications
+
+    // The bar starts at the very top edge, where a swipe starts, and covers the strip the
+    // device keeps clear (camera cutout, corners: device.toml top_inset). Its content sits
+    // below that strip.
+    readonly property int inset: device.topInset(screen ? screen.name : "")
+    height: inset + 28
+    color: Theme.bgDark
+    LayerShell.Window.scope: "mobarchy-status"
+    LayerShell.Window.layer: LayerShell.Window.LayerTop
+    LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorLeft
+                               | LayerShell.Window.AnchorRight
+    LayerShell.Window.exclusionZone: height
+    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
+
+    property date now: new Date()
+    Timer {
+        // Wakes up once a minute, on the minute.
+        interval: (60 - bar.now.getSeconds()) * 1000 + 50
+        running: true
+        onTriggered: { bar.now = new Date(); restart() }
+    }
+
+    readonly property string batteryIcon: {
+        if (system.battery < 0) return ""
+        if (system.charging) return "󰂄"
+        const icons = ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
+        return icons[Math.round(system.battery / 10)]
+    }
+    readonly property string wifiIcon: !system.wifiConnected ? "󰤮"
+        : system.wifiStrength < 0 ? "󰤨" : ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"][system.wifiStrength]
+
+    Item {
+        id: row
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: 28
+    }
+    Row {
+        anchors { left: parent.left; leftMargin: 16; verticalCenter: row.verticalCenter }
+        spacing: 12
+        Text {
+            text: Qt.formatTime(bar.now, "HH:mm")
+            color: Theme.fg
+            font { family: Theme.font; pixelSize: 14; bold: true }
+        }
+        Text {
+            visible: bar.notifications.count > 0
+            text: "󰂚 " + bar.notifications.count
+            color: Theme.accent
+            font { family: Theme.font; pixelSize: 13 }
+        }
+    }
+    Text {
+        anchors { right: parent.right; rightMargin: 16; verticalCenter: row.verticalCenter }
+        text: bar.wifiIcon + "   " + bar.batteryIcon + (bar.system.battery >= 0 ? " " + bar.system.battery + "%" : "")
+        color: Theme.fg
+        font { family: Theme.font; pixelSize: 13 }
+    }
+
+    // Swipe down (or tap) for quick settings.
+    EdgeGesture {
+        anchors.fill: parent
+        direction: -1
+        onBegan: bar.quick.beginDrag()
+        onMoved: (distance) => bar.quick.dragTo(distance)
+        onEnded: (velocity) => bar.quick.endDrag(velocity)
+        onTapped: bar.quick.open()
+    }
+}

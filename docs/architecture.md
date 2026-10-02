@@ -9,7 +9,7 @@
 ├──────────────────────────────────────────────┤
 │ Compositor adapter (Hyprland today)           │  agent/  (backend behind the tool API)
 ├──────────────────────────────────────────────┤
-│ Mobile shell / UX                             │  os/config, os/rootfs (mobarchy-bar)
+│ Mobile shell / UX                             │  os/shell (mobarchy-shell), os/config
 ├──────────────────────────────────────────────┤
 │ Userspace rootfs                              │  os/
 ├──────────────────────────────────────────────┤
@@ -27,12 +27,22 @@ Mobarchy's own value lives in the top two layers. Everything below is reused, an
 3. **Risk levels in the tool API.** Every tool declares a risk level from day one: read, act, or confirm. See [ADR 0004](decisions/0004-compositor-agnostic-tool-api.md).
 4. **Everything testable by agents.** Every feature must be verifiable on the simulator using `sim/mobsim`, with no human in the loop.
 
-## On-device assistant
+## Shell and on-device assistant
 
-`mobarchy-bar` is a layer-shell panel with a status line, **✦ Ask** and **⌨**. **✦ Ask** opens a composer window with a text field, and squeekboard is the on-screen keyboard. Submitting runs `mobarchy-agent --json`, and the agent talks to `mobarchy-mcp`. See [ADR 0006](decisions/0006-assistant-bar-and-keyboard.md).
+`mobarchy-shell` (`os/shell`, Qt Quick, [ADR 0009](decisions/0009-shell-qt-quick.md)) is the phone UI:
+
+- a status bar (layer surface, top);
+- the bottom edge (layer surface): swipe up for the app drawer, tap for home, and a keyboard toggle;
+- the app drawer (layer surface, mapped only while open): open apps from wlr-foreign-toplevel-management, installed apps from desktop entries, each started in its own systemd scope;
+- quick settings (layer surface, from the status bar): brightness, Wi-Fi (wpa_supplicant), flight mode (rfkill), notifications, restart / power off;
+- the lock screen and the power key (screen power and idle through standard Wayland protocols);
+- the notification server (org.freedesktop.Notifications);
+- home (a normal window, so text input works, [ADR 0006](decisions/0006-assistant-bar-and-keyboard.md)): the agent's feed and an Ask field. Asking runs `mobarchy-agent --json`, and the agent talks to `mobarchy-mcp`.
+
+squeekboard is the on-screen keyboard.
 
 ```
-owner ── mobarchy-bar/composer ──(JSON events)── mobarchy-agent ──(MCP)── mobarchy-mcp ── compositor/uinput/...
+owner ── mobarchy-shell (home) ──(JSON events)── mobarchy-agent ──(MCP)── mobarchy-mcp ── compositor/uinput/...
                                                       └── Claude API
 ```
 
