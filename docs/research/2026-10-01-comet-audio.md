@@ -78,12 +78,19 @@ output (commands through the `audio_output_control` service or controls not in m
 The way to learn it: boot Android (slot a) and record mixer changes and AoC commands
 during playback.
 
+## Working (2026-10-02)
+
+- Playback works when the stream starts before the ALSA buffer is full: AoC waits until
+  its ring holds a threshold (3/4 of the buffer) and then takes everything at once, so a
+  completely filled buffer looks like no progress. Small periods and an earlier start
+  (PipeWire, `aplay -R`) are fine. Left channel = left amp = top speaker, right = bottom.
+- Capture works on EP1 (`hw:0,8`, "microphones -> primary-capture-0" + "microphones"),
+  with explicit period sizes.
+- `mobarchy-audio.service` (`/usr/lib/mobarchy/audio-up`) does it all at boot; PipeWire
+  gets a "Speaker" sink and a "Microphone" source (`/etc/pipewire/pipewire.conf.d/50-comet-audio.conf`).
+
 ## Next steps
 
-1. A comet unit that starts AoC at boot (`devices/comet/rootfs`), after confirming that touch
-   still works with AoC online (TBN now negotiates the touch bus with AoC).
-2. Load the amp protection firmware with the device's calibration (find where Android keeps
-   it; read it from persist read-only).
-3. An ALSA UCM profile for the card (HiFi: speaker via EP2, mic captures), so PipeWire /
-   WirePlumber can use it like any other card.
-4. Volume and mute in quick settings once PipeWire is up.
+1. Speaker rotation (swap top/bottom with the phone's orientation), as Android does.
+2. Earpiece (receiver) for calls, headset and USB audio, Bluetooth.
+3. Possibly an ALSA UCM profile instead of the static PipeWire nodes.
