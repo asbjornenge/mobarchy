@@ -2,7 +2,8 @@
 //  - ScreenPower: screens on/off through wlr-output-power-management (Hyprland, Sway, Phoc)
 //  - Idle: no input for a while, through ext-idle-notify (respects idle inhibitors, e.g.
 //    a playing video)
-//  - PowerButton: KEY_POWER from evdev (the session user is in the input group)
+//  - HardwareKeys: the power and volume keys from evdev (the session user is in the input
+//    group)
 #pragma once
 
 #include "qwayland-ext-idle-notify-v1.h"
@@ -116,23 +117,26 @@ private:
     bool m_idle = false;
 };
 
-class PowerButton : public QObject
+class HardwareKeys : public QObject
 {
     Q_OBJECT
     QML_ELEMENT
 
 public:
-    explicit PowerButton(QObject *parent = nullptr);
-    ~PowerButton() override;
+    explicit HardwareKeys(QObject *parent = nullptr);
+    ~HardwareKeys() override;
 
 signals:
-    void pressed();      // a short press, on release
-    void longPressed();  // held for a while (emitted while still held)
+    void powerPressed();      // a short press, on release
+    void powerLongPressed();  // held for a while (emitted while still held)
+    void volumeUp();          // on press, then repeated while held
+    void volumeDown();
 
 private:
     bool read(int fd);  // false: the device is gone
 
     QList<int> m_fds;
-    QTimer m_hold;
-    bool m_longFired = false;
+    QTimer m_powerHold;
+    QTimer m_volumeRepeat;
+    int m_volumeKey = 0;  // the volume key being held
 };

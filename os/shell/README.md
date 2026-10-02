@@ -19,14 +19,14 @@ agent process (`agent`), squeekboard over D-Bus (`keyboard`), battery/wifi (`sys
 brightness and power through systemd-logind (`logind`; brightness goes to the backlights of
 the panels that are on, so no device knowledge is needed), Wi-Fi over wpa_supplicant's
 control socket (`wifi`, `wpaparse`), radios through /dev/rfkill (`rfkill`), the screen and
-the power key (`screenpower`: wlr-output-power-management, ext-idle-notify, evdev
-KEY_POWER), icons (`icontheme`: the freedesktop icon theme lookup, thread-safe for Qt
+the hardware keys (`screenpower`: wlr-output-power-management, ext-idle-notify, evdev
+power and volume keys), icons (`icontheme`: the freedesktop icon theme lookup, thread-safe for Qt
 Quick's loader threads), `device.toml` (`device`, `deviceinfo`), and the notification
 server (`notifications`: org.freedesktop.Notifications on the session bus; banners, a list
 in quick settings, actions).
 
 Power key: a short press turns the screen off (and locks) or on; a long press opens quick
-settings. The screen also goes off after a minute without input, and a woken lock screen
+settings. Volume keys: 5 % steps (held: repeating), with a short volume bar. The screen also goes off after a minute without input, and a woken lock screen
 that is not touched goes dark again after ten seconds.
 
 `Sheet.qml` is the sliding layer surface behind the drawer and quick settings, and

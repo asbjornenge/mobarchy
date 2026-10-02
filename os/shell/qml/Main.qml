@@ -26,9 +26,11 @@ QtObject {
         // Another panel came up (a fold): wake up, as phones do when they are opened.
         onScreensChanged: shell.wake()
     }
-    readonly property PowerButton powerButton: PowerButton {
-        onPressed: shell.screen.on ? shell.screenOff() : shell.wake()
-        onLongPressed: {
+    readonly property HardwareKeys keys: HardwareKeys {
+        onPowerPressed: shell.screen.on ? shell.screenOff() : shell.wake()
+        onVolumeUp: shell.stepVolume(+1)
+        onVolumeDown: shell.stepVolume(-1)
+        onPowerLongPressed: {
             shell.wake()
             if (!shell.lockScreen.shown)
                 shell.quick.open()
@@ -45,6 +47,16 @@ QtObject {
         running: shell.lockScreen.shown && shell.screen.on
         onTriggered: shell.screen.on = false
     }
+
+    // Volume keys: 5 % steps; the bar shows only when the screen is on.
+    function stepVolume(direction) {
+        if (!volume.available)
+            return
+        volume.volume = Math.max(0, Math.min(1, Math.round(volume.volume * 20 + direction) / 20))
+        if (screen.on)
+            volumeOsd.flash()
+    }
+    readonly property VolumeOsd volumeOsd: VolumeOsd { volume: shell.volume }
 
     function lock() {
         drawer.close()

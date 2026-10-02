@@ -109,26 +109,39 @@ void Idle::rearm()
     });
 }
 
-// --- PowerButton -------------------------------------------------------------------------
+// --- HardwareKeys ------------------------------------------------------------------------
 
-PowerButton::PowerButton(QObject *parent)
+namespace {
+
+bool hasKey(const unsigned long *bits, int key)
+{
+    return (bits[key / (8 * sizeof(long))] >> (key % (8 * sizeof(long)))) & 1;
+}
+
+}  // namespace
+
+HardwareKeys::HardwareKeys(QObject *parent)
     : QObject(parent)
 {
-    m_hold.setSingleShot(true);
-    m_hold.setInterval(600);
-    connect(&m_hold, &QTimer::timeout, this, [this] {
-        m_longFired = true;
-        emit longPressed();
+    m_powerHold.setSingleShot(true);
+    m_powerHold.setInterval(600);
+    connect(&m_powerHold, &QTimer::timeout, this, &HardwareKeys::powerLongPressed);
+    // Held volume keys repeat: a pause, then steady steps.
+    m_volumeRepeat.setInterval(400);
+    connect(&m_volumeRepeat, &QTimer::timeout, this, [this] {
+        m_volumeRepeat.setInterval(110);
+        m_volumeKey == KEY_VOLUMEUP ? emit volumeUp() : emit volumeDown();
     });
+
     const QDir dir(QStringLiteral("/dev/input"));
     for (const QString &name : dir.entryList({QStringLiteral("event*")}, QDir::System)) {
         const int fd = ::open(QFile::encodeName(dir.filePath(name)).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (fd < 0)
             continue;
         unsigned long keys[KEY_MAX / (8 * sizeof(long)) + 1] = {};
-        const bool hasPower = ::ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) >= 0
-            && (keys[KEY_POWER / (8 * sizeof(long))] >> (KEY_POWER % (8 * sizeof(long)))) & 1;
-        if (!hasPower) {
+        const bool wanted = ::ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) >= 0
+            && (hasKey(keys, KEY_POWER) || hasKey(keys, KEY_VOLUMEUP) || hasKey(keys, KEY_VOLUMEDOWN));
+        if (!wanted) {
             ::close(fd);
             continue;
         }
@@ -144,29 +157,38 @@ PowerButton::PowerButton(QObject *parent)
         });
     }
     if (m_fds.isEmpty())
-        qWarning() << "power button: no input device with KEY_POWER (is the user in the input group?)";
+        qWarning() << "hardware keys: no input device with power or volume keys (is the user in the input group?)";
 }
 
-PowerButton::~PowerButton()
+HardwareKeys::~HardwareKeys()
 {
     for (int fd : std::as_const(m_fds))
         ::close(fd);
 }
 
-bool PowerButton::read(int fd)
+bool HardwareKeys::read(int fd)
 {
     input_event ev;
     ssize_t n;
     while ((n = ::read(fd, &ev, sizeof(ev))) == ssize_t(sizeof(ev))) {
-        if (ev.type != EV_KEY || ev.code != KEY_POWER)
+        if (ev.type != EV_KEY)
             continue;
-        if (ev.value == 1) {
-            m_longFired = false;
-            m_hold.start();
-        } else if (ev.value == 0) {
-            if (m_hold.isActive()) {
-                m_hold.stop();
-                emit pressed();
+        if (ev.code == KEY_POWER) {
+            if (ev.value == 1) {
+                m_powerHold.start();
+            } else if (ev.value == 0 && m_powerHold.isActive()) {
+                m_powerHold.stop();
+                emit powerPressed();
+            }
+        } else if (ev.code == KEY_VOLUMEUP || ev.code == KEY_VOLUMEDOWN) {
+            if (ev.value == 1) {
+                m_volumeKey = ev.code;
+                ev.code == KEY_VOLUMEUP ? emit volumeUp() : emit volumeDown();
+                m_volumeRepeat.setInterval(400);
+                m_volumeRepeat.start();
+            } else if (ev.value == 0 && ev.code == m_volumeKey) {
+                m_volumeRepeat.stop();
+                m_volumeKey = 0;
             }
         }
     }

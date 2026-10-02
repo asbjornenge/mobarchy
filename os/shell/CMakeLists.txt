@@ -51,6 +51,7 @@ qt_add_qml_module(mobarchy-shell
         qml/Banner.qml
         qml/Switch.qml
         qml/LevelSlider.qml
+        qml/VolumeOsd.qml
         qml/WifiPassword.qml
         qml/Home.qml
 )
