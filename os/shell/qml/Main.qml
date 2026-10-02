@@ -51,7 +51,7 @@ QtObject {
     readonly property Timer lockTimeout: Timer {
         interval: 10000
         running: shell.lockScreen.shown && shell.screen.on
-        onTriggered: shell.screen.on = false
+        onTriggered: if (shell.lockScreen.shown) shell.screen.on = false
     }
 
     // Volume keys: 5 % steps; the bar shows only when the screen is on.
@@ -76,7 +76,10 @@ QtObject {
     }
     function wake() {
         screen.on = true
-        lockTimeout.restart()
+        // Only the lock screen goes dark again by itself. (A fold wakes an unlocked phone
+        // too: restarting the timer then turned the screen off 10 s later, video or not.)
+        if (lockScreen.shown)
+            lockTimeout.restart()
     }
 
     function goHome() {
