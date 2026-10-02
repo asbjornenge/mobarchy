@@ -133,32 +133,47 @@ HardwareKeys::HardwareKeys(QObject *parent)
         m_volumeKey == KEY_VOLUMEUP ? emit volumeUp() : emit volumeDown();
     });
 
+    // Devices come and go (a Bluetooth headset's buttons appear when it connects).
+    m_rescan.setSingleShot(true);
+    m_rescan.setInterval(300);  // udev gives the session user access just after the node appears
+    connect(&m_rescan, &QTimer::timeout, this, &HardwareKeys::scan);
+    m_dirWatcher.addPath(QStringLiteral("/dev/input"));
+    connect(&m_dirWatcher, &QFileSystemWatcher::directoryChanged, &m_rescan, qOverload<>(&QTimer::start));
+    scan();
+    if (m_fds.isEmpty())
+        qWarning() << "hardware keys: no input device with power, volume, wake or media keys (is the user in the input group?)";
+}
+
+void HardwareKeys::scan()
+{
     const QDir dir(QStringLiteral("/dev/input"));
     for (const QString &name : dir.entryList({QStringLiteral("event*")}, QDir::System)) {
-        const int fd = ::open(QFile::encodeName(dir.filePath(name)).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+        const QString path = dir.filePath(name);
+        if (m_fds.contains(path))
+            continue;
+        const int fd = ::open(QFile::encodeName(path).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
         if (fd < 0)
             continue;
         unsigned long keys[KEY_MAX / (8 * sizeof(long)) + 1] = {};
         const bool wanted = ::ioctl(fd, EVIOCGBIT(EV_KEY, sizeof(keys)), keys) >= 0
             && (hasKey(keys, KEY_POWER) || hasKey(keys, KEY_VOLUMEUP) || hasKey(keys, KEY_VOLUMEDOWN)
-                || hasKey(keys, KEY_WAKEUP));
+                || hasKey(keys, KEY_WAKEUP) || hasKey(keys, KEY_PLAYPAUSE) || hasKey(keys, KEY_PLAYCD)
+                || hasKey(keys, KEY_NEXTSONG));
         if (!wanted) {
             ::close(fd);
             continue;
         }
-        m_fds << fd;
+        m_fds.insert(path, fd);
         auto *n = new QSocketNotifier(fd, QSocketNotifier::Read, this);
-        connect(n, &QSocketNotifier::activated, this, [this, fd, n] {
+        connect(n, &QSocketNotifier::activated, this, [this, fd, n, path] {
             if (!read(fd)) {  // the device went away (ENODEV): stop watching it
                 n->setEnabled(false);
                 n->deleteLater();
-                m_fds.removeOne(fd);
+                m_fds.remove(path);
                 ::close(fd);
             }
         });
     }
-    if (m_fds.isEmpty())
-        qWarning() << "hardware keys: no input device with power, volume or wake keys (is the user in the input group?)";
 }
 
 HardwareKeys::~HardwareKeys()
@@ -181,6 +196,15 @@ bool HardwareKeys::read(int fd)
                 m_powerHold.stop();
                 emit powerPressed();
             }
+        } else if (ev.value == 1 && (ev.code == KEY_PLAYPAUSE || ev.code == KEY_PLAYCD)) {
+            // A headset's "play" is a toggle: it doesn't know the player's state.
+            emit mediaPlayPause();
+        } else if (ev.value == 1 && (ev.code == KEY_PAUSECD || ev.code == KEY_STOPCD)) {
+            emit mediaPause();  // e.g. AirPods taken out of the ears
+        } else if (ev.value == 1 && ev.code == KEY_NEXTSONG) {
+            emit mediaNext();
+        } else if (ev.value == 1 && ev.code == KEY_PREVIOUSSONG) {
+            emit mediaPrevious();
         } else if (ev.code == KEY_WAKEUP) {
             if (ev.value == 1)
                 emit wakeGesture();

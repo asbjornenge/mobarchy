@@ -15,6 +15,7 @@ QtObject {
     readonly property Wifi wifi: Wifi {}
     readonly property Rfkill rfkill: Rfkill {}
     readonly property Bluetooth bluetooth: Bluetooth {}
+    readonly property MediaPlayers media: MediaPlayers {}
     readonly property Volume volume: Volume {}
     readonly property Notifications notifications: Notifications {}
     readonly property Banner banner: Banner {
@@ -34,6 +35,11 @@ QtObject {
         onWakeGesture: if (!shell.screen.on) shell.wake()
         onVolumeUp: shell.stepVolume(+1)
         onVolumeDown: shell.stepVolume(-1)
+        // Media keys (a headset's buttons) go to the player in charge.
+        onMediaPlayPause: shell.media.playPause()
+        onMediaPause: shell.media.pause()
+        onMediaNext: shell.media.next()
+        onMediaPrevious: shell.media.previous()
         onPowerLongPressed: {
             shell.wake()
             if (!shell.lockScreen.shown)
@@ -101,6 +107,7 @@ QtObject {
     readonly property LockScreen lockScreen: LockScreen {
         system: shell.system
         notifications: shell.notifications
+        media: shell.media
         onUnlocked: {
             shown = false
             // Focus goes back to the app behind; the keyboard should not come up with it.
@@ -130,6 +137,7 @@ QtObject {
         wifi: shell.wifi
         rfkill: shell.rfkill
         bluetooth: shell.bluetooth
+        media: shell.media
         notifications: shell.notifications
         volume: shell.volume
         onPassphraseNeeded: (ssid) => {

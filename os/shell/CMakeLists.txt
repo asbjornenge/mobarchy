@@ -31,6 +31,7 @@ qt_add_qml_module(mobarchy-shell
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h
         src/logind.cpp src/logind.h
+        src/mediaplayers.cpp src/mediaplayers.h
         src/notifications.cpp src/notifications.h
         src/rfkill.cpp src/rfkill.h
         src/screenpower.cpp src/screenpower.h
@@ -54,6 +55,7 @@ qt_add_qml_module(mobarchy-shell
         qml/Banner.qml
         qml/Switch.qml
         qml/LevelSlider.qml
+        qml/NowPlaying.qml
         qml/VolumeOsd.qml
         qml/WifiPassword.qml
         qml/Home.qml

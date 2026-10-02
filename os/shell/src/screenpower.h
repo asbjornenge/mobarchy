@@ -3,12 +3,14 @@
 //  - Idle: no input for a while, through ext-idle-notify (respects idle inhibitors, e.g.
 //    a playing video)
 //  - HardwareKeys: the power and volume keys from evdev (the session user is in the input
-//    group), and KEY_WAKEUP: a touchscreen's wake gesture while the screen is off
+//    group), KEY_WAKEUP (a touchscreen's wake gesture while the screen is off) and media keys
+//    (a headset's buttons: BlueZ turns them into an input device)
 #pragma once
 
 #include "qwayland-ext-idle-notify-v1.h"
 #include "qwayland-wlr-output-power-management-unstable-v1.h"
 
+#include <QFileSystemWatcher>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
@@ -132,11 +134,18 @@ signals:
     void volumeUp();          // on press, then repeated while held
     void volumeDown();
     void wakeGesture();       // KEY_WAKEUP, e.g. a tap on the dark touchscreen
+    void mediaPlayPause();
+    void mediaPause();
+    void mediaNext();
+    void mediaPrevious();
 
 private:
+    void scan();        // open input devices with the keys we handle, new ones included
     bool read(int fd);  // false: the device is gone
 
-    QList<int> m_fds;
+    QHash<QString, int> m_fds;  // device node -> fd
+    QFileSystemWatcher m_dirWatcher;
+    QTimer m_rescan;
     QTimer m_powerHold;
     QTimer m_volumeRepeat;
     int m_volumeKey = 0;  // the volume key being held

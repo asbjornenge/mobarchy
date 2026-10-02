@@ -11,6 +11,7 @@ LayerWindow {
 
     required property SystemStatus system
     required property Notifications notifications
+    required property MediaPlayers media
     signal unlocked()
     signal touched()  // any interaction: keeps the screen on a little longer
 
@@ -116,5 +117,16 @@ LayerWindow {
             settle.to = (velocity > 0.5 || lock.lift > 0.5) ? 1 : 0
             settle.restart()
         }
+    }
+
+    // What's playing, above the swipe hint; it moves with the content when swiped.
+    NowPlaying {
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom
+                  leftMargin: 24; rightMargin: 24; bottomMargin: 120 }
+        transform: Translate { y: -lock.lift * lock.height * 0.5 }
+        opacity: 1 - lock.lift
+        compact: true
+        player: lock.media
+        onVisibleChanged: if (visible) lock.media.refreshPosition()
     }
 }

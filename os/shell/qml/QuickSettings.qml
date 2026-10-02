@@ -16,6 +16,7 @@ Sheet {
     required property Wifi wifi
     required property Rfkill rfkill
     required property Bluetooth bluetooth
+    required property MediaPlayers media
     required property Notifications notifications
     required property Volume volume
 
@@ -73,6 +74,7 @@ Sheet {
     }
 
     onOpening: {
+        media.refreshPosition()
         brightness.refresh()
         system.refresh()
         confirming = ""
@@ -273,6 +275,11 @@ Sheet {
                     value: quick.volume.muted ? 0 : quick.volume.volume
                     onMoved: (v) => quick.volume.volume = v
                     onIconClicked: quick.volume.muted = !quick.volume.muted
+                }
+
+                NowPlaying {
+                    width: parent.width
+                    player: quick.media
                 }
 
                 Grid {
