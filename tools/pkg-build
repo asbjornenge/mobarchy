@@ -32,7 +32,11 @@ mkdir -p "$out"
 image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
     echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
 
-docker run --rm --platform linux/arm64 -v "$pkgdir:/pkg:ro" -v "$out:/out" "$image" bash -euo pipefail -c '
+# Bounded: compilers under qemu-user use several times their native memory, and an
+# unbounded build ran the host out of memory (the OOM killer took the owner's browser).
+# Ninja (os/shell) reads no MAKEFLAGS: CMAKE_BUILD_PARALLEL_LEVEL bounds cmake --build.
+docker run --rm --platform linux/arm64 --memory 20g --cpus 8 -e MAKEFLAGS=-j6 -e CMAKE_BUILD_PARALLEL_LEVEL=6 \
+    -v "$pkgdir:/pkg:ro" -v "$out:/out" "$image" bash -euo pipefail -c '
     pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
     pacman -Syu --noconfirm --needed --disable-sandbox base-devel >/dev/null
     # Dependencies are installed here, as root: makepkg --syncdeps would need sudo, and
