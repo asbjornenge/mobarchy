@@ -165,6 +165,10 @@ Android runs tap-to-wake in AoC: when the screen goes off, the touch bus negotia
 - `syna_touch wake_gesture=1` (outer) and `goodix_brl_touch wake_gesture=1` (inner): at suspend the controller goes into its low-power gesture mode, and a single tap reports `KEY_WAKEUP`. The synaptics firmware does detect STTW; GTI's `goog_input_report_key()` drops keys, so the key goes straight to the input device.
 - The shell wakes on `KEY_WAKEUP` (generic) and shows the lock screen for a glance.
 
+## Bluetooth
+
+The BCM4390B1 (chip id 200) sits on `/dev/ttySAC18`; `nitrous.ko` switches its power (rfkill `nitrous_bluetooth`) and wake lines. No device tree node describes it to Linux as a serial device, so the kernel's Broadcom driver can only use it through the line discipline, at 115200 baud: ~11 KB/s, too slow for music (AAC ~32 KB/s), and its firmware download takes 85 s. Like Android's HAL, `mobarchy-bluetooth.service` (`/usr/lib/mobarchy/bluetooth`) brings it up from userspace: HCI reset, 4 Mbaud, firmware `BCM_200.hcd` (vendor `etc/bluetooth/firmware_config.json`), the phone's address from the bootloader (`/chosen/config/bt_addr`), then the HCI line discipline as a plain H4 controller. It takes 3.5 s and follows the rfkill switch (Bluetooth off, flight mode). Not yet: the chip's low-power mode (nitrous LPM and the sleep VSC).
+
 ## Audio (AoC)
 
 Audio runs through the AoC DSP. Its firmware is not started by default; writing

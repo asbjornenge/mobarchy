@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""Bluetooth on comet: the BCM4390 on a UART, which no device tree node describes to Linux.
+
+As Android's HAL does, the controller is brought up from userspace: switched to 4 Mbaud,
+its firmware (vendor BCM_200.hcd) downloaded, the phone's own address written. Then it is
+handed to the kernel as a plain H4 controller (the HCI line discipline, as btattach does;
+the UART stays open here, which keeps it attached). The kernel's Broadcom driver
+can't do this here: with the line discipline it runs the UART at 115200 baud (~11 KB/s),
+too slow for music (AAC is ~32 KB/s), and its firmware download takes 85 s.
+
+The service follows the controller's power switch, the nitrous rfkill (Bluetooth on/off,
+flight mode):
+  unblocked -> bring up and attach
+  blocked   -> detach (nitrous has cut the chip's power)
+"""
+import fcntl
+import os
+import select
+import struct
+import subprocess
+import sys
+import termios
+import time
+from pathlib import Path
+
+UART = "/dev/ttySAC18"                                  # vendor/etc/bluetooth/hal_config.json
+FIRMWARE = Path("/usr/lib/firmware/brcm/BCM_200.hcd")   # .../firmware_config.json (chip 200)
+SPEED = 4_000_000
+RFKILL_NAME = "nitrous_bluetooth"
+BDADDR = Path("/sys/firmware/devicetree/base/chosen/config/bt_addr")
+# systemd-rfkill keeps each switch's state across boots; with none saved yet (first boot),
+# Bluetooth starts on.
+SAVED_STATE = Path("/var/lib/systemd/rfkill")
+
+RFKILL_EVENT = struct.Struct("<IBBBB")                  # idx, type, op, soft, hard
+RFKILL_OP_ADD, RFKILL_OP_CHANGE = 0, 2
+
+# HCI commands (opcodes); the vendor ones are Broadcom's, as in firmware_config.json.
+HCI_RESET = 0x0C03
+BCM_WRITE_BDADDR = 0xFC01
+BCM_UPDATE_BAUD = 0xFC18
+BCM_DOWNLOAD_MINIDRIVER = 0xFC2E
+BCM_LAUNCH_RAM = 0xFC4E
+BAUD = {115200: termios.B115200, 4_000_000: termios.B4000000}
+N_HCI = 15                                              # line discipline
+HCIUARTSETPROTO = 0x400455C8                            # _IOW('U', 200, int)
+HCI_UART_H4 = 0
+
+
+def log(msg: str) -> None:
+    print(msg, flush=True)
+
+
+class HciUart:
+    """Just enough of HCI over H4 to bring the controller up."""
+
+    def __init__(self, path: str):
+        self.fd = os.open(path, os.O_RDWR | os.O_NOCTTY)
+        self.speed(115200)
+
+    def close(self) -> None:
+        os.close(self.fd)
+
+    def speed(self, baud: int) -> None:
+        attrs = termios.tcgetattr(self.fd)
+        attrs[0] = 0                                            # iflag: raw
+        attrs[1] = 0                                            # oflag
+        attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL | termios.CRTSCTS
+        attrs[3] = 0                                            # lflag
+        attrs[4] = attrs[5] = BAUD[baud]
+        attrs[6][termios.VMIN], attrs[6][termios.VTIME] = 0, 0
+        termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+        termios.tcflush(self.fd, termios.TCIOFLUSH)
+
+    def _read(self, n: int, deadline: float) -> bytes:
+        buf = b""
+        while len(buf) < n:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([self.fd], [], [], left)[0]:
+                raise TimeoutError
+            buf += os.read(self.fd, n - len(buf))
+        return buf
+
+    def command(self, opcode: int, params: bytes = b"", timeout: float = 2) -> bytes:
+        """Send a command and wait for its Command Complete; returns the return parameters."""
+        os.write(self.fd, struct.pack("<BHB", 1, opcode, len(params)) + params)
+        deadline = time.monotonic() + timeout
+        while True:
+            if self._read(1, deadline) != b"\x04":       # only events come back before attach
+                continue
+            code, plen = self._read(2, deadline)
+            data = self._read(plen, deadline)
+            if code == 0x0E and struct.unpack_from("<H", data, 1)[0] == opcode:
+                if data[3] != 0:
+                    raise RuntimeError(f"command {opcode:#06x} failed: status {data[3]:#04x}")
+                return data[4:]
+
+    def reset(self, attempts: int = 5) -> None:
+        for _ in range(attempts):
+            try:
+                self.command(HCI_RESET, timeout=1)
+                return
+            except TimeoutError:
+                termios.tcflush(self.fd, termios.TCIOFLUSH)
+        raise TimeoutError("no answer to HCI reset")
+
+    def fast(self) -> None:
+        self.command(BCM_UPDATE_BAUD, struct.pack("<HI", 0, SPEED))
+        self.speed(SPEED)
+        time.sleep(0.01)
+
+
+def bring_up() -> None:
+    """Power is on (rfkill unblocked): the chip is in its ROM, at 115200 baud."""
+    t0 = time.monotonic()
+    hci = HciUart(UART)
+    try:
+        hci.reset()
+        hci.fast()
+        hci.command(BCM_DOWNLOAD_MINIDRIVER)
+        time.sleep(0.05)                                    # load_mini_drv_delay_ms
+        fw = FIRMWARE.read_bytes()
+        off = 0
+        while off < len(fw):                                # records: opcode, length, data
+            opcode, plen = struct.unpack_from("<HB", fw, off)
+            params = fw[off + 3:off + 3 + plen]
+            off += 3 + plen
+            if opcode == BCM_LAUNCH_RAM:
+                os.write(hci.fd, struct.pack("<BHB", 1, opcode, plen) + params)
+                break
+            hci.command(opcode, params)
+        time.sleep(0.25)                                    # launch_ram_delay_ms
+        # The firmware starts at the default speed again.
+        hci.speed(115200)
+        hci.reset()
+        hci.fast()
+        try:
+            addr = BDADDR.read_bytes().rstrip(b"\0").decode()
+            hci.command(BCM_WRITE_BDADDR, bytes.fromhex(addr.replace(":", ""))[::-1])
+        except OSError:
+            log("no bt_addr from the bootloader: keeping Broadcom's default address")
+    finally:
+        hci.close()
+    log(f"controller up in {time.monotonic() - t0:.1f} s")
+
+
+def rfkill_index() -> int | None:
+    for d in Path("/sys/class/rfkill").iterdir():
+        if (d / "name").read_text().strip() == RFKILL_NAME:
+            return int(d.name.removeprefix("rfkill"))
+    return None
+
+
+def saved_state_exists(idx: int) -> bool:
+    # Files are named "<udev ID_PATH>:<type>", e.g. "platform-odm:btbcm:bluetooth".
+    r = subprocess.run(["udevadm", "info", "--query=property", "--property=ID_PATH", "--value",
+                        f"/sys/class/rfkill/rfkill{idx}"], capture_output=True, text=True)
+    return (SAVED_STATE / f"{r.stdout.strip()}:bluetooth").exists()
+
+
+class Controller:
+    def __init__(self) -> None:
+        self.uart: HciUart | None = None
+        self.failures = 0
+
+    def attach(self) -> None:
+        if self.uart:
+            return
+        try:
+            bring_up()
+            uart = HciUart(UART)
+            uart.speed(SPEED)
+            fcntl.ioctl(uart.fd, termios.TIOCSETD, struct.pack("i", N_HCI))
+            fcntl.ioctl(uart.fd, HCIUARTSETPROTO, HCI_UART_H4)
+        except (OSError, TimeoutError, RuntimeError) as e:
+            log(f"bring-up failed: {e}")
+            self.failures += 1
+            return
+        self.uart = uart
+        self.failures = 0
+        # The controller's own switch comes back in the state systemd-rfkill saved when it
+        # went away, often blocked (flight mode): the nitrous switch is the one that says
+        # whether Bluetooth is on.
+        for _ in range(20):
+            switches = list(Path("/sys/class/bluetooth").glob("hci*/rfkill*"))
+            if switches:
+                for sw in switches:
+                    subprocess.run(["rfkill", "unblock", sw.name.removeprefix("rfkill")], check=False)
+                break
+            time.sleep(0.1)
+        log("attached")
+
+    def detach(self) -> None:
+        if not self.uart:
+            return
+        log("detaching")
+        self.uart.close()  # back to the tty line discipline: the kernel removes the controller
+        self.uart = None
+
+
+def power_cycle(idx: int) -> None:
+    """Back to the ROM after a failed bring-up."""
+    subprocess.run(["rfkill", "block", str(idx)], check=False)
+    time.sleep(0.5)
+    subprocess.run(["rfkill", "unblock", str(idx)], check=False)
+
+
+def main() -> int:
+    idx = rfkill_index()
+    if idx is None:
+        log(f"no {RFKILL_NAME} rfkill switch: nitrous not loaded?")
+        return 1
+    if not saved_state_exists(idx):
+        subprocess.run(["rfkill", "unblock", str(idx)], check=False)
+
+    ctl = Controller()
+    blocked = None
+    fd = os.open("/dev/rfkill", os.O_RDONLY | os.O_NONBLOCK)  # replays every switch first
+    try:
+        while True:
+            if select.select([fd], [], [], 2)[0]:
+                data = os.read(fd, 64 * RFKILL_EVENT.size)
+                for off in range(0, len(data) - RFKILL_EVENT.size + 1, RFKILL_EVENT.size):
+                    i, _type, op, soft, hard = RFKILL_EVENT.unpack_from(data, off)
+                    if i == idx and op in (RFKILL_OP_ADD, RFKILL_OP_CHANGE):
+                        blocked = bool(soft or hard)
+                continue  # handle the switch's final state, not every step
+            if blocked is True:
+                ctl.detach()
+                ctl.failures = 0
+            elif blocked is False and not ctl.uart and ctl.failures <= 5:
+                if ctl.failures:
+                    time.sleep(2 * ctl.failures)
+                    power_cycle(idx)
+                ctl.attach()
+    finally:
+        ctl.detach()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

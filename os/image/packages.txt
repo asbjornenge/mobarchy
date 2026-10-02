@@ -33,6 +33,10 @@ pipewire-pulse
 pipewire-alsa
 rtkit
 alsa-utils
+# Bluetooth: BlueZ (bluetoothd, btattach/btmgmt); audio over it is PipeWire's (pipewire-audio)
+bluez
+bluez-utils
+pipewire-audio
 # Wifi (mobarchy-wifi)
 wpa_supplicant
 iw

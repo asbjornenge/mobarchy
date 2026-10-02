@@ -1,0 +1,12 @@
+[Unit]
+Description=comet Bluetooth: attach the BCM4390 on its UART, following its power switch
+# hci_uart and nitrous are loaded by systemd-modules-load; the switch states are restored first.
+After=systemd-modules-load.service systemd-rfkill.service
+Wants=bluetooth.service
+
+[Service]
+ExecStart=/usr/lib/mobarchy/bluetooth
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
