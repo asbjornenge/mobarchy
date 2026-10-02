@@ -1,5 +1,5 @@
 diff --git a/touch/synaptics/syna_gtd/syna_tcm2.c b/touch/synaptics/syna_gtd/syna_tcm2.c
-index efbee11..cce4e1c 100644
+index efbee11..8ffdf0b 100644
 --- a/touch/synaptics/syna_gtd/syna_tcm2.c
 +++ b/touch/synaptics/syna_gtd/syna_tcm2.c
 @@ -38,6 +38,17 @@
@@ -39,7 +39,24 @@ index efbee11..cce4e1c 100644
  	} else {
  		if (tcm->irq_wake) {
  			disable_irq_wake(attn->irq_id);
-@@ -1722,17 +1745,14 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
+@@ -166,10 +189,15 @@ static int syna_dev_enable_lowpwr_gesture(struct syna_tcm *tcm, bool en)
+ 		 * the wakeup gesture control may result from by finger event;
+ 		 * therefore, it's better to use ATTN driven mode here
+ 		 */
++		/* Mobarchy: polled. This runs in GTI's resume work, and GTI's irq thread
++		 * waits for that work (flush_workqueue in goog_pm_wake_lock) before it
++		 * reads anything: an ATTN response never came, and every wake-up took 3 s
++		 * (timeout) plus a reset.
++		 */
+ 		retval = syna_tcm_set_dynamic_config(tcm->tcm_dev,
+ 				DC_ENABLE_WAKEUP_GESTURE_MODE,
+ 				0,
+-				RESP_IN_ATTN);
++				RESP_IN_POLLING);
+ 		if (retval < 0) {
+ 			LOGE("Fail to disable wakeup gesture via DC command\n");
+ 			return retval;
+@@ -1722,17 +1750,14 @@ static void syna_dev_report_input_events(struct syna_tcm *tcm)
  		if (touch_data->gesture_id) {
  			LOGD("Gesture detected, id:%d\n",
  				touch_data->gesture_id);
@@ -61,7 +78,7 @@ index efbee11..cce4e1c 100644
  		}
  	}
  #endif
-@@ -2899,13 +2919,18 @@ static int syna_dev_suspend(struct device *dev)
+@@ -2899,13 +2924,18 @@ static int syna_dev_suspend(struct device *dev)
  	/* clear all input events  */
  	syna_dev_free_input_events(tcm);
  #endif
@@ -82,7 +99,7 @@ index efbee11..cce4e1c 100644
  		hw_if->ops_enable_irq(hw_if, false);
  
  #ifdef POWER_ALIVE_AT_SUSPEND
-@@ -2934,6 +2959,9 @@ static int syna_dev_suspend(struct device *dev)
+@@ -2934,6 +2964,9 @@ static int syna_dev_suspend(struct device *dev)
  	}
  #endif
  

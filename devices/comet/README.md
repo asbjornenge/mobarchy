@@ -161,6 +161,7 @@ Open points for v0.2:
 Android runs tap-to-wake in AoC: when the screen goes off, the touch bus negotiator (TBN) hands the touch bus to AoC, the controller's single-tap gesture (STTW) is read there and reaches Android as a sensor. Google ships the controllers' own wake gestures disabled. Mobarchy has no AoC touch service, so (patches in `kernel/patches/private/google-modules/touch/`, options in `rootfs/etc/modprobe.d/comet-touch.conf`):
 
 - `goog_touch_interface tbn=0` keeps the bus with the AP. With TBN, every screen on/off waited ~2.5 s for AoC (touch dead meanwhile), and GTI dropped the controller's interrupts while the bus was "away".
+- Leaving the gesture mode on resume is polled: GTI's irq thread waits for the resume work, so an IRQ-driven response timed out (3 s before touch worked).
 - `syna_touch wake_gesture=1` (outer) and `goodix_brl_touch wake_gesture=1` (inner): at suspend the controller goes into its low-power gesture mode, and a single tap reports `KEY_WAKEUP`. The synaptics firmware does detect STTW; GTI's `goog_input_report_key()` drops keys, so the key goes straight to the input device.
 - The shell wakes on `KEY_WAKEUP` (generic) and shows the lock screen for a glance.
 
