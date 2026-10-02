@@ -39,6 +39,7 @@ qt_add_qml_module(mobarchy-shell
         src/systemstatus.cpp src/systemstatus.h
         src/toplevels.cpp src/toplevels.h
         src/touchguard.cpp src/touchguard.h
+        src/voice.cpp src/voice.h
         src/volume.cpp src/volume.h
     QML_FILES
         qml/Main.qml

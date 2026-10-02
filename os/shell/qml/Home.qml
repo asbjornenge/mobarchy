@@ -60,6 +60,18 @@ Window {
         }
     }
 
+    // Talking instead of typing: speech becomes text on the phone, then goes as a message.
+    Voice {
+        id: voice
+        onTranscribed: (text) => {
+            ask.text = text
+            home.submit()
+        }
+        onFailed: (reason) => feed.append({ who: "error", body: reason })
+    }
+    readonly property bool listening: voice.state === Voice.Listening
+    readonly property bool transcribing: voice.state === Voice.Transcribing
+
     function submit() {
         const task = ask.text.trim()
         if (agent.awaitingCode) {  // a pasted login code
@@ -395,10 +407,25 @@ Window {
         color: Theme.panel
         border.color: ask.activeFocus ? Theme.accent : Theme.line
 
+        // Cancel talking.
+        MouseArea {
+            id: cancelVoice
+            visible: home.listening || home.transcribing
+            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+            width: visible ? 48 : 0
+            onClicked: voice.cancel()
+            Text {
+                anchors.centerIn: parent
+                text: "󰅖"
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 18 }
+            }
+        }
         TextInput {
             id: ask
-            anchors { left: parent.left; right: action.left; leftMargin: 20; rightMargin: 8
-                      verticalCenter: parent.verticalCenter }
+            anchors { left: cancelVoice.right; right: action.left; leftMargin: cancelVoice.visible ? 0 : 20
+                      rightMargin: 8; verticalCenter: parent.verticalCenter }
+            visible: !home.listening && !home.transcribing
             clip: true
             color: Theme.fg
             selectionColor: Theme.accent
@@ -414,17 +441,57 @@ Window {
                 font: ask.font
             }
         }
+        Text {
+            anchors { left: cancelVoice.right; right: action.left; rightMargin: 8; verticalCenter: parent.verticalCenter }
+            visible: home.listening || home.transcribing
+            text: home.listening ? qsTr("Listening … %1 s  ·  tap 󰒊 to send").arg(voice.seconds)
+                                 : qsTr("Writing it down …")
+            elide: Text.ElideRight
+            color: home.listening ? Theme.fg : Theme.muted
+            font { family: Theme.font; pixelSize: 15 }
+        }
         MouseArea {
             id: action
             anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
             width: 56
-            onClicked: home.agent.running && !home.agent.awaitingCode ? home.agent.stop() : home.submit()
+            // Stop the agent; send what's said or typed; or, with nothing typed, start talking.
+            readonly property string mode: home.agent.running && !home.agent.awaitingCode ? "stop"
+                : home.listening ? "finish"
+                : home.transcribing ? "wait"
+                : ask.text || home.agent.awaitingCode ? "send" : "talk"
+            onClicked: {
+                switch (mode) {
+                case "stop": home.agent.stop(); break
+                case "finish": voice.finish(); break
+                case "send": home.submit(); break
+                case "talk":
+                    ask.focus = false
+                    home.keyboard.visible = false
+                    voice.start()
+                    break
+                }
+            }
             Text {
                 anchors.centerIn: parent
-                readonly property bool stop: home.agent.running && !home.agent.awaitingCode
-                text: stop ? "󰓛" : "󰒊"
-                color: stop ? Theme.red : (ask.text ? Theme.accent : Theme.muted)
+                text: ({ stop: "󰓛", finish: "󰒊", wait: "󰔟", send: "󰒊", talk: "󰍬" })[action.mode]
+                color: action.mode === "stop" ? Theme.red
+                     : action.mode === "finish" || action.mode === "send" ? Theme.accent : Theme.muted
                 font { family: Theme.font; pixelSize: 20 }
+            }
+            // Listening: a pulsing ring.
+            Rectangle {
+                anchors.centerIn: parent
+                width: 36; height: 36; radius: 18
+                color: "transparent"
+                border.color: Theme.red
+                border.width: 2
+                visible: home.listening
+                SequentialAnimation on opacity {
+                    running: home.listening
+                    loops: Animation.Infinite
+                    NumberAnimation { from: 1; to: 0.2; duration: 700 }
+                    NumberAnimation { from: 0.2; to: 1; duration: 700 }
+                }
             }
         }
     }

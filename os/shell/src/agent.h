@@ -24,6 +24,9 @@ public:
     explicit Agent(QObject *parent = nullptr);
     ~Agent() override;
 
+    // mobarchy-agent (MOBARCHY_AGENT_BIN overrides it).
+    static QString program();
+
     bool running() const { return m_proc.state() != QProcess::NotRunning; }
 
     QVariantList agents() const { return m_agents; }
@@ -60,7 +63,6 @@ private:
     void readEvents();
     void finished(int code, QProcess::ExitStatus status);
     void start(const QStringList &args);
-    QString program() const;
     // Run a short mobarchy-agent command; `done` gets its stdout.
     void command(const QStringList &args, std::function<void(const QByteArray &)> done = {});
 

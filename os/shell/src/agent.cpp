@@ -33,7 +33,7 @@ Agent::Agent(QObject *parent)
     loadConversation();
 }
 
-QString Agent::program() const
+QString Agent::program()
 {
     return qEnvironmentVariable("MOBARCHY_AGENT_BIN", QString::fromLatin1(DefaultAgent));
 }
