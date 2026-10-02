@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Bring up comet's speakers the way Android's audio HAL does (see
+"""Bring up comet's speakers and microphones the way Android's audio HAL does (see
 docs/research/2026-10-01-comet-audio.md):
 
 1. start the AoC DSP (its firmware is loaded on request, as Android's init does);
 2. load the speaker amps' protection firmware;
 3. apply the mixer defaults and the speaker route from the device's own mixer_paths.xml;
-4. write the speakers' factory calibration into the protection firmware.
+4. write the speakers' factory calibration into the protection firmware;
+5. route the built-in microphones to the primary capture endpoint.
 
 mixer_paths.xml (vendor) and speaker.cal (persist) belong to the device and are not in
 the repo: the first run copies them, read-only, from the Android partitions into
@@ -174,7 +175,9 @@ def main() -> None:
     wait_for(lambda: amixer("cget", "name=R DSP1 Protection cd CAL_R").returncode == 0, 20,
              "the amps' protection firmware")
 
-    apply_paths(ET.parse(MIXER_PATHS), ["speaker", "adapted-speaker", "primary-playback -> speaker"])
+    # Speakers on EP2 (primary playback); built-in microphones on EP1 (primary capture).
+    apply_paths(ET.parse(MIXER_PATHS), ["speaker", "adapted-speaker", "primary-playback -> speaker",
+                                        "microphones", "microphones -> primary-capture-0"])
 
     # speaker.cal: per amp six little-endian u32, the first four R, status, checksum
     # (R + status) and ambient temperature.
