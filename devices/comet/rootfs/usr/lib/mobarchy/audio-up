@@ -1,0 +1,194 @@
+#!/usr/bin/env python3
+"""Bring up comet's speakers the way Android's audio HAL does (see
+docs/research/2026-10-01-comet-audio.md):
+
+1. start the AoC DSP (its firmware is loaded on request, as Android's init does);
+2. load the speaker amps' protection firmware;
+3. apply the mixer defaults and the speaker route from the device's own mixer_paths.xml;
+4. write the speakers' factory calibration into the protection firmware.
+
+mixer_paths.xml (vendor) and speaker.cal (persist) belong to the device and are not in
+the repo: the first run copies them, read-only, from the Android partitions into
+/var/lib/mobarchy/audio. Nothing is ever written to those partitions.
+
+    audio-up [--refresh]     --refresh: copy the device files again
+"""
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+
+AOC = "/sys/devices/platform/17000000.aoc"
+CACHE = "/var/lib/mobarchy/audio"
+MIXER_PATHS = f"{CACHE}/mixer_paths.xml"
+SPEAKER_CAL = f"{CACHE}/speaker.cal"
+SUPER = "/dev/disk/by-partlabel/super"
+PERSIST = "/dev/disk/by-partlabel/persist"
+AMPS = ("", "R ")  # left amp (top speaker), right amp (bottom speaker)
+
+
+def log(msg: str) -> None:
+    print(f"audio-up: {msg}", flush=True)
+
+
+def run(*cmd: str, check: bool = True) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=True, check=check)
+
+
+# --- device files, read-only -----------------------------------------------------------
+
+def super_partition_table(name: str) -> str:
+    """A device-mapper table for a logical partition in super (liblp metadata, slot 0)."""
+    with open(SUPER, "rb") as f:
+        f.seek(4096)
+        if struct.unpack("<I", f.read(4))[0] != 0x616C4467:
+            raise RuntimeError("no liblp geometry in super")
+        f.seek(4096 + 2 * 4096)
+        hdr = f.read(256)
+        magic, _major, _minor, header_size = struct.unpack_from("<IHHI", hdr, 0)
+        if magic != 0x414C5030:
+            raise RuntimeError("no liblp metadata header in super")
+        tables_size, = struct.unpack_from("<I", hdr, 44)
+        partitions = struct.unpack_from("<III", hdr, 80)
+        extents = struct.unpack_from("<III", hdr, 92)
+        f.seek(4096 + 2 * 4096 + header_size)
+        tables = f.read(tables_size)
+    lines, start = [], 0
+    for i in range(partitions[1]):
+        pname, _attrs, first, count, _group = struct.unpack_from("<36sIIII", tables, partitions[0] + partitions[2] * i)
+        if pname.rstrip(b"\0").decode() != name:
+            continue
+        for e in range(first, first + count):
+            sectors, _type, target, _source = struct.unpack_from("<QIQI", tables, extents[0] + extents[2] * e)
+            lines.append(f"{start} {sectors} linear {SUPER} {target}")
+            start += sectors
+        return "\n".join(lines) + "\n"
+    raise RuntimeError(f"no logical partition {name} in super")
+
+
+def copy_from_vendor(path: str, dest: str) -> None:
+    for slot in ("_a", "_b"):
+        try:
+            table = super_partition_table("vendor" + slot)
+        except RuntimeError:
+            continue
+        dm = "mobarchy-vendor-ro"
+        with tempfile.TemporaryDirectory() as mnt:
+            # A read-only mapping: the kernel refuses writes through it.
+            subprocess.run(["dmsetup", "create", "--readonly", dm], input=table, text=True,
+                           capture_output=True, check=True)
+            try:
+                run("mount", "-t", "ext4", "-o", "ro,noload", f"/dev/mapper/{dm}", mnt)
+                try:
+                    run("install", "-m644", f"{mnt}{path}", dest)
+                    return
+                finally:
+                    run("umount", mnt)
+            finally:
+                run("dmsetup", "remove", dm, check=False)
+    raise RuntimeError(f"cannot read {path} from vendor")
+
+
+def copy_from_persist(path: str, dest: str) -> None:
+    loop = run("losetup", "-r", "-f", "--show", PERSIST).stdout.strip()
+    try:
+        with tempfile.TemporaryDirectory() as mnt:
+            run("mount", "-t", "f2fs", "-o", "ro,norecovery", loop, mnt)
+            try:
+                run("install", "-m644", f"{mnt}{path}", dest)
+            finally:
+                run("umount", mnt)
+    finally:
+        run("losetup", "-d", loop, check=False)
+
+
+# --- mixer -----------------------------------------------------------------------------
+
+def amixer(*args: str) -> subprocess.CompletedProcess:
+    return run("amixer", "-c0", *args, check=False)
+
+
+def cset(name: str, value: str, index: int | None = None) -> None:
+    if index is not None:
+        out = amixer("cget", f"name={name}").stdout
+        line = next((l for l in out.splitlines() if l.strip().startswith(": values=")), "")
+        values = line.split("=", 1)[1].split(",") if line else []
+        values += ["0"] * (index + 1 - len(values))
+        values[index] = value
+        value = ",".join(values)
+    r = amixer("cset", f"name={name}", "--", value)
+    if r.returncode != 0:
+        # Some defaults are for controls this card does not have, or read-only ones.
+        log(f"  skipped {name} = {value}")
+
+
+def apply_paths(tree: ET.ElementTree, names: list[str]) -> None:
+    root = tree.getroot()
+    paths = {p.get("name"): p for p in root.findall("path")}
+
+    def apply(elem):
+        for c in elem:
+            if c.tag == "ctl":
+                cset(c.get("name"), c.get("value"), int(c.get("id")) if c.get("id") else None)
+            elif c.tag == "path" and c.get("name") in paths:
+                apply(paths[c.get("name")])
+
+    apply(root.findall("ctl"))
+    for n in names:
+        apply(paths[n])
+
+
+def wait_for(cond, seconds: float, what: str) -> None:
+    deadline = time.monotonic() + seconds
+    while not cond():
+        if time.monotonic() > deadline:
+            raise RuntimeError(f"timed out waiting for {what}")
+        time.sleep(0.2)
+
+
+def main() -> None:
+    os.makedirs(CACHE, exist_ok=True)
+    if "--refresh" in sys.argv or not os.path.exists(MIXER_PATHS):
+        copy_from_vendor("/etc/mixer_paths.xml", MIXER_PATHS)
+        log("copied mixer_paths.xml from vendor")
+    if "--refresh" in sys.argv or not os.path.exists(SPEAKER_CAL):
+        copy_from_persist("/audio/speaker.cal", SPEAKER_CAL)
+        log("copied speaker.cal from persist")
+
+    with open(f"{AOC}/services") as f:
+        offline = "Offline" in f.readline()
+    if offline:
+        with open(f"{AOC}/firmware", "w") as f:
+            f.write("aoc.bin")
+        log("starting AoC")
+    wait_for(lambda: "aoc-snd-card" in open("/proc/asound/cards").read(), 30, "the AoC sound card")
+
+    for amp in AMPS:
+        cset(f"{amp}DSP1 Preload Switch", "on")
+    wait_for(lambda: amixer("cget", "name=R DSP1 Protection cd CAL_R").returncode == 0, 20,
+             "the amps' protection firmware")
+
+    apply_paths(ET.parse(MIXER_PATHS), ["speaker", "adapted-speaker", "primary-playback -> speaker"])
+
+    # speaker.cal: per amp six little-endian u32, the first four R, status, checksum
+    # (R + status) and ambient temperature.
+    cal = open(SPEAKER_CAL, "rb").read()
+    for i, amp in enumerate(AMPS):
+        r, status, checksum, ambient = struct.unpack_from("<4I", cal, i * 24)
+        if checksum != r + status:
+            raise RuntimeError(f"speaker.cal: bad checksum for amp {i}")
+        for field, value in (("CAL_R", r), ("CAL_STATUS", status), ("CAL_CHECKSUM", checksum),
+                             ("CAL_AMBIENT", ambient)):
+            cset(f"{amp}DSP1 Protection cd {field}", ",".join(f"0x{b:02x}" for b in struct.pack(">I", value)))
+    log("speakers ready (calibrated)")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (OSError, RuntimeError, subprocess.CalledProcessError) as e:
+        log(f"failed: {e}")
+        sys.exit(1)

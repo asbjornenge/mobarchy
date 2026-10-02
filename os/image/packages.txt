@@ -26,6 +26,13 @@ ttf-jetbrains-mono-nerd
 adwaita-icon-theme
 # squeekboard links libbsd.so.0, but the Arch Linux ARM package does not depend on it
 libbsd
+# Audio: PipeWire with the PulseAudio and ALSA interfaces apps use
+pipewire
+wireplumber
+pipewire-pulse
+pipewire-alsa
+rtkit
+alsa-utils
 # Wifi (mobarchy-wifi)
 wpa_supplicant
 iw

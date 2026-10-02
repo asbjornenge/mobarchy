@@ -1,0 +1,13 @@
+[Unit]
+Description=comet speakers: start AoC, amp firmware, routing and calibration
+# The AoC and amp drivers are loaded by systemd-modules-load.
+After=systemd-modules-load.service local-fs.target
+Before=graphical.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/mobarchy/audio-up
+
+[Install]
+WantedBy=multi-user.target

@@ -51,4 +51,4 @@ fi
 
 # Mark healthy boots successful in devinfo, or the bootloader stops in fastboot once the
 # slot's tries run out (see /usr/lib/mobarchy/mark-boot-successful).
-systemctl enable mobarchy-boot-success.timer >/dev/null
+systemctl enable mobarchy-boot-success.timer mobarchy-audio.service >/dev/null
