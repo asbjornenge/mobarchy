@@ -4,8 +4,8 @@ import QtQuick
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
-// Quick settings: slides down from the status bar (StatusBar.qml drives it). Two pages,
-// side by side: the overview (tiles) and Wi-Fi (the networks in range).
+// Quick settings: slides down from the status bar (StatusBar.qml drives it). Pages side by
+// side: the overview (tiles), Wi-Fi (the networks in range) and Bluetooth (devices).
 Sheet {
     id: quick
 
@@ -15,6 +15,7 @@ Sheet {
     required property Power power
     required property Wifi wifi
     required property Rfkill rfkill
+    required property Bluetooth bluetooth
     required property Notifications notifications
     required property Volume volume
 
@@ -29,8 +30,9 @@ Sheet {
     LayerShell.Window.exclusionZone: 0
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
-    property int page: 0  // 0: overview, 1: Wi-Fi
+    property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth
     property string wifiError: ""
+    property string bluetoothError: ""
 
     // Restart and power off take a second tap within a few seconds.
     property string confirming: ""
@@ -51,6 +53,25 @@ Sheet {
         wifi.scan()
     }
 
+    function showBluetooth() {
+        bluetoothError = ""
+        page = 2
+    }
+    // Look for devices while the Bluetooth page is in view.
+    readonly property bool lookingForDevices: page === 2 && shown && rfkill.bluetoothEnabled
+    onLookingForDevicesChanged: bluetooth.setDiscovery(lookingForDevices)
+
+    function deviceIcon(icon) {
+        if (icon.startsWith("audio-head")) return "󰋋"
+        if (icon === "audio-card") return "󰓃"
+        if (icon === "input-keyboard") return "󰌌"
+        if (icon === "input-mouse") return "󰍽"
+        if (icon === "input-gaming") return "󰊴"
+        if (icon === "phone") return "󰏲"
+        if (icon === "computer") return "󰟀"
+        return "󰂯"
+    }
+
     onOpening: {
         brightness.refresh()
         system.refresh()
@@ -61,6 +82,10 @@ Sheet {
     Connections {
         target: quick.wifi
         function onJoinFailed(ssid, reason) { quick.wifiError = ssid + ": " + reason }
+    }
+    Connections {
+        target: quick.bluetooth
+        function onFailed(name, reason) { quick.bluetoothError = (name ? name + ": " : "") + reason }
     }
 
     readonly property bool wide: width > 640
@@ -162,7 +187,7 @@ Sheet {
     Rectangle {
         id: panel
         width: parent.width
-        height: (quick.page === 0 ? overview.implicitHeight : wifiPage.implicitHeight) + 28 + handle.height
+        height: [overview, wifiPage, bluetoothPage][quick.page].implicitHeight + 28 + handle.height
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         y: -(1 - quick.openness) * height
         radius: 18
@@ -298,10 +323,14 @@ Sheet {
                         onClicked: quick.volume.muted = !quick.volume.muted
                     }
                     Tile {
-                        icon: "󰂯"
+                        icon: !quick.rfkill.bluetoothEnabled ? "󰂲" : quick.bluetooth.connectedNames.length > 0 ? "󰂱" : "󰂯"
                         label: qsTr("Bluetooth")
-                        detail: qsTr("Not set up yet")
-                        supported: false
+                        detail: !quick.rfkill.bluetoothEnabled ? qsTr("Off")
+                              : quick.bluetooth.connectedNames.join(", ") || qsTr("On")
+                        active: quick.rfkill.bluetoothEnabled && quick.bluetooth.connectedNames.length > 0
+                        chevron: true
+                        supported: quick.rfkill.hasBluetooth || quick.bluetooth.available
+                        onClicked: quick.showBluetooth()
                     }
                 }
 
@@ -623,6 +652,180 @@ Sheet {
                 Text {
                     visible: quick.rfkill.wifiEnabled && networks.count === 0
                     text: quick.wifi.scanning ? qsTr("Looking for networks …") : qsTr("No networks found.")
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 13 }
+                }
+            }
+
+            // --- Bluetooth --------------------------------------------------------------
+            Column {
+                id: bluetoothPage
+                x: 2 * pages.width + 20
+                width: pages.width - 40
+                spacing: 14
+
+                // Paired devices, then the ones around, each list under its heading.
+                readonly property var rows: {
+                    const paired = quick.bluetooth.devices.filter(d => d.paired)
+                    const around = quick.bluetooth.devices.filter(d => !d.paired)
+                    let rows = []
+                    if (paired.length > 0)
+                        rows = rows.concat([{ heading: qsTr("My devices") }], paired)
+                    if (around.length > 0)
+                        rows = rows.concat([{ heading: qsTr("Available") }], around)
+                    return rows
+                }
+
+                Item {
+                    width: parent.width
+                    height: 40
+                    MouseArea {
+                        anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                        width: btBackRow.implicitWidth + 16
+                        onClicked: quick.page = 0
+                        Row {
+                            id: btBackRow
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 10
+                            Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
+                                   font { family: Theme.font; pixelSize: 16 }
+                                   anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: qsTr("Bluetooth"); color: Theme.fg
+                                   font { family: Theme.font; pixelSize: 18; bold: true } }
+                        }
+                    }
+                    Text {
+                        anchors { right: bluetoothSwitch.left; rightMargin: 18; verticalCenter: parent.verticalCenter }
+                        visible: quick.bluetooth.discovering
+                        text: "󰑓 " + qsTr("Searching")
+                        color: Theme.accent
+                        font { family: Theme.font; pixelSize: 14 }
+                    }
+                    Switch {
+                        id: bluetoothSwitch
+                        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                        checked: quick.rfkill.bluetoothEnabled
+                        onToggled: quick.rfkill.bluetoothEnabled = !quick.rfkill.bluetoothEnabled
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    visible: quick.bluetoothError.length > 0
+                    text: "✗ " + quick.bluetoothError
+                    wrapMode: Text.Wrap
+                    color: Theme.red
+                    font { family: Theme.font; pixelSize: 12 }
+                }
+
+                Text {
+                    width: parent.width
+                    visible: !quick.rfkill.bluetoothEnabled || !quick.bluetooth.available
+                    text: quick.rfkill.flightMode ? qsTr("Flight mode is on.")
+                        : !quick.rfkill.bluetoothEnabled ? qsTr("Bluetooth is off.")
+                        : qsTr("Starting Bluetooth …")
+                    wrapMode: Text.Wrap
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 13 }
+                }
+
+                ListView {
+                    id: bluetoothDevices
+                    visible: quick.rfkill.bluetoothEnabled && quick.bluetooth.available
+                    width: parent.width
+                    height: Math.min(contentHeight, quick.height * 0.55)
+                    clip: true
+                    spacing: 6
+                    currentIndex: -1  // see Home.qml
+                    highlightFollowsCurrentItem: false
+                    boundsBehavior: Flickable.StopAtBounds
+                    model: bluetoothPage.rows
+                    delegate: Item {
+                        id: dev
+                        required property var modelData
+                        readonly property bool heading: modelData.heading !== undefined
+                        width: ListView.view.width
+                        height: heading ? 30 : 56
+
+                        Text {
+                            visible: dev.heading
+                            anchors { left: parent.left; bottom: parent.bottom; bottomMargin: 4 }
+                            text: dev.modelData.heading ?? ""
+                            color: Theme.muted
+                            font { family: Theme.font; pixelSize: 12 }
+                        }
+                        Rectangle {
+                            visible: !dev.heading
+                            anchors.fill: parent
+                            radius: 12
+                            color: dev.modelData.connected ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12)
+                                                           : (devTap.pressed ? Theme.line : Theme.panel)
+                            border.color: dev.modelData.connected ? Theme.accent : "transparent"
+
+                            MouseArea {
+                                id: devTap
+                                anchors.fill: parent
+                                onClicked: {
+                                    quick.bluetoothError = ""
+                                    quick.bluetooth.activate(dev.modelData.path)
+                                }
+                            }
+                            Text {
+                                id: devIcon
+                                anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
+                                text: quick.deviceIcon(dev.modelData.icon ?? "")
+                                color: dev.modelData.connected ? Theme.accent : Theme.fg
+                                font { family: Theme.font; pixelSize: 20 }
+                            }
+                            Column {
+                                anchors { left: devIcon.right; leftMargin: 14; right: devTrailing.left; rightMargin: 8
+                                          verticalCenter: parent.verticalCenter }
+                                Text {
+                                    width: parent.width
+                                    text: dev.modelData.name ?? ""
+                                    elide: Text.ElideRight
+                                    color: Theme.fg
+                                    font { family: Theme.font; pixelSize: 14 }
+                                }
+                                Text {
+                                    width: parent.width
+                                    text: dev.modelData.busy ? (dev.modelData.paired ? qsTr("Connecting …") : qsTr("Pairing …"))
+                                        : dev.modelData.connected ? qsTr("Connected")
+                                              + (dev.modelData.battery >= 0 ? "  ·  󰁹 " + dev.modelData.battery + " %" : "")
+                                        : dev.modelData.paired ? qsTr("Not connected") : qsTr("Tap to pair")
+                                    color: dev.modelData.connected || dev.modelData.busy ? Theme.accent : Theme.muted
+                                    font { family: Theme.font; pixelSize: 11 }
+                                }
+                            }
+                            // Forget a paired device.
+                            Rectangle {
+                                id: devTrailing
+                                anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                                visible: dev.modelData.paired === true
+                                width: visible ? devForgetText.implicitWidth + 20 : 0; height: 30; radius: 15
+                                color: "transparent"
+                                readonly property bool confirm: quick.confirming === "forget-bt:" + dev.modelData.path
+                                border.color: confirm ? Theme.red : Theme.line
+                                Text {
+                                    id: devForgetText
+                                    anchors.centerIn: parent
+                                    text: parent.confirm ? qsTr("Tap to forget") : qsTr("Forget")
+                                    color: parent.confirm ? Theme.red : Theme.muted
+                                    font { family: Theme.font; pixelSize: 11 }
+                                }
+                                MouseArea {
+                                    anchors { fill: parent; margins: -6 }
+                                    onClicked: quick.confirmOr("forget-bt:" + dev.modelData.path,
+                                                               () => quick.bluetooth.forget(dev.modelData.path))
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    visible: quick.rfkill.bluetoothEnabled && quick.bluetooth.available && bluetoothDevices.count === 0
+                    text: quick.bluetooth.discovering ? qsTr("Looking for devices …") : qsTr("No devices found.")
                     color: Theme.muted
                     font { family: Theme.font; pixelSize: 13 }
                 }

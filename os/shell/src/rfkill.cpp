@@ -90,7 +90,7 @@ void Rfkill::setFlightMode(bool on)
         return;
     }
     // Restore what was on before. Without that (the shell restarted meanwhile), bring back
-    // Wi-Fi and the modem, but not radios that were never set up (e.g. Bluetooth).
+    // Wi-Fi and the modem; Bluetooth stays off until it is switched on.
     if (!m_beforeFlight.isEmpty()) {
         for (quint32 idx : std::as_const(m_beforeFlight))
             change(idx, false);
@@ -101,17 +101,17 @@ void Rfkill::setFlightMode(bool on)
     }
 }
 
-bool Rfkill::hasWifi() const
+bool Rfkill::has(quint8 type) const
 {
-    return std::any_of(m_radios.cbegin(), m_radios.cend(),
-                       [](const Radio &r) { return r.type == RFKILL_TYPE_WLAN; });
+    return std::any_of(m_radios.cbegin(), m_radios.cend(), [type](const Radio &r) { return r.type == type; });
 }
 
-bool Rfkill::wifiEnabled() const
+// All switches of the type on (a Bluetooth controller has its own besides its power's).
+bool Rfkill::enabled(quint8 type) const
 {
     bool any = false;
     for (const Radio &r : m_radios) {
-        if (r.type != RFKILL_TYPE_WLAN)
+        if (r.type != type)
             continue;
         if (r.soft || r.hard)
             return false;
@@ -120,7 +120,10 @@ bool Rfkill::wifiEnabled() const
     return any;
 }
 
-void Rfkill::setWifiEnabled(bool on)
-{
-    changeAll(RFKILL_TYPE_WLAN, !on);
-}
+bool Rfkill::hasWifi() const { return has(RFKILL_TYPE_WLAN); }
+bool Rfkill::wifiEnabled() const { return enabled(RFKILL_TYPE_WLAN); }
+void Rfkill::setWifiEnabled(bool on) { changeAll(RFKILL_TYPE_WLAN, !on); }
+
+bool Rfkill::hasBluetooth() const { return has(RFKILL_TYPE_BLUETOOTH); }
+bool Rfkill::bluetoothEnabled() const { return enabled(RFKILL_TYPE_BLUETOOTH); }
+void Rfkill::setBluetoothEnabled(bool on) { changeAll(RFKILL_TYPE_BLUETOOTH, !on); }

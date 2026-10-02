@@ -26,6 +26,7 @@ qt_add_qml_module(mobarchy-shell
         src/apps.cpp src/apps.h
         src/device.cpp src/device.h
         src/agent.cpp src/agent.h
+        src/bluetooth.cpp src/bluetooth.h
         src/iconprovider.h
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h

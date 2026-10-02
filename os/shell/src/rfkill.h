@@ -1,5 +1,6 @@
 // Radios on and off through /dev/rfkill (the active session's user gets access through
-// logind/udev uaccess): flight mode and the Wi-Fi switch. Generic Linux, no driver knowledge.
+// logind/udev uaccess): flight mode and the Wi-Fi and Bluetooth switches. Generic Linux, no
+// driver knowledge.
 #pragma once
 
 #include <QHash>
@@ -16,6 +17,8 @@ class Rfkill : public QObject
     Q_PROPERTY(bool flightMode READ flightMode WRITE setFlightMode NOTIFY changed)
     Q_PROPERTY(bool wifiEnabled READ wifiEnabled WRITE setWifiEnabled NOTIFY changed)
     Q_PROPERTY(bool hasWifi READ hasWifi NOTIFY changed)
+    Q_PROPERTY(bool bluetoothEnabled READ bluetoothEnabled WRITE setBluetoothEnabled NOTIFY changed)
+    Q_PROPERTY(bool hasBluetooth READ hasBluetooth NOTIFY changed)
 
 public:
     explicit Rfkill(QObject *parent = nullptr);
@@ -27,6 +30,9 @@ public:
     bool wifiEnabled() const;
     void setWifiEnabled(bool on);
     bool hasWifi() const;
+    bool bluetoothEnabled() const;
+    void setBluetoothEnabled(bool on);
+    bool hasBluetooth() const;
 
 signals:
     void changed();
@@ -40,6 +46,8 @@ private:
     void readEvents();
     void changeAll(quint8 type, bool block);
     void change(quint32 idx, bool block);
+    bool has(quint8 type) const;
+    bool enabled(quint8 type) const;
 
     int m_fd = -1;
     QSocketNotifier *m_notifier = nullptr;

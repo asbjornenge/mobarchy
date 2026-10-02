@@ -14,6 +14,7 @@ QtObject {
     readonly property Device device: Device {}
     readonly property Wifi wifi: Wifi {}
     readonly property Rfkill rfkill: Rfkill {}
+    readonly property Bluetooth bluetooth: Bluetooth {}
     readonly property Volume volume: Volume {}
     readonly property Notifications notifications: Notifications {}
     readonly property Banner banner: Banner {
@@ -128,6 +129,7 @@ QtObject {
         power: shell.power
         wifi: shell.wifi
         rfkill: shell.rfkill
+        bluetooth: shell.bluetooth
         notifications: shell.notifications
         volume: shell.volume
         onPassphraseNeeded: (ssid) => {
