@@ -52,3 +52,5 @@ chromium
 # Spotify: the official client is x86-only. spotify-player is a terminal client (librespot;
 # Premium) with MPRIS, a Spotify Connect device and a CLI the agent can drive.
 spotify-player
+# MPRIS from the command line for the agent (playerctld follows the player active last)
+playerctl

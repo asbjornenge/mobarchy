@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import bluetooth, clock, network, power
+from . import bluetooth, clock, media, network, power
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -304,6 +304,49 @@ def set_bluetooth(enabled: bool) -> dict:
 def bluetooth_forget(address: str) -> dict:
     """Unpair a device: it must be paired again (in pairing mode) to connect."""
     return {"result": _bluetooth(bluetooth.forget, address)}
+
+
+def _media(fn, *args):
+    try:
+        return fn(*args)
+    except ValueError as e:
+        raise ToolError(str(e)) from e
+    except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"media: {e}") from e
+
+
+@tool(Risk.READ, "What's playing")
+def media_status() -> dict:
+    """The media player in charge (the one that played last: Spotify, a browser, ...): what
+    it plays, whether it plays, position and length in seconds."""
+    return _media(media.status)
+
+
+@tool(Risk.ACT, "Control playback")
+def media_control(action: str) -> dict:
+    """Control the player in charge: play, pause, play-pause, next, previous or stop."""
+    return _media(media.control, action)
+
+
+@tool(Risk.ACT, "Seek")
+def media_seek(seconds: float, relative: bool = False) -> dict:
+    """Jump to a position in the current track (seconds), or by an offset (relative=true,
+    negative goes back)."""
+    return _media(media.seek, seconds, relative)
+
+
+@tool(Risk.READ, "Search Spotify")
+def spotify_search(query: str) -> dict:
+    """Search Spotify (the owner's account): tracks, albums, artists and playlists with ids
+    for spotify_play."""
+    return _media(media.spotify_search, query)
+
+
+@tool(Risk.ACT, "Play on Spotify")
+def spotify_play(kind: str, id: str = "", name: str = "", shuffle: bool = False) -> dict:
+    """Play a Spotify track, album, artist or playlist on the phone, by id (from
+    spotify_search) or by name. kind: track, album, artist or playlist."""
+    return _media(media.spotify_play, kind, id, name, shuffle)
 
 
 @tool(Risk.READ, "Date and time")
