@@ -158,13 +158,16 @@ def main() -> None:
         copy_from_persist("/audio/speaker.cal", SPEAKER_CAL)
         log("copied speaker.cal from persist")
 
-    with open(f"{AOC}/services") as f:
-        offline = "Offline" in f.readline()
-    if offline:
+    # The card appears once AoC runs. Writing the firmware name (re)loads AoC, so only do
+    # it when the card is not there: this service is the one that starts it, once a boot.
+    def card() -> bool:
+        return "aoc-snd-card" in open("/proc/asound/cards").read()
+    if not card():
+        wait_for(lambda: os.path.exists(f"{AOC}/firmware"), 30, "the AoC driver")
         with open(f"{AOC}/firmware", "w") as f:
             f.write("aoc.bin")
         log("starting AoC")
-    wait_for(lambda: "aoc-snd-card" in open("/proc/asound/cards").read(), 30, "the AoC sound card")
+    wait_for(card, 60, "the AoC sound card")
 
     for amp in AMPS:
         cset(f"{amp}DSP1 Preload Switch", "on")
