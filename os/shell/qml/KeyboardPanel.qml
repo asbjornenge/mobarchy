@@ -112,8 +112,6 @@ LayerWindow {
         keyboard.type(text)
         if (shift && !caps)
             shift = false
-        if (mode === "numbers" && (value === "'" || value === "\""))
-            mode = "letters"    // as iOS: a quote ends the number run
     }
     function typeSpace() {
         const now = Date.now()
@@ -154,14 +152,15 @@ LayerWindow {
     component Key: Rectangle {
         id: key
         required property var spec              // string or {k, w}
+        property real rowUnit: kb.unit           // the row's letter width (rows fill the width)
         readonly property bool special: typeof spec !== "string"
         readonly property string kind: special ? spec.k : "char"
         readonly property string value: special ? "" : spec
         property bool down: false
-        width: (special ? spec.w : 1) * kb.unit + ((special ? spec.w : 1) - 1) * kb.gap
+        width: (special ? spec.w : 1) * rowUnit + ((special ? spec.w : 1) - 1) * kb.gap
         height: kb.keyHeight
         radius: 7
-        visible: kind !== "gap"
+        opacity: kind === "gap" ? 0 : 1      // a spacer still takes its room in the row
         // letters lighter than the action keys, as iOS; pressed darker
         color: down ? Theme.muted
              : (special && kind !== "space") ? Theme.panel : Qt.lighter(Theme.panel, 1.3)
@@ -214,12 +213,20 @@ LayerWindow {
                 required property var modelData
                 required property int index
                 width: board.width; height: kb.rowHeight
+                // the units in this row, so that it spans the width like the letter rows
+                readonly property real units: row.modelData.reduce(
+                    (s, k) => s + (typeof k === "string" ? 1 : k.w), 0)
+                readonly property real rowUnit: (board.width - (row.units - 1) * kb.gap) / row.units
                 Row {
                     anchors.centerIn: parent
                     spacing: kb.gap
                     Repeater {
                         model: row.modelData
-                        delegate: Key { required property var modelData; spec: modelData }
+                        delegate: Key {
+                            required property var modelData
+                            spec: modelData
+                            rowUnit: row.rowUnit
+                        }
                     }
                 }
             }

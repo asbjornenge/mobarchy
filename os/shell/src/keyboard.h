@@ -103,6 +103,7 @@ private:
 
     // input method state, applied on done
     bool m_active = false;
+    bool m_activeChanged = false;
     bool m_visible = false;
     bool m_hiddenByHand = false;   // the owner hid it while a field had focus
     bool m_manual = false;         // the owner showed it with no field focused

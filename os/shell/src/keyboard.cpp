@@ -53,6 +53,7 @@ void InputMethod::zwp_input_method_v2_done()
 {
     m_keyboard->m_serial++;
     const bool activated = m_pendingActive && !m_keyboard->m_active;
+    m_keyboard->m_activeChanged = m_pendingActive != m_keyboard->m_active;
     m_keyboard->m_active = m_pendingActive;
     m_keyboard->m_surrounding = m_pendingText;
     m_keyboard->m_cursor = int(m_pendingCursor);
@@ -117,7 +118,8 @@ void Keyboard::onDone()
         m_visible = visible;
         emit visibleChanged();
     }
-    emit activeChanged();
+    if (m_activeChanged)
+        emit activeChanged();
     emit contentChanged();
 }
 
