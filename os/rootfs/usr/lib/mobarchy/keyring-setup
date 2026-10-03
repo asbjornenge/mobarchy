@@ -6,7 +6,8 @@ There is no login password to unlock it with (the phone logs in by itself), and 
 that needs secrets would otherwise put up GNOME Keyring's "choose a password" dialog
 (Chromium does at every start). So the keyring is created with an empty password, which
 GNOME Keyring stores unencrypted and opens by itself: the same protection as today's
-lock screen without a PIN. With a PIN, the keyring should be encrypted with it (PAM).
+lock screen without a PIN. Setting a PIN re-encrypts it with the PIN, and unlocking the
+phone unlocks it (pam_gnome_keyring, ADR 0013).
 """
 import sys
 
@@ -27,7 +28,8 @@ def main() -> int:
     if default != "/":
         return 0  # there is one already
     _, session = call(bus, "org.freedesktop.Secret.Service", "OpenSession", ("plain", GLib.Variant("s", "")), "(sv)")
-    label = {"org.freedesktop.Secret.Collection.Label": GLib.Variant("s", "Login")}
+    # "login": the keyring pam_gnome_keyring unlocks with the PIN once there is one (ADR 0013).
+    label = {"org.freedesktop.Secret.Collection.Label": GLib.Variant("s", "login")}
     # GNOME Keyring's own interface for creating a keyring with a given password, no prompt.
     (collection,) = call(bus, "org.gnome.keyring.InternalUnsupportedGuiltRiddenInterface",
                          "CreateWithMasterPassword", (label, (session, b"", b"", "text/plain")),

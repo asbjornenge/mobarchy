@@ -2,16 +2,17 @@ import QtQuick
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
-// The lock screen: shown when the screen goes off, swiped up to unlock. It covers the
-// whole screen (overlay layer, ignoring other surfaces' exclusive zones). It does not take
-// the keyboard: a focused layer surface makes squeekboard come up. No PIN or password yet: it keeps pockets from using the phone, it does not
-// protect it.
+// The lock screen: shown when the screen goes off, swiped up to unlock, then the PIN if
+// there is one (ADR 0013). It covers the whole screen (overlay layer, ignoring other
+// surfaces' exclusive zones). It does not take the keyboard: a focused layer surface makes
+// squeekboard come up; the PIN has its own pad.
 LayerWindow {
     id: lock
 
     required property SystemStatus system
     required property Notifications notifications
     required property MediaPlayers media
+    required property PinLock pinLock
     signal unlocked()
     signal touched()  // any interaction: keeps the screen on a little longer
 
@@ -35,7 +36,38 @@ LayerWindow {
 
     // 0..1: how far the content has been pushed up.
     property real lift: 0
-    onShownChanged: if (shown) { settle.stop(); lift = 0 }
+    // Swiped up, and the PIN pad is showing.
+    property bool askingPin: false
+    onShownChanged: if (shown) { settle.stop(); lift = 0; askingPin = false; pad.clear(); pad.message = "" }
+
+    function swiped() {
+        if (pinLock.hasPin) {
+            askingPin = true
+            lift = 0
+        } else {
+            unlocked()
+        }
+    }
+    Connections {
+        target: lock.pinLock
+        function onVerified(ok) {
+            if (ok) {
+                lock.unlocked()
+                return
+            }
+            pad.clear()
+            pad.shake()
+            pad.messageIsError = true
+            pad.message = lock.pinLock.wait > 0 ? qsTr("Too many tries: wait %1 s").arg(lock.pinLock.wait)
+                                                 : qsTr("Wrong PIN")
+        }
+        function onWaitChanged() {
+            if (lock.askingPin && lock.pinLock.wait > 0)
+                pad.message = qsTr("Too many tries: wait %1 s").arg(lock.pinLock.wait)
+            else if (lock.askingPin && pad.message.startsWith(qsTr("Too many tries")))
+                pad.message = ""
+        }
+    }
 
     NumberAnimation {
         id: settle
@@ -43,11 +75,12 @@ LayerWindow {
         property: "lift"
         duration: 220
         easing.type: Easing.OutCubic
-        onFinished: if (lock.lift >= 1) lock.unlocked()
+        onFinished: if (lock.lift >= 1) lock.swiped()
     }
 
     Item {
         id: content
+        visible: !lock.askingPin
         width: parent.width
         height: parent.height
         y: -lock.lift * lock.height * 0.5
@@ -107,6 +140,7 @@ LayerWindow {
 
     EdgeGesture {
         anchors.fill: parent
+        enabled: !lock.askingPin
         onTapped: lock.touched()
         onBegan: {
             lock.touched()
@@ -126,7 +160,30 @@ LayerWindow {
         transform: Translate { y: -lock.lift * lock.height * 0.5 }
         opacity: 1 - lock.lift
         compact: true
+        visible: !lock.askingPin && player.available && (player.title.length > 0 || player.identity.length > 0)
         player: lock.media
         onVisibleChanged: if (visible) lock.media.refreshPosition()
+    }
+
+    // The PIN, after the swipe.
+    PinPad {
+        id: pad
+        visible: lock.askingPin
+        anchors.centerIn: parent
+        title: qsTr("Enter PIN")
+        enabled_: !lock.pinLock.busy && lock.pinLock.wait === 0
+        onPinChanged: lock.touched()
+        onEntered: (pin) => lock.pinLock.verify(pin)
+    }
+    Text {
+        visible: lock.askingPin
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 48 }
+        text: qsTr("Cancel")
+        color: Theme.muted
+        font { family: Theme.font; pixelSize: 14 }
+        MouseArea {
+            anchors { fill: parent; margins: -16 }
+            onClicked: { lock.askingPin = false; pad.clear(); pad.message = "" }
+        }
     }
 }

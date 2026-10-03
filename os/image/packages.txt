@@ -27,6 +27,8 @@ adwaita-icon-theme
 libbsd
 # Secrets (apps' stored logins and keys): the Secret Service and its portal
 gnome-keyring
+# The lock screen PIN is the account password, set through AccountsService (ADR 0013)
+accountsservice
 # (keyring-setup creates the default keyring through GNOME Keyring's D-Bus API)
 python-gobject
 # Audio: PipeWire with the PulseAudio and ALSA interfaces apps use

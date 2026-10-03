@@ -17,6 +17,7 @@ Sheet {
     required property Rfkill rfkill
     required property Bluetooth bluetooth
     required property MediaPlayers media
+    required property PinLock pinLock
     required property Notifications notifications
     required property Volume volume
 
@@ -31,7 +32,7 @@ Sheet {
     LayerShell.Window.exclusionZone: 0
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
-    property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth
+    property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth, 3: screen lock (PIN)
     property string wifiError: ""
     property string bluetoothError: ""
 
@@ -71,6 +72,71 @@ Sheet {
         if (icon === "phone") return "󰏲"
         if (icon === "computer") return "󰟀"
         return "󰂯"
+    }
+
+    // Setting, changing or removing the PIN, one pad at a time.
+    property string pinAction: ""   // set, change, remove
+    property string pinStep: ""     // old, new, confirm
+    property string pinOld: ""
+    property string pinNew: ""
+    function showLock() {
+        pinAction = ""
+        pinStep = ""
+        lockPad.message = ""
+        page = 3
+    }
+    function startPin(action) {
+        pinAction = action
+        pinOld = ""
+        pinNew = ""
+        lockPad.message = ""
+        lockPad.messageIsError = false
+        pinStep = action === "set" ? "new" : "old"
+        lockPad.clear()
+    }
+    function pinEntered(pin) {
+        lockPad.clear()
+        lockPad.messageIsError = false
+        lockPad.message = ""
+        if (pinStep === "old") {
+            pinOld = pin
+            if (pinAction === "remove")
+                pinLock.remove(pin)
+            else
+                pinStep = "new"
+        } else if (pinStep === "new") {
+            if (pin.length < 4) {
+                lockPad.messageIsError = true
+                lockPad.message = qsTr("At least 4 digits")
+                return
+            }
+            pinNew = pin
+            pinStep = "confirm"
+        } else if (pinStep === "confirm") {
+            if (pin !== pinNew) {
+                lockPad.messageIsError = true
+                lockPad.message = qsTr("The PINs differ: try again")
+                lockPad.shake()
+                pinStep = "new"
+                return
+            }
+            pinLock.change(pinOld, pinNew)
+        }
+    }
+    Connections {
+        target: quick.pinLock
+        function onChanged(ok, error) {
+            if (ok) {
+                quick.pinAction = ""
+                quick.pinStep = ""
+                quick.pinOld = quick.pinNew = ""
+                return
+            }
+            lockPad.messageIsError = true
+            lockPad.message = error
+            lockPad.shake()
+            quick.pinStep = quick.pinAction === "set" ? "new" : "old"
+        }
     }
 
     onOpening: {
@@ -189,7 +255,7 @@ Sheet {
     Rectangle {
         id: panel
         width: parent.width
-        height: [overview, wifiPage, bluetoothPage][quick.page].implicitHeight + 28 + handle.height
+        height: [overview, wifiPage, bluetoothPage, lockPage][quick.page].implicitHeight + 28 + handle.height
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         y: -(1 - quick.openness) * height
         radius: 18
@@ -305,6 +371,14 @@ Sheet {
                         active: quick.rfkill.flightMode
                         supported: quick.rfkill.available
                         onClicked: quick.rfkill.flightMode = !quick.rfkill.flightMode
+                    }
+                    Tile {
+                        icon: quick.pinLock.hasPin ? "󰌾" : "󰍁"
+                        label: qsTr("Screen lock")
+                        detail: quick.pinLock.hasPin ? qsTr("PIN") : qsTr("Swipe only")
+                        active: quick.pinLock.hasPin
+                        chevron: true
+                        onClicked: quick.showLock()
                     }
                     Tile {
                         icon: "󰌌"
@@ -844,6 +918,79 @@ Sheet {
                     text: quick.bluetooth.discovering ? qsTr("Looking for devices …") : qsTr("No devices found.")
                     color: Theme.muted
                     font { family: Theme.font; pixelSize: 13 }
+                }
+            }
+
+            // --- screen lock ------------------------------------------------------------
+            Column {
+                id: lockPage
+                x: 3 * pages.width + 20
+                width: pages.width - 40
+                spacing: 18
+
+                MouseArea {
+                    width: lockBackRow.implicitWidth + 16
+                    height: 40
+                    onClicked: {
+                        if (quick.pinStep !== "") {
+                            quick.pinStep = ""
+                            quick.pinAction = ""
+                        } else {
+                            quick.page = 0
+                        }
+                    }
+                    Row {
+                        id: lockBackRow
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 10
+                        Text { text: "\uf053"; color: Theme.muted; font { family: Theme.font; pixelSize: 16 }
+                               anchors.verticalCenter: parent.verticalCenter }
+                        Text { text: qsTr("Screen lock"); color: Theme.fg
+                               font { family: Theme.font; pixelSize: 18; bold: true } }
+                    }
+                }
+
+                Text {
+                    width: parent.width
+                    visible: quick.pinStep === ""
+                    text: quick.pinLock.hasPin
+                          ? qsTr("The phone asks for your PIN after the swipe. It also protects your saved logins (the keyring).")
+                          : qsTr("Without a PIN, a swipe unlocks the phone. A PIN also protects your saved logins (the keyring).")
+                    wrapMode: Text.Wrap
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 13 }
+                }
+                Row {
+                    visible: quick.pinStep === ""
+                    spacing: 10
+                    RoundButton {
+                        visible: !quick.pinLock.hasPin
+                        icon: "󰌾"
+                        label: qsTr("Set a PIN")
+                        onClicked: quick.startPin("set")
+                    }
+                    RoundButton {
+                        visible: quick.pinLock.hasPin
+                        icon: "󰌾"
+                        label: qsTr("Change PIN")
+                        onClicked: quick.startPin("change")
+                    }
+                    RoundButton {
+                        visible: quick.pinLock.hasPin
+                        icon: "󰍁"
+                        label: qsTr("Remove PIN")
+                        warn: true
+                        onClicked: quick.startPin("remove")
+                    }
+                }
+                PinPad {
+                    id: lockPad
+                    visible: quick.pinStep !== ""
+                    width: parent.width
+                    title: quick.pinStep === "old" ? qsTr("Current PIN")
+                         : quick.pinStep === "new" ? qsTr("New PIN") : qsTr("New PIN again")
+                    enabled_: !quick.pinLock.busy && quick.pinLock.wait === 0
+                    onEntered: (pin) => quick.pinEntered(pin)
                 }
             }
         }

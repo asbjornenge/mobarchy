@@ -58,8 +58,19 @@ def touchscreen():
     return _touch
 
 
-def tool(risk: Risk, title: str):
-    """Register a tool with a risk level. The policy check runs before the tool body."""
+def locked() -> bool:
+    """The phone is locked with a PIN (the shell publishes it, ADR 0013). The agent may not
+    use the screen then: unlocking is the owner's. MOBARCHY_MCP_IGNORE_LOCK=1 is for
+    development only."""
+    if os.environ.get("MOBARCHY_MCP_IGNORE_LOCK") == "1":
+        return False
+    runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+    return Path(runtime, "mobarchy", "locked").exists()
+
+
+def tool(risk: Risk, title: str, screen: bool = False):
+    """Register a tool with a risk level. The policy check runs before the tool body.
+    screen: the tool sees or drives the screen, which a locked phone doesn't allow."""
     annotations = ToolAnnotations(
         title=title,
         read_only_hint=risk is Risk.READ,
@@ -69,6 +80,8 @@ def tool(risk: Risk, title: str):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
+            if screen and locked():
+                raise ToolError("the phone is locked: the owner has to unlock it (with the PIN) first")
             if policy.decide(fn.__name__, risk) is Decision.DENY:
                 raise ToolError(
                     f"denied by device policy: '{fn.__name__}' has risk level '{risk}' "
@@ -123,7 +136,7 @@ def device_info() -> dict:
     }
 
 
-@tool(Risk.READ, "Screenshot")
+@tool(Risk.READ, "Screenshot", screen=True)
 def screenshot() -> Image:
     """Capture the screen as a PNG at logical resolution. Pixel (x, y) in the image is the coordinate to pass to tap/swipe."""
     out = primary_output()
@@ -140,7 +153,7 @@ def screenshot() -> Image:
     return Image(data=r.stdout, format="png")
 
 
-@tool(Risk.READ, "List windows")
+@tool(Risk.READ, "List windows", screen=True)
 def list_windows() -> dict:
     """List open app windows with id, app_id, title, focus state, and geometry in logical pixels."""
     return {"windows": [w.to_dict() for w in compositor().windows()]}
@@ -155,7 +168,7 @@ def list_apps() -> dict:
 # --- act ------------------------------------------------------------------------
 
 
-@tool(Risk.ACT, "Tap")
+@tool(Risk.ACT, "Tap", screen=True)
 def tap(x: float, y: float, hold_ms: int = 50) -> str:
     """Tap the screen at (x, y) in logical pixels. Use hold_ms around 600 for a long press."""
     fx, fy = to_fraction(x, y)
@@ -163,7 +176,7 @@ def tap(x: float, y: float, hold_ms: int = 50) -> str:
     return "ok"
 
 
-@tool(Risk.ACT, "Swipe")
+@tool(Risk.ACT, "Swipe", screen=True)
 def swipe(x1: float, y1: float, x2: float, y2: float, duration_ms: int = 300) -> str:
     """Swipe with one finger from (x1, y1) to (x2, y2) in logical pixels."""
     f1, f2 = to_fraction(x1, y1), to_fraction(x2, y2)
@@ -171,14 +184,14 @@ def swipe(x1: float, y1: float, x2: float, y2: float, duration_ms: int = 300) ->
     return "ok"
 
 
-@tool(Risk.ACT, "Type text")
+@tool(Risk.ACT, "Type text", screen=True)
 def type_text(text: str) -> str:
     """Type text into the focused window, as if typed on a keyboard."""
     _run(["wtype", "--", text])
     return "ok"
 
 
-@tool(Risk.ACT, "Press key")
+@tool(Risk.ACT, "Press key", screen=True)
 def press_key(key: str, modifiers: list[str] | None = None) -> str:
     """Press a key by XKB keysym name, e.g. Return, BackSpace, Escape, Tab, Up, a.
     modifiers: any of shift, ctrl, alt, logo."""
@@ -193,7 +206,7 @@ def press_key(key: str, modifiers: list[str] | None = None) -> str:
     return "ok"
 
 
-@tool(Risk.ACT, "Launch app")
+@tool(Risk.ACT, "Launch app", screen=True)
 def launch_app(app_id: str) -> str:
     """Launch an installed app by id (see list_apps)."""
     entries = _desktop_entries()
@@ -204,14 +217,14 @@ def launch_app(app_id: str) -> str:
     return "launched"
 
 
-@tool(Risk.ACT, "Focus window")
+@tool(Risk.ACT, "Focus window", screen=True)
 def focus_window(window_id: str) -> str:
     """Bring a window (id from list_windows) to the front."""
     compositor().focus(window_id)
     return "ok"
 
 
-@tool(Risk.ACT, "Close window")
+@tool(Risk.ACT, "Close window", screen=True)
 def close_window(window_id: str) -> str:
     """Ask a window (id from list_windows) to close. The app may prompt to save first."""
     compositor().close(window_id)

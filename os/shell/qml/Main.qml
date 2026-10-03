@@ -16,6 +16,10 @@ QtObject {
     readonly property Rfkill rfkill: Rfkill {}
     readonly property Bluetooth bluetooth: Bluetooth {}
     readonly property MediaPlayers media: MediaPlayers {}
+    readonly property PinLock pinLock: PinLock {}
+    // The agent may not use the screen of a phone locked with a PIN (mobarchy-mcp checks).
+    readonly property bool lockedWithPin: lockScreen.shown && pinLock.hasPin
+    onLockedWithPinChanged: pinLock.setLocked(lockedWithPin)
     readonly property Volume volume: Volume {}
     readonly property Notifications notifications: Notifications {}
     readonly property Banner banner: Banner {
@@ -108,6 +112,7 @@ QtObject {
         system: shell.system
         notifications: shell.notifications
         media: shell.media
+        pinLock: shell.pinLock
         onUnlocked: {
             shown = false
             // Focus goes back to the app behind; the keyboard should not come up with it.
@@ -138,6 +143,7 @@ QtObject {
         rfkill: shell.rfkill
         bluetooth: shell.bluetooth
         media: shell.media
+        pinLock: shell.pinLock
         notifications: shell.notifications
         volume: shell.volume
         onPassphraseNeeded: (ssid) => {

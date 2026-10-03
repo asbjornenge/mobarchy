@@ -106,3 +106,15 @@ def test_policy_override_allows_confirm_tool(fakes, monkeypatch):
 def test_list_windows(fakes):
     r = call("list_windows")
     assert json.loads(r.content[0].text)["windows"][0]["app_id"] == "foot"
+
+
+def test_screen_tools_refuse_while_locked(tmp_path, monkeypatch):
+    from mobarchy_mcp import server
+    (tmp_path / "mobarchy").mkdir()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.delenv("MOBARCHY_MCP_IGNORE_LOCK", raising=False)
+    assert not server.locked()
+    (tmp_path / "mobarchy" / "locked").touch()
+    assert server.locked()
+    monkeypatch.setenv("MOBARCHY_MCP_IGNORE_LOCK", "1")
+    assert not server.locked()

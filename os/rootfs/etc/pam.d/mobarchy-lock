@@ -1,0 +1,7 @@
+# The lock screen's PIN (ADR 0013): the owner's password, checked by pam_unix (its helper
+# reads shadow). pam_gnome_keyring takes the same PIN to unlock the default keyring.
+auth      required  pam_unix.so
+auth      optional  pam_gnome_keyring.so
+# pam_unix's account check needs root (it fails with setuid in the user's shell); a
+# locked or expired account can't have a PIN anyway (AccountsService).
+account   required  pam_permit.so

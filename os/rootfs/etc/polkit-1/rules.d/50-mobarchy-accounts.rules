@@ -1,0 +1,10 @@
+// The owner (group wheel) sets, changes and removes the lock screen PIN (their password)
+// from the shell without another prompt (ADR 0013); the shell asks for the current PIN
+// first. Removing a PIN locks the password, which AccountsService counts as administration.
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.accounts.change-own-password" ||
+         action.id == "org.freedesktop.accounts.user-administration") &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});
