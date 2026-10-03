@@ -1,7 +1,9 @@
 [Unit]
-Description=Android container: the vendor's own services telephony needs (ADR 0014)
+Description=Android container: the vendor's own services (modem, thermal; ADRs 0014, 0015)
 ConditionPathExists=/etc/mobarchy/device.toml
 After=local-fs.target systemd-sysusers.service
+StartLimitIntervalSec=600
+StartLimitBurst=3
 
 [Service]
 ExecCondition=/usr/lib/mobarchy/android-container check
@@ -13,8 +15,6 @@ KillMode=mixed
 TimeoutStopSec=30
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=600
-StartLimitBurst=3
 
 [Install]
 WantedBy=multi-user.target

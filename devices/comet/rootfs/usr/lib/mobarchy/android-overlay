@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""comet's adaptations of vendor files for the Android container (android-container's
+overlay hook, ADR 0014): writes replacements under $OVERLAY, from the originals under
+$ANDROID_ROOT.
+
+Thermal: Pixel's thermal HAL refuses to start when a cooling device in its configuration
+doesn't exist. thermal-gpufreq-0 is Mali's own driver's; Mobarchy drives the GPU with
+panthor (ADR 0008), whose cooling device is plain devfreq. So the GPU is taken out of the
+HAL's skin-temperature control (the VIRTUAL-SKIN-GPU loop and the GPU's share of
+VIRTUAL-SKIN-SOC); it stays protected by the kernel's own junction limit (thermal zone G3D),
+which the HAL enables. Everything else is Google's configuration as is.
+"""
+import json
+import os
+from pathlib import Path
+
+root = Path(os.environ["ANDROID_ROOT"])
+overlay = Path(os.environ["OVERLAY"])
+GPU_CDEV = "thermal-gpufreq-0"
+
+
+def drop_gpu(config):
+    config["CoolingDevices"] = [c for c in config.get("CoolingDevices", []) if c["Name"] != GPU_CDEV]
+    sensors = []
+    for s in config.get("Sensors", []):
+        binded = s.get("BindedCdevInfo")
+        if binded is not None:
+            kept = [b for b in binded if b.get("CdevRequest") != GPU_CDEV]
+            if not kept and any(b.get("CdevRequest") == GPU_CDEV for b in binded):
+                continue            # a loop for the GPU alone (VIRTUAL-SKIN-GPU)
+            s["BindedCdevInfo"] = kept
+        sensors.append(s)
+    config["Sensors"] = sensors
+    return config
+
+
+for original in sorted((root / "vendor/etc").glob("thermal_info_config*.json")):
+    text = original.read_text()
+    if GPU_CDEV not in text:
+        continue
+    target = overlay / original.relative_to(root)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(drop_gpu(json.loads(text)), indent=2) + "\n")

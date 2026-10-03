@@ -37,3 +37,60 @@ on mobarchy-start
 # The radio HAL (AIDL android.hardware.radio.*, on /dev/binder), once the modem is up.
 on property:vendor.cbd.boot_done=1
     start ril-daemon
+
+# Thermal management: Pixel's thermal HAL with Google's own comet configuration
+# (vendor/etc/thermal_info_config*.json): virtual skin temperatures from the board's
+# thermistors, and PID control of the cooling devices (CPU and GPU frequency, charging
+# current through chg_mdis). It also enables the kernel's own CPU/GPU junction limits
+# (thermal zones BIG, MID, LITTLE, G3D, ...), which are off until something turns them on.
+# As the vendor's pixel-thermal-symlinks.rc and android.hardware.thermal-service.pixel.rc,
+# with seclabels.
+service vendor.thermal.symlinks /vendor/bin/thermal_symlinks
+    user system
+    group system
+    oneshot
+    disabled
+    seclabel u:r:init-thermal-symlinks-sh:s0
+
+service vendor.thermal-hal /vendor/bin/hw/android.hardware.thermal-service.pixel
+    user system
+    group system
+    disabled
+    stdio_to_kmsg
+    seclabel u:r:hal_thermal_default:s0
+
+on mobarchy-start
+    mkdir /dev/thermal 0750 system system
+    mkdir /dev/thermal/tz-by-name 0750 system system
+    mkdir /dev/thermal/cdev-by-name 0750 system system
+    start vendor.thermal.symlinks
+
+on property:vendor.thermal.link_ready=1
+    # the trips the HAL moves (from vendor init.comet.rc and init.zumapro.board.rc)
+    chown system system /dev/thermal/tz-by-name/charger_therm/trip_point_0_temp
+    chown system system /dev/thermal/tz-by-name/charger_therm/trip_point_0_hyst
+    chown system system /dev/thermal/tz-by-name/gnss_tcxo_therm/trip_point_0_temp
+    chown system system /dev/thermal/tz-by-name/gnss_tcxo_therm/trip_point_0_hyst
+    chown system system /dev/thermal/tz-by-name/modem_therm/trip_point_0_temp
+    chown system system /dev/thermal/tz-by-name/modem_therm/trip_point_0_hyst
+    chown system system /dev/thermal/tz-by-name/rffe_therm/trip_point_0_temp
+    chown system system /dev/thermal/tz-by-name/rffe_therm/trip_point_0_hyst
+    chown system system /dev/thermal/tz-by-name/soc_therm/trip_point_0_temp
+    chown system system /dev/thermal/tz-by-name/soc_therm/trip_point_0_hyst
+    chown system system /dev/thermal/tz-by-name/usb_conn_therm/trip_point_0_temp
+    chown system system /dev/thermal/tz-by-name/usb_conn_therm/trip_point_0_hyst
+    # the cooling devices the HAL drives (vendor init.zumapro.board.rc, without the GPU's)
+    chown system system /dev/thermal/cdev-by-name/thermal-cpufreq-0/user_vote
+    chown system system /dev/thermal/cdev-by-name/thermal-cpufreq-1/user_vote
+    chown system system /dev/thermal/cdev-by-name/thermal-cpufreq-2/user_vote
+    chown system system /dev/thermal/cdev-by-name/gxp-cooling/user_vote
+    chown system system /dev/thermal/cdev-by-name/tpu_cooling/user_vote
+    chown system system /dev/thermal/cdev-by-name/fcc/cur_state
+    chown system system /dev/thermal/cdev-by-name/dc_icl/cur_state
+    chown system system /dev/thermal/cdev-by-name/wlc_fcc/cur_state
+    chown system system /dev/thermal/cdev-by-name/chg_mdis/cur_state
+    chown system system /dev/thermal/cdev-by-name/usbc-port/cur_state
+    chown system system /dev/thermal/cdev-by-name/thermal-uclamp-0/cur_state
+    chown system system /dev/thermal/cdev-by-name/thermal-uclamp-4/cur_state
+    chown system system /dev/thermal/cdev-by-name/thermal-uclamp-7/cur_state
+    restart vendor.thermal-hal

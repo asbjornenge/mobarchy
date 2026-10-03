@@ -202,6 +202,18 @@ On the Linux side, oFono talks to rild over binder through ofono-binder-plugin
 - **Status (2026-10-03):** the modem boots (`ONLINE`) and rild comes up. oFono sees the
   modem (`/ril_0`), with no SIM inserted yet.
 
+## Thermal
+
+The CPU and GPU junction limits are ACPM firmware's (`gs_thermal` `acpm_gov_turn_on=1`), so the
+kernel's TMU zones (BIG, MID, ...) stay `disabled`. Skin and charging temperature are the
+job of Pixel's thermal HAL, which runs in the Android container with Google's
+configuration, minus the Mali GPU cooling device that panthor doesn't have (ADR 0015,
+`android-overlay`). Under load while charging, it holds the virtual skin at about 40 °C
+by limiting charge current (`chg_mdis`) and capping the big cores. Without it, charger_therm
+reaches its critical trip (64 °C), and the hardware protection shuts the phone down.
+`dumpsys android.hardware.thermal.IThermal/default` in the container (`android-container shell`) shows its
+state.
+
 ## Sources
 
 - LineageOS device trees: `android_device_google_comet`, `android_device_google_zumapro` (branch `lineage-23.2`)

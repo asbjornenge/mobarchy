@@ -35,6 +35,8 @@ fold_sensor = true
 [android]
 partitions = ["system", "system_ext", "product", "vendor"]   # from super, read-only
 init = "/usr/share/mobarchy/android/comet.rc"
+# writes comet's adaptations of vendor files (the thermal HAL's configuration)
+overlay_hook = "/usr/lib/mobarchy/android-overlay"
 # cpif's switch that crashes the modem on purpose: never writable from the container
 masked_sysfs = ["/sys/devices/platform/cpif/do_cp_crash"]
 

@@ -211,6 +211,7 @@ def load_selinux_policy():
 
 def prepare(conf):
     RUN.mkdir(parents=True, exist_ok=True)
+    (RUN / "starts").unlink(missing_ok=True)
     s = slot()
     parts = conf.get("partitions", ["system", "system_ext", "product", "vendor"])
     run(LIB / "android-super", "map", "--slot", s, *parts)
@@ -276,6 +277,20 @@ def prepare(conf):
     # cgroups: Android's own list without its cgroup v1 controllers (blkio, cpu, cpuset),
     # which a cgroup v2 host can't give the container
     run("mount", "--bind", "-o", "ro", SHARE / "cgroups.json", ROOT / "system/etc/cgroups.json")
+
+    # The device's adaptations of vendor files (e.g. a configuration naming hardware that
+    # Mobarchy drives differently): its hook writes replacements under $OVERLAY, by their
+    # path in the container, generated from the originals under $ANDROID_ROOT.
+    if conf.get("overlay_hook"):
+        overlay = RUN / "overlay"
+        shutil.rmtree(overlay, ignore_errors=True)
+        overlay.mkdir()
+        run(conf["overlay_hook"], env={**os.environ, "ANDROID_ROOT": str(ROOT), "OVERLAY": str(overlay)})
+        for f in sorted(p for p in overlay.rglob("*") if p.is_file()):
+            target = ROOT / f.relative_to(overlay)
+            if not target.is_file():
+                sys.exit(f"overlay {f} replaces no file")
+            run("mount", "--bind", "-o", "ro", f, target)
 
     # Our properties, as an odm build.prop (the comet has no odm partition; init reads
     # /odm/etc/build.prop after vendor's). ro.cold_boot_done: ueventd would set it once
@@ -415,14 +430,14 @@ def stop():
             Path(f"/dev/{b}").unlink()
     # unmount everything under the root, deepest first
     mounts = [line.split()[1] for line in Path("/proc/self/mounts").read_text().splitlines()]
-    for m in sorted((m for m in mounts if m.startswith(str(RUN))), key=len, reverse=True):
-        run("umount", "-l", m, check=False)
+    for m in sorted({m for m in mounts if m.startswith(str(RUN))}, key=len, reverse=True):
+        run("umount", "-l", m, check=False, capture_output=True)
     for line in run("losetup", "-l", "-n", "-O", "NAME,BACK-FILE", capture_output=True, text=True).stdout.splitlines():
         name, _, back = line.partition(" ")
         back = back.strip()
         if back.endswith(".apex") or "by-partlabel" in back or back.startswith("/dev/sd"):
             if not mounted_device(name):
-                run("losetup", "-d", name, check=False)
+                run("losetup", "-d", name, check=False, capture_output=True)
     run(LIB / "android-super", "unmap", "system", "system_ext", "product", "vendor", "vendor_dlkm",
         check=False, capture_output=True)
 
@@ -448,7 +463,11 @@ def main():
     if a.command in ("prepare", "start"):
         conf = device_config()
         if mounted(ROOT):
-            sys.exit("already prepared; stop first")
+            # left over from a container that is gone (stopped by hand, or crashed)
+            if run("lxc-info", "-P", LXC_PATH, "-n", NAME, "-s", check=False, capture_output=True,
+                   text=True).stdout.split()[-1:] == ["RUNNING"]:
+                sys.exit("already running; stop first")
+            stop()
         try:
             prepare(conf)
         except BaseException:
