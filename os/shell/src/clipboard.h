@@ -14,6 +14,8 @@
 #include <QtQml/qqmlregistration.h>
 #include <QtWaylandClient/QWaylandClientExtension>
 
+#include <functional>
+
 class DataControlManager : public QWaylandClientExtensionTemplate<DataControlManager>,
                            public QtWayland::zwlr_data_control_manager_v1
 {
@@ -80,12 +82,17 @@ class Clipboard : public QObject
     // Earlier copies, newest first (text includes the current one).
     Q_PROPERTY(QStringList history READ history NOTIFY changed)
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
+    // The text selected (marked) in an app right now: the primary selection.
+    Q_PROPERTY(QString selected READ selected NOTIFY selectedChanged)
 
 public:
     explicit Clipboard(QObject *parent = nullptr);
     ~Clipboard() override;
 
     QString text() const { return m_text; }
+    QString selected() const { return m_selected; }
+    // Copy what is selected to the clipboard.
+    Q_INVOKABLE void copySelection() { setText(m_selected); }
     QStringList history() const { return m_history; }
     bool supported() const { return m_device != nullptr; }
 
@@ -99,18 +106,23 @@ public:
 signals:
     void changed();
     void supportedChanged();
+    void selectedChanged();
 
 private:
     friend class ClipboardDevice;
     void setup();
     void onSelection(ClipboardOffer *offer);
-    void received(const QByteArray &data, bool keep);
+    void onPrimarySelection(ClipboardOffer *offer);
+    // Read an offer's text, then call done(text, keep) (keep: not marked secret).
+    void read(ClipboardOffer *offer, QPointer<QSocketNotifier> &reading,
+              std::function<void(const QString &, bool)> done);
+    void received(const QString &text, bool keep);
 
     DataControlManager *m_manager;
     ClipboardDevice *m_device = nullptr;
     ClipboardSource *m_source = nullptr;
-    QPointer<QSocketNotifier> m_reading;
-    QByteArray m_buffer;
+    QPointer<QSocketNotifier> m_reading, m_readingPrimary;
     QString m_text;
+    QString m_selected;
     QStringList m_history;
 };

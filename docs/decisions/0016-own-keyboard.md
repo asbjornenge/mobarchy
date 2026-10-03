@@ -43,6 +43,9 @@ The shell is already Qt Quick (ADR 0009), in Mobarchy's theme.
     recently used emoji kept.
 - **The clipboard is the shell's too** (wlr-data-control): it sees every text copy, and the
   keyboard's strip has a paste button (the latest copy; hold it for the last 20).
+  - **Copying:** selecting text in an app puts it in the primary selection. The shell sees
+    that and offers a "Kopier" button over the bottom of the screen for a few seconds,
+    in every app, without a menu of each app's own.
   - The history is kept in memory only. Copies a password manager marks as secret
     (x-kde-passwordManagerHint) aren't kept.
   - The agent reads and sets the clipboard through mobarchy-mcp (wl-clipboard). Reading it

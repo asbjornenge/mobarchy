@@ -4,6 +4,7 @@
 #include <QtGui/qguiapplication_platform.h>
 
 #include <fcntl.h>
+#include <memory>
 #include <unistd.h>
 #include <wayland-client.h>
 
@@ -47,7 +48,8 @@ void ClipboardDevice::zwlr_data_control_device_v1_selection(struct ::zwlr_data_c
 
 void ClipboardDevice::zwlr_data_control_device_v1_primary_selection(struct ::zwlr_data_control_offer_v1 *id)
 {
-    delete m_offers.take(id);   // the middle-click selection: not ours to keep
+    // what is selected (marked) in an app: the shell offers to copy it
+    m_clipboard->onPrimarySelection(m_offers.take(id));
 }
 
 void ClipboardDevice::zwlr_data_control_device_v1_finished()
@@ -98,29 +100,41 @@ void Clipboard::setup()
 
 void Clipboard::onSelection(ClipboardOffer *offer)
 {
-    delete m_reading;   // a read still running is for an older selection
-    m_buffer.clear();
-    if (!offer) {       // the clipboard was cleared (its owner went away)
-        return;
+    read(offer, m_reading, [this](const QString &text, bool keep) { received(text, keep); });
+}
+
+void Clipboard::onPrimarySelection(ClipboardOffer *offer)
+{
+    read(offer, m_readingPrimary, [this](const QString &text, bool keep) {
+        if (!keep || text == m_selected)    // a secret is not offered for copying
+            return;
+        m_selected = text;
+        emit selectedChanged();
+    });
+}
+
+void Clipboard::read(ClipboardOffer *offer, QPointer<QSocketNotifier> &reading,
+                     std::function<void(const QString &, bool)> done)
+{
+    if (reading) {      // a read still running is for an older selection
+        if (reading->isEnabled())
+            ::close(int(reading->socket()));
+        delete reading;
     }
-    if (offer->mimeTypes.contains(OwnType)) {
-        delete offer;
+    if (!offer)         // cleared (its owner went away)
         return;
-    }
     QString type;
-    for (const QString &t : TextTypes) {
-        if (offer->mimeTypes.contains(t)) {
-            type = t;
-            break;
+    if (!offer->mimeTypes.contains(OwnType)) {
+        for (const QString &t : TextTypes) {
+            if (offer->mimeTypes.contains(t)) {
+                type = t;
+                break;
+            }
         }
-    }
-    if (type.isEmpty()) {   // not text (an image, files)
-        delete offer;
-        return;
     }
     const bool keep = !offer->mimeTypes.contains(SecretHint);
     int fds[2];
-    if (pipe2(fds, O_CLOEXEC | O_NONBLOCK) != 0) {
+    if (type.isEmpty() || pipe2(fds, O_CLOEXEC | O_NONBLOCK) != 0) {   // ours, or not text
         delete offer;
         return;
     }
@@ -130,34 +144,33 @@ void Clipboard::onSelection(ClipboardOffer *offer)
     delete offer;
 
     auto *notifier = new QSocketNotifier(fds[0], QSocketNotifier::Read, this);
-    m_reading = notifier;
-    connect(notifier, &QSocketNotifier::activated, this, [this, notifier, keep](QSocketDescriptor fd) {
+    reading = notifier;
+    auto buffer = std::make_shared<QByteArray>();
+    connect(notifier, &QSocketNotifier::activated, this, [notifier, buffer, keep, done](QSocketDescriptor fd) {
         char chunk[16384];
         for (;;) {
             const ssize_t n = ::read(int(fd), chunk, sizeof chunk);
             if (n > 0) {
-                if (m_buffer.size() + n > MaxBytes) {   // too big for a text clipboard
-                    m_buffer.clear();
+                if (buffer->size() + n > MaxBytes) {   // too big for a text clipboard
+                    buffer->clear();
                     break;
                 }
-                m_buffer.append(chunk, n);
+                buffer->append(chunk, n);
                 continue;
             }
             if (n < 0 && errno == EAGAIN)
                 return;     // more to come
-            break;          // end (or an error)
+            break;          // the end (or an error)
         }
         notifier->setEnabled(false);
         ::close(int(fd));
-        received(m_buffer, keep);
-        m_buffer.clear();
+        done(QString::fromUtf8(*buffer), keep);
         notifier->deleteLater();
     });
 }
 
-void Clipboard::received(const QByteArray &data, bool keep)
+void Clipboard::received(const QString &text, bool keep)
 {
-    const QString text = QString::fromUtf8(data);
     if (text.isEmpty())
         return;
     m_text = text;

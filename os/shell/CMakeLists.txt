@@ -69,6 +69,7 @@ qt_add_qml_module(mobarchy-shell
         qml/Home.qml
         qml/Store.qml
         qml/KeyboardPanel.qml
+        qml/CopyBar.qml
     RESOURCES
         data/emoji.json
 )
