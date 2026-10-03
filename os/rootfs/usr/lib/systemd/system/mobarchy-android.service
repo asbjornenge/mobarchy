@@ -9,6 +9,8 @@ StartLimitBurst=3
 ExecCondition=/usr/lib/mobarchy/android-container check
 ExecStartPre=/usr/lib/mobarchy/android-container prepare
 ExecStart=/usr/lib/mobarchy/android-container run
+# while lxc-start still runs, so lxc-stop can reach the container; again after, to clean up
+ExecStop=/usr/lib/mobarchy/android-container stop
 ExecStopPost=/usr/lib/mobarchy/android-container stop
 # lxc-start -F returns when the container has stopped
 KillMode=mixed

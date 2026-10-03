@@ -32,7 +32,34 @@ on mobarchy-start
     # before rfsd starts, every time. "none": nothing to clear.
     setprop persist.vendor.modem.efs.clear.action none
     start RFS-daemon
+    start init.shared_modem_platform
+    start vendor.modem_ml_svc_sit
     start cpboot-daemon
+
+# The modem's other AP-side services. The modem talks to them on oem_ipc1/3 (shared modem
+# platform) and oem_ipc2 (modem ML); unanswered, it answers rild late (SIT timeouts) and
+# rild forces it to restart. As the vendor's init.shared_modem_platform_l.rc and
+# vendor.google.modem_ml_svc_sit.rc, with seclabels.
+service init.shared_modem_platform /vendor/bin/shared_modem_platform -s
+    user radio
+    group system
+    seclabel u:r:modem_svc_sit:s0
+
+service vendor.modem_ml_svc_sit /vendor/bin/modem_ml_svc_sit -s
+    user radio
+    group system
+    seclabel u:r:modem_ml_svc_sit:s0
+
+on post-fs-data
+    rm /data/vendor/radio/shared_modem_platform_pid
+    mkdir /data/vendor/radio/modem_temp_file 0775 radio system
+    mkdir /data/vendor/modem_ml 0770 radio system
+
+on property:vendor.modem.crash_detected=1
+    stop init.shared_modem_platform
+    rm /data/vendor/radio/shared_modem_platform_pid
+    setprop vendor.modem.crash_detected 0
+    start init.shared_modem_platform
 
 # The radio HAL (AIDL android.hardware.radio.*, on /dev/binder), once the modem is up.
 on property:vendor.cbd.boot_done=1

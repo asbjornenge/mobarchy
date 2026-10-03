@@ -126,6 +126,25 @@ def apex_manifest(path):
     return name, version
 
 
+def decompressed(apex):
+    """A compressed APEX (a zip holding original_apex) as its decompressed copy, made once
+    under /var/lib/mobarchy/android/apex, as apexd keeps them in /data/apex/decompressed."""
+    with zipfile.ZipFile(apex) as z:
+        if "original_apex" not in z.namelist():
+            return apex
+        info = z.getinfo("original_apex")
+        cache = STATE / "apex" / f"{Path(apex).stem}-{info.CRC:08x}.apex"
+        if not cache.exists() or cache.stat().st_size != info.file_size:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            for old in cache.parent.glob(f"{Path(apex).stem}-*.apex"):
+                old.unlink()
+            tmp = cache.with_suffix(".tmp")
+            with z.open(info) as src, open(tmp, "wb") as dst:
+                shutil.copyfileobj(src, dst, 1 << 20)
+            tmp.rename(cache)
+        return str(cache)
+
+
 def mount_apexes():
     """Each .apex is a zip whose apex_payload.img is stored uncompressed: loop-mount it
     in place (read-only), as apexd does, at <name>@<version> and <name>.
@@ -134,7 +153,8 @@ def mount_apexes():
     a fresh /apex (for apexd to fill); our init.rc binds /mnt/apex onto it."""
     infos = []
     for part in ("system", "system_ext", "vendor", "product"):
-        for apex in sorted(glob.glob(str(ROOT / part / "apex" / "*.apex"))):
+        for shipped in sorted(glob.glob(str(ROOT / part / "apex" / "*.apex"))):
+            apex = decompressed(shipped)
             with zipfile.ZipFile(apex) as z:
                 try:
                     info = z.getinfo("apex_payload.img")
@@ -159,7 +179,7 @@ def mount_apexes():
             versioned = APEX / f"{name}@{version}"
             mount(loop, versioned, "ro", "nodev")
             mount(versioned, APEX / name, "bind")
-            in_root = "/" + str(Path(apex).relative_to(ROOT))
+            in_root = "/" + str(Path(shipped).relative_to(ROOT))
             infos.append((name, in_root, version))
     xml = ['<?xml version="1.0" encoding="utf-8"?>', "<apex-info-list>"]
     for name, path, version in infos:
@@ -425,6 +445,21 @@ def start_host():
 
 def stop():
     run("lxc-stop", "-P", LXC_PATH, "-n", NAME, "-k", check=False, capture_output=True)
+    # A container whose lxc-start is gone (killed) can't be reached by lxc-stop, but its
+    # processes live on in LXC's cgroup: kill what is left there. Two containers at once
+    # means two rilds and two cbds on one modem.
+    for cg in glob.glob(f"/sys/fs/cgroup/lxc.payload.{NAME}*"):
+        try:
+            Path(cg, "cgroup.kill").write_text("1")
+            for _ in range(50):
+                if not Path(cg, "cgroup.procs").read_text().strip():
+                    break
+                time.sleep(0.1)
+            # Android's init made its own cgroups inside: remove the deepest first
+            for d in sorted((d for d, _, _ in os.walk(cg)), key=len, reverse=True):
+                os.rmdir(d)
+        except OSError as e:
+            print(f"{cg}: {e}", file=sys.stderr)
     for b in ("binder", "hwbinder", "vndbinder"):
         if Path(f"/dev/{b}").is_symlink():
             Path(f"/dev/{b}").unlink()
@@ -462,12 +497,11 @@ def main():
         sys.exit("needs root")
     if a.command in ("prepare", "start"):
         conf = device_config()
-        if mounted(ROOT):
-            # left over from a container that is gone (stopped by hand, or crashed)
-            if run("lxc-info", "-P", LXC_PATH, "-n", NAME, "-s", check=False, capture_output=True,
-                   text=True).stdout.split()[-1:] == ["RUNNING"]:
-                sys.exit("already running; stop first")
-            stop()
+        if run("lxc-info", "-P", LXC_PATH, "-n", NAME, "-s", check=False, capture_output=True,
+               text=True).stdout.split()[-1:] == ["RUNNING"]:
+            sys.exit("already running; stop first")
+        # whatever is left over from a container that is gone (stopped by hand, killed)
+        stop()
         try:
             prepare(conf)
         except BaseException:
