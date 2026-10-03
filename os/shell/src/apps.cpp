@@ -117,8 +117,10 @@ QHash<int, QByteArray> AppModel::roleNames() const
     return {{IdRole, "appId"}, {NameRole, "name"}, {IconRole, "icon"}};
 }
 
-bool AppModel::launch(const QString &id)
+bool AppModel::launch(const QString &appId)
 {
+    // A desktop file ID, with or without ".desktop" (app IDs come without it).
+    const QString id = appId.endsWith(QLatin1String(".desktop")) ? appId : appId + QStringLiteral(".desktop");
     const auto it = std::find_if(m_apps.cbegin(), m_apps.cend(),
                                  [&](const DesktopEntry &e) { return e.id == id; });
     if (it == m_apps.cend())

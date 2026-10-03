@@ -364,6 +364,8 @@ Sheet {
                     }
                 }
                 ListView {
+                    maximumFlickVelocity: Theme.flickVelocity
+                    flickDeceleration: Theme.flickDeceleration
                     id: notificationList
                     width: parent.width
                     visible: count > 0
@@ -372,7 +374,7 @@ Sheet {
                     spacing: 8
                     currentIndex: -1  // see Home.qml
                     highlightFollowsCurrentItem: false
-                    boundsBehavior: Flickable.StopAtBounds
+                    boundsBehavior: Flickable.DragAndOvershootBounds
                     model: quick.notifications
                     delegate: Rectangle {
                         id: note
@@ -561,6 +563,8 @@ Sheet {
                 }
 
                 ListView {
+                    maximumFlickVelocity: Theme.flickVelocity
+                    flickDeceleration: Theme.flickDeceleration
                     id: networks
                     visible: quick.rfkill.wifiEnabled
                     width: parent.width
@@ -569,7 +573,7 @@ Sheet {
                     spacing: 6
                     currentIndex: -1  // see Home.qml
                     highlightFollowsCurrentItem: false
-                    boundsBehavior: Flickable.StopAtBounds
+                    boundsBehavior: Flickable.DragAndOvershootBounds
                     model: quick.wifi.networks
                     delegate: Rectangle {
                         id: net
@@ -737,6 +741,8 @@ Sheet {
                 }
 
                 ListView {
+                    maximumFlickVelocity: Theme.flickVelocity
+                    flickDeceleration: Theme.flickDeceleration
                     id: bluetoothDevices
                     visible: quick.rfkill.bluetoothEnabled && quick.bluetooth.available
                     width: parent.width
@@ -745,7 +751,7 @@ Sheet {
                     spacing: 6
                     currentIndex: -1  // see Home.qml
                     highlightFollowsCurrentItem: false
-                    boundsBehavior: Flickable.StopAtBounds
+                    boundsBehavior: Flickable.DragAndOvershootBounds
                     model: bluetoothPage.rows
                     delegate: Item {
                         id: dev

@@ -22,17 +22,15 @@ Window {
     property string error: ""
     property string category: ""   // "" is all
     property var selected: null     // the app whose page is open
-    readonly property var shown: store.apps.filter(a =>
-        (category === "" || a.category === category)
-        && (search.text === "" || (a.name + " " + a.summary + " " + a.description).toLowerCase()
-                                      .includes(search.text.toLowerCase())))
+    AppStoreFilter {
+        id: filtered
+        store: store
+        category: win.category
+        query: search.text
+    }
 
     function iconSource(a) {
         return !a.icon ? "" : a.icon.startsWith("/") ? "file://" + a.icon : a.icon
-    }
-    // The selected app as the store has it now (installed, busy).
-    function current(id) {
-        return store.apps.find(a => a.id === id) ?? null
     }
 
     component ActionButton: Rectangle {
@@ -138,6 +136,8 @@ Window {
                 }
             }
             ListView {
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
                 width: parent.width
                 height: 34
                 orientation: ListView.Horizontal
@@ -145,7 +145,7 @@ Window {
                 clip: true
                 currentIndex: -1
                 highlightFollowsCurrentItem: false
-                boundsBehavior: Flickable.StopAtBounds
+                boundsBehavior: Flickable.DragAndOvershootBounds
                 model: [{ id: "", name: qsTr("All") }].concat(store.categories)
                 delegate: Rectangle {
                     id: chip
@@ -177,18 +177,29 @@ Window {
         }
 
         ListView {
+            maximumFlickVelocity: Theme.flickVelocity
+            flickDeceleration: Theme.flickDeceleration
             anchors { left: parent.left; right: parent.right; top: top.bottom; bottom: parent.bottom
                       topMargin: 12; leftMargin: 20; rightMargin: 20 }
             clip: true
             spacing: 8
             currentIndex: -1
             highlightFollowsCurrentItem: false
-            boundsBehavior: Flickable.StopAtBounds
-            model: win.shown
+            boundsBehavior: Flickable.DragAndOvershootBounds
+            model: filtered
             footer: Item { width: 1; height: 24 }
             delegate: Rectangle {
                 id: row
-                required property var modelData
+                required property string appId
+                required property string kind
+                required property string name
+                required property string summary
+                required property string icon
+                required property bool installed
+                required property bool busy
+                required property string desktopId
+                readonly property var modelData: ({ id: appId, kind: kind, name: name, summary: summary,
+                                                    icon: icon, installed: installed, busy: busy, app_id: desktopId })
                 width: ListView.view.width
                 height: 76
                 radius: 14
@@ -246,13 +257,25 @@ Window {
 
     // --- an app's page ---------------------------------------------------------------------
     Flickable {
+        maximumFlickVelocity: Theme.flickVelocity
+        flickDeceleration: Theme.flickDeceleration
         id: page
-        readonly property var app: win.selected === null ? null : win.current(win.selected)
+        // The selected app as the store has it now (installed, busy), re-read when it changes.
+        property var app: null
+        function reload() { app = win.selected === null ? null : store.get(win.selected) }
+        Connections {
+            target: win
+            function onSelectedChanged() { page.reload() }
+        }
+        Connections {
+            target: store
+            function onAppChanged(id) { if (id === win.selected) page.reload() }
+        }
         anchors.fill: parent
         visible: app !== null
         contentHeight: details.implicitHeight + 40
         clip: true
-        boundsBehavior: Flickable.StopAtBounds
+        boundsBehavior: Flickable.DragAndOvershootBounds
         onVisibleChanged: contentY = 0
 
         Column {
@@ -352,6 +375,8 @@ Window {
                 font { family: Theme.font; pixelSize: 13; italic: true }
             }
             ListView {
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
                 width: parent.width
                 height: visible ? 240 : 0
                 visible: page.app !== null && page.app.screenshots.length > 0

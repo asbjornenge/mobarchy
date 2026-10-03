@@ -14,4 +14,9 @@ QtObject {
     readonly property color red: "#f7768e"
     readonly property color magenta: "#bb9af7"
     readonly property string font: "JetBrainsMono Nerd Font"
+
+    // Scrolling like a phone: a flick throws the list (Qt's defaults are a desktop's, a
+    // slow wheel-like glide), and the ends bounce (Flickable.DragAndOvershootBounds).
+    readonly property real flickVelocity: 9000      // logical px/s
+    readonly property real flickDeceleration: 1400  // logical px/s²
 }

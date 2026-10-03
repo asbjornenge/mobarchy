@@ -179,6 +179,8 @@ Window {
 
     // --- the conversation ------------------------------------------------------------------
     ListView {
+        maximumFlickVelocity: Theme.flickVelocity
+        flickDeceleration: Theme.flickDeceleration
         id: list
         anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: composer.top
                   leftMargin: 16; rightMargin: 16; topMargin: 8; bottomMargin: 16 }
@@ -259,6 +261,8 @@ Window {
             font { family: Theme.font; pixelSize: 13 }
         }
         ListView {
+            maximumFlickVelocity: Theme.flickVelocity
+            flickDeceleration: Theme.flickDeceleration
             anchors { left: parent.left; right: parent.right; top: historyTitle.bottom; bottom: parent.bottom
                       margins: 12; topMargin: 12 }
             clip: true

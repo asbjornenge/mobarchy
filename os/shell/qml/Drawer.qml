@@ -65,6 +65,8 @@ Sheet {
             font { family: Theme.font; pixelSize: 12 }
         }
         ListView {
+            maximumFlickVelocity: Theme.flickVelocity
+            flickDeceleration: Theme.flickDeceleration
             id: running
             anchors { left: parent.left; right: parent.right; top: openLabel.bottom; topMargin: 8 }
             height: 92
@@ -150,6 +152,8 @@ Sheet {
 
         // --- installed apps -------------------------------------------------------------
         GridView {
+            maximumFlickVelocity: Theme.flickVelocity
+            flickDeceleration: Theme.flickDeceleration
             id: grid
             anchors {
                 left: parent.left; right: parent.right; bottom: parent.bottom
