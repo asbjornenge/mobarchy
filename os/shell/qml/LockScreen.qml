@@ -4,8 +4,7 @@ import Mobarchy.Shell
 
 // The lock screen: shown when the screen goes off, swiped up to unlock, then the PIN if
 // there is one (ADR 0013). It covers the whole screen (overlay layer, ignoring other
-// surfaces' exclusive zones). It does not take the keyboard: a focused layer surface makes
-// squeekboard come up; the PIN has its own pad.
+// surfaces' exclusive zones). It does not take the keyboard; the PIN has its own pad.
 LayerWindow {
     id: lock
 

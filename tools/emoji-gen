@@ -1,0 +1,42 @@
+#!/usr/bin/env python3
+"""Generate the on-screen keyboard's emoji list (os/shell/data/emoji.json) from Unicode's
+emoji-test.txt: fully-qualified emoji by group, in Unicode's order (the order phones show),
+without skin-tone and hair variants (the base emoji only), and only up to an emoji version
+the emoji font covers.
+
+usage: tools/emoji-gen <emoji-test.txt> [--max-version 16.0] > os/shell/data/emoji.json
+       (emoji-test.txt: https://unicode.org/Public/emoji/latest/emoji-test.txt)
+"""
+import argparse
+import json
+import re
+import sys
+
+MODIFIERS = {0x1F3FB, 0x1F3FC, 0x1F3FD, 0x1F3FE, 0x1F3FF, 0x1F9B0, 0x1F9B1, 0x1F9B2, 0x1F9B3}
+SKIP_GROUPS = {"Component"}
+
+p = argparse.ArgumentParser()
+p.add_argument("source")
+p.add_argument("--max-version", type=float, default=16.0)
+a = p.parse_args()
+
+groups, current = [], None
+line_re = re.compile(r"^([0-9A-F ]+?)\s*;\s*fully-qualified\s*#\s*\S+\s+E(\d+\.\d+)")
+for line in open(a.source, encoding="utf-8"):
+    if line.startswith("# group:"):
+        name = line.split(":", 1)[1].strip()
+        current = None if name in SKIP_GROUPS else {"name": name, "emoji": []}
+        if current:
+            groups.append(current)
+        continue
+    m = line_re.match(line)
+    if not m or current is None:
+        continue
+    codes = [int(c, 16) for c in m.group(1).split()]
+    if float(m.group(2)) > a.max_version or any(c in MODIFIERS for c in codes):
+        continue
+    current["emoji"].append("".join(map(chr, codes)))
+
+json.dump({"source": "Unicode emoji-test.txt", "maxVersion": a.max_version,
+           "groups": [g for g in groups if g["emoji"]]}, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+sys.stdout.write("\n")

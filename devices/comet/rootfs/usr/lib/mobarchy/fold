@@ -91,10 +91,6 @@ def apply(folded: bool) -> None:
         time.sleep(0.1)
     hyprctl("dispatch", "focusmonitor", on[0])
     gather_workspaces(on[0], show)
-    # squeekboard's layer surface stays on the output it was created on.
-    subprocess.run(["pkill", "-x", "squeekboard"], check=False)
-    subprocess.Popen(["squeekboard"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                     start_new_session=True)
 
 
 if __name__ == "__main__":

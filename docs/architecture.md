@@ -39,7 +39,7 @@ Mobarchy's own value lives in the top two layers. Everything below is reused, an
 - the notification server (org.freedesktop.Notifications);
 - home (a normal window, so text input works, [ADR 0006](decisions/0006-assistant-bar-and-keyboard.md)): the agent's feed and an Ask field. Asking runs `mobarchy-agent --json`, and the agent talks to `mobarchy-mcp`.
 
-squeekboard is the on-screen keyboard.
+The on-screen keyboard is the shell's own: the shell is the session's input method ([ADR 0016](decisions/0016-own-keyboard.md)).
 
 ```
 owner ── mobarchy-shell (home) ──(JSON events)── mobarchy-agent ──(MCP)── mobarchy-mcp ── compositor/uinput/...

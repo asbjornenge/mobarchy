@@ -12,10 +12,12 @@ The phone UI ([ADR 0009](../../docs/decisions/0009-shell-qt-quick.md)): Qt Quick
 | `LockScreen.qml` | layer, overlay, full screen | clock, date, battery, notification count; swipe up to unlock (no PIN yet) |
 | `Banner.qml` | layer, overlay, top, mapped while shown | a new notification for a few seconds |
 | `Home.qml` | normal window | the agent: feed and Ask field (text input needs a normal window, ADR 0006) |
+| `KeyboardPanel.qml` | layer, top, bottom edge, while a text field has focus | the on-screen keyboard (ADR 0016): Norwegian iPhone-like layout, previews, accents, emoji |
 
 C++ (`src/`) holds what QML can't do well: desktop entries and app launching (`apps`,
 `desktopentry`), the window list over wlr-foreign-toplevel-management (`toplevels`), the
-agent process (`agent`), squeekboard over D-Bus (`keyboard`), battery/wifi (`systemstatus`), and
+agent process (`agent`), the input method behind the on-screen keyboard (`keyboard`:
+input-method-v2 and virtual-keyboard-v1), battery/wifi (`systemstatus`), and
 brightness and power through systemd-logind (`logind`; brightness goes to the backlights of
 the panels that are on, so no device knowledge is needed), Wi-Fi over wpa_supplicant's
 control socket (`wifi`, `wpaparse`), radios through /dev/rfkill (`rfkill`), the screen and

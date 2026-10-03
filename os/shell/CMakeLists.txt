@@ -11,6 +11,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(PAM REQUIRED IMPORTED_TARGET pam)
 pkg_check_modules(XCRYPT REQUIRED IMPORTED_TARGET libxcrypt)
 pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
+pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)  # qmldir files for the qml/ subdirectory
 
@@ -66,15 +67,20 @@ qt_add_qml_module(mobarchy-shell
         qml/WifiPassword.qml
         qml/Home.qml
         qml/Store.qml
+        qml/KeyboardPanel.qml
+    RESOURCES
+        data/emoji.json
 )
 qt6_generate_wayland_protocol_client_sources(mobarchy-shell
     FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-foreign-toplevel-management-unstable-v1.xml
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-output-power-management-unstable-v1.xml
-        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-idle-notify-v1.xml)
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-idle-notify-v1.xml
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/input-method-unstable-v2.xml
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/virtual-keyboard-unstable-v1.xml)
 target_include_directories(mobarchy-shell PRIVATE src)
 target_link_libraries(mobarchy-shell PRIVATE
-    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::WaylandClient PkgConfig::PULSE PkgConfig::PAM PkgConfig::XCRYPT)
+    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::WaylandClient PkgConfig::PULSE PkgConfig::PAM PkgConfig::XCRYPT PkgConfig::XKBCOMMON)
 
 include(GNUInstallDirs)
 install(TARGETS mobarchy-shell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

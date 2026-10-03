@@ -171,7 +171,7 @@ write_files:
 runcmd:
   - [bash, -c, "pacman-key --init && pacman-key --populate archlinux"]
   - [pacman, -Syu, --noconfirm, --needed, hyprland, foot, mesa, grim, wtype, jq, python, uv, rsync, ttf-dejavu, noto-fonts,
-       squeekboard, iw, adwaita-icon-theme, ttf-jetbrains-mono-nerd,
+       noto-fonts-emoji, iw, adwaita-icon-theme, ttf-jetbrains-mono-nerd,
        qt6-declarative, qt6-wayland, qt6-svg, layer-shell-qt, cmake, ninja, gcc]
   - [chown, -R, "{GUEST_USER}:{GUEST_USER}", /home/{GUEST_USER}]
   - [mkdir, -p, /var/lib/mobarchy]
