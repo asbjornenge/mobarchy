@@ -63,7 +63,7 @@ LayerWindow {
             elide: Text.ElideRight
             color: bar.copied ? Theme.green : Theme.fg
             font { family: Theme.font; pixelSize: 15 }
-            text: bar.copied ? "  " + qsTr("Kopiert")
+            text: bar.copied ? "✓ " + qsTr("Kopiert")
                   : "󰆏  " + qsTr("Kopier") + "  «" + bar.text.replace(/\s+/g, " ").slice(0, 40) + "»"
         }
         TapHandler {

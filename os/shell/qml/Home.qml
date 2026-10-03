@@ -15,6 +15,7 @@ Window {
 
     required property Agent agent
     required property Keyboard keyboard
+    required property Clipboard clipboard
 
     title: "Mobarchy"
     color: Theme.bg
@@ -221,6 +222,31 @@ Window {
                 color: ({ mobarchy: Theme.accent, tool: Theme.muted, done: Theme.green,
                           error: Theme.red, note: Theme.muted }[card.who] ?? Theme.fg)
                 font { family: Theme.font; pixelSize: card.who === "tool" || card.who === "note" ? 12 : 15 }
+            }
+            // Hold a message to copy it (its text, without the marker).
+            property bool copied: false
+            TapHandler {
+                enabled: card.who !== "url"
+                onLongPressed: {
+                    home.clipboard.setText(card.body)
+                    card.copied = true
+                    copiedTimer.restart()
+                }
+            }
+            Timer { id: copiedTimer; interval: 1200; onTriggered: card.copied = false }
+            Rectangle {
+                visible: card.copied
+                anchors { right: parent.right; top: parent.top; margins: 4 }
+                width: copiedText.implicitWidth + 16; height: 24; radius: 12
+                color: Theme.bgDark
+                border.color: Theme.green
+                Text {
+                    id: copiedText
+                    anchors.centerIn: parent
+                    text: "✓ " + qsTr("Kopiert")
+                    color: Theme.green
+                    font { family: Theme.font; pixelSize: 12 }
+                }
             }
             // A link from the agent (e.g. the login page if the browser did not open).
             MouseArea {
