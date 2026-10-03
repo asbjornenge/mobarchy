@@ -176,6 +176,32 @@ Audio runs through the AoC DSP. Its firmware is not started by default; writing
 it) and the `aoc-snd-card` ALSA card appears. Speaker routing and the amp protection
 firmware are still to do. See [docs/research/2026-10-01-comet-audio.md](../../docs/research/2026-10-01-comet-audio.md).
 
+## Modem (telephony)
+
+The modem is a Samsung Shannon 5400 behind Google's cpif driver, which provides
+`/dev/umts_boot0`, `umts_rfs0`, `umts_router`, `umts_ipc0/1` and the other nodes. As on
+Halium, the vendor's own daemons run it from an Android container (ADR 0014,
+`mobarchy-android.service`, `/usr/lib/mobarchy/android-container`):
+
+- **cbd** boots the modem from the `modem_<slot>` partition.
+- **rfsd** serves its NV data from efs.
+- **rild** serves the AIDL radio HAL.
+
+On the Linux side, oFono talks to rild over binder through ofono-binder-plugin
+(`/etc/ofono/binder.conf`). The container is described by `[android]` in `device.toml` and
+`/usr/share/mobarchy/android/comet.rc`.
+
+- **efs:** the container gets `/var/lib/mobarchy/android/vendor/{efs,efs_backup,modem_userdata,persist}`.
+  For now these are copies; the real efs partition is never visible to the container.
+  - rfsd clears NV data when `persist.vendor.modem.efs.clear.action` is unset, or when the
+    stored modem version is empty or different.
+  - After clearing, it restores nv_protected from efs_backup.
+  - Keep the container's `/data` and seed the version before switching to the real efs.
+- **AT:** `/dev/umts_router` answers standard 3GPP AT commands (ATI, CFUN, CPIN, CSQ, CREG).
+  Never send `AT+GOOGSETNV`.
+- **Status (2026-10-03):** the modem boots (`ONLINE`) and rild comes up. oFono sees the
+  modem (`/ril_0`), with no SIM inserted yet.
+
 ## Sources
 
 - LineageOS device trees: `android_device_google_comet`, `android_device_google_zumapro` (branch `lineage-23.2`)

@@ -1,0 +1,151 @@
+#!/usr/bin/env python3
+"""Map Android's logical partitions (system, vendor, ...) from the `super` partition, read-only.
+
+`super` holds Android's dynamic partitions, described by "liblp" metadata at its start
+(AOSP system/core/fs_mgr/liblp, metadata_format.h). This reads that metadata and makes
+each requested partition a read-only device-mapper device (/dev/mapper/android-<name>),
+as Android's first stage init does, for the Android container (ADR 0014).
+
+Nothing is ever written to super: the metadata is only read, and the mappings are
+created with --readonly.
+
+usage: android-super list   [--super DEV] [--slot _a|_b]
+       android-super map    [--super DEV] [--slot _a|_b] NAME...    (NAME without slot suffix)
+       android-super unmap  NAME...
+"""
+import argparse
+import hashlib
+import os
+import struct
+import subprocess
+import sys
+from pathlib import Path
+
+SECTOR = 512
+RESERVED = 4096                     # LP_PARTITION_RESERVED_BYTES
+GEOMETRY_MAGIC = 0x616C4467
+GEOMETRY_SIZE = 4096                # each geometry copy occupies 4 KiB (primary, backup)
+HEADER_MAGIC = 0x414C5030
+TARGET_LINEAR, TARGET_ZERO = 0, 1
+
+GEOMETRY = struct.Struct("<II32sIII")             # magic, struct_size, checksum, max_size, slots, block
+HEADER_V1_0 = struct.Struct("<IHHI32sI32s" + "III" * 4)
+PARTITION = struct.Struct("<36sIIII")             # name, attributes, first_extent, num_extents, group
+EXTENT = struct.Struct("<QIQI")                   # num_sectors, target_type, target_data, target_source
+BLOCK_DEVICE = struct.Struct("<QIIQ36sI")
+
+
+def cstr(b):
+    return b.split(b"\0", 1)[0].decode()
+
+
+def read_metadata(dev, slot_number):
+    with open(dev, "rb") as f:
+        f.seek(RESERVED)
+        geo = f.read(GEOMETRY_SIZE)
+        magic, size, checksum, max_size, slots, block = GEOMETRY.unpack_from(geo)
+        if magic != GEOMETRY_MAGIC:
+            sys.exit(f"{dev}: no super metadata (geometry magic {magic:#x})")
+        raw = bytearray(geo[:size])
+        raw[8:40] = bytes(32)
+        if hashlib.sha256(raw).digest() != checksum:
+            sys.exit(f"{dev}: geometry checksum mismatch")
+        if slot_number >= slots:
+            sys.exit(f"{dev}: metadata has {slots} slot(s), wanted slot {slot_number}")
+        # primary metadata copies follow the two geometry copies, one per slot
+        f.seek(RESERVED + 2 * GEOMETRY_SIZE + slot_number * max_size)
+        meta = f.read(max_size)
+
+    fields = HEADER_V1_0.unpack_from(meta)
+    magic, major, minor, header_size, header_sum, tables_size, tables_sum = fields[:7]
+    if magic != HEADER_MAGIC or major != 10:
+        sys.exit(f"{dev}: unsupported metadata header ({magic:#x}, v{major}.{minor})")
+    header = bytearray(meta[:header_size])
+    header[12:44] = bytes(32)
+    if hashlib.sha256(header).digest() != header_sum:
+        sys.exit(f"{dev}: metadata header checksum mismatch")
+    tables = meta[header_size:header_size + tables_size]
+    if hashlib.sha256(tables).digest() != tables_sum:
+        sys.exit(f"{dev}: metadata tables checksum mismatch")
+
+    descs = [fields[7 + 3 * i: 10 + 3 * i] for i in range(4)]   # (offset, count, entry_size)
+
+    def table(i, st):
+        off, n, esize = descs[i]
+        return [st.unpack_from(tables, off + k * esize) for k in range(n)]
+
+    partitions, extents, _groups, devices = (table(0, PARTITION), table(1, EXTENT), None,
+                                             table(3, BLOCK_DEVICE))
+    if len(devices) != 1:
+        sys.exit(f"{dev}: super spans {len(devices)} block devices; only one is supported")
+    result = {}
+    for name, _attrs, first, count, _group in partitions:
+        result[cstr(name)] = extents[first:first + count]
+    return result
+
+
+def dm_table(extents, dev):
+    lines, start = [], 0
+    for sectors, kind, data, _source in extents:
+        if kind == TARGET_LINEAR:
+            lines.append(f"{start} {sectors} linear {dev} {data}")
+        elif kind == TARGET_ZERO:
+            lines.append(f"{start} {sectors} zero")
+        else:
+            sys.exit(f"unknown extent type {kind}")
+        start += sectors
+    return "\n".join(lines) + "\n"
+
+
+def default_slot():
+    try:
+        for line in Path("/proc/bootconfig").read_text().splitlines():
+            key, _, value = line.partition("=")
+            if key.strip() == "androidboot.slot_suffix":
+                return value.strip().strip('"')
+    except OSError:
+        pass
+    sys.exit("no slot given and none in /proc/bootconfig")
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("command", choices=["list", "map", "unmap"])
+    p.add_argument("names", nargs="*")
+    p.add_argument("--super", default="/dev/disk/by-partlabel/super")
+    p.add_argument("--slot", help="_a or _b (default: the booted slot)")
+    a = p.parse_args()
+
+    if a.command == "unmap":
+        for name in a.names:
+            subprocess.run(["dmsetup", "remove", f"android-{name}"], check=False)
+        return
+
+    slot = a.slot or default_slot()
+    dev = os.path.realpath(a.super)
+    parts = read_metadata(dev, 0 if slot == "_a" else 1)
+
+    if a.command == "list":
+        for name, extents in parts.items():
+            size = sum(e[0] for e in extents) * SECTOR
+            print(f"{name:24} {size / 2**20:9.1f} MiB  {len(extents)} extent(s)")
+        return
+
+    for name in a.names:
+        full = name + slot
+        if full not in parts:
+            sys.exit(f"no partition {full} in super")
+        if not parts[full]:
+            print(f"{full}: empty, skipped")
+            continue
+        target = f"android-{name}"
+        if Path(f"/dev/mapper/{target}").exists():
+            print(f"{target}: already mapped")
+            continue
+        subprocess.run(["dmsetup", "create", "--readonly", target], input=dm_table(parts[full], dev),
+                       text=True, check=True)
+        print(f"/dev/mapper/{target} <- {full} (read-only)")
+
+
+if __name__ == "__main__":
+    main()

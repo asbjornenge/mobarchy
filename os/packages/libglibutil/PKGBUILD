@@ -1,0 +1,25 @@
+# Jolla's GLib utility library, for oFono's binder plugin (ADR 0014).
+# Build: tools/pkg-build libglibutil
+
+pkgname=libglibutil
+pkgver=1.0.82
+pkgrel=1
+pkgdesc='Library of glib utilities (Sailfish OS)'
+arch=(x86_64 aarch64)
+url='https://github.com/sailfishos/libglibutil'
+license=(BSD-3-Clause)
+depends=(glib2)
+makedepends=(git)
+source=("git+$url.git#tag=$pkgver")
+sha256sums=('SKIP')
+
+build() {
+	cd $pkgname
+	make LIBDIR=/usr/lib KEEP_SYMBOLS=1 release pkgconfig
+}
+
+package() {
+	cd $pkgname
+	make LIBDIR=/usr/lib DESTDIR="$pkgdir" install install-dev
+	install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+}

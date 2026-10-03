@@ -12,3 +12,7 @@ mobile-config-firefox
 widevine-installer
 # The app store's catalog (ADR 0012); it brings PackageKit and the AppStream data
 mobarchy-store-catalog
+# Telephony (ADR 0014): oFono (Sailfish's branch) and its plugin for Android's radio HAL
+# over binder; they bring libgbinder, libgbinder-radio, libglibutil and libmce-glib
+ofono-sailfish
+ofono-binder-plugin

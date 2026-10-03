@@ -1,0 +1,473 @@
+#!/usr/bin/env python3
+"""Mobarchy's Android container (ADR 0014): the phone's own Android userspace, read-only,
+running only the vendor services telephony needs, under Android's own init in LXC.
+
+  prepare map the Android partitions from super (read-only), mount them and their APEXes,
+          prepare /data and the vendor directories, write the LXC config
+  run     run the prepared container in the foreground (mobarchy-android.service)
+  start   prepare, then run it in the background (by hand)
+  stop    stop the container and undo all mounts and mappings
+  check   exit status: does this device have an Android container ([android])?
+  shell   a shell inside the running container (Android's toybox sh)
+  status
+
+What the container sees is decided here and in the device's [android] section of
+/etc/mobarchy/device.toml:
+  - the root is Android's system partition; vendor, system_ext and product are mounted on
+    it; all of them read-only (dm "--readonly" mappings, ro mounts)
+  - /dev is the container's own: binderfs, and only the device nodes the device lists,
+    recreated with Android's owners; the device cgroup allows nothing else, so no block
+    device is reachable except the read-only modem image loop
+  - /data, and the vendor directories under /mnt/vendor, are directories on the host
+  - init runs our init.rc only, never Android's: no fstab, no mount_all, no formatting.
+    Android's init directories are hidden; only the rc files our init.rc imports are
+    there (and androidboot.init_rc tells init to parse nothing else anyway)
+  - SELinux: Android's policy is loaded into the kernel in permissive mode (as Halium
+    does); the container can neither load another one nor switch to enforcing
+"""
+import argparse
+import glob
+import os
+import shutil
+import stat
+import struct
+import subprocess
+import sys
+import time
+import tomllib
+import zipfile
+from pathlib import Path
+
+DEVICE_TOML = Path("/etc/mobarchy/device.toml")
+SHARE = Path("/usr/share/mobarchy/android")
+LIB = Path("/usr/lib/mobarchy")
+STATE = Path("/var/lib/mobarchy/android")       # persistent: data/, vendor/
+RUN = Path("/run/mobarchy/android")             # rootfs mountpoint, lxc config
+ROOT = RUN / "rootfs"
+BINDERFS = RUN / "binderfs"     # the container's binder devices, shared with the host
+APEX = ROOT / "mnt/apex"
+NAME = "android"
+LXC_PATH = RUN / "lxc"
+
+# Android's init directories (init reads every .rc in them, unless told not to)
+INIT_DIRS = ["system/etc/init", "system_ext/etc/init", "product/etc/init", "vendor/etc/init"]
+
+# Android's ids (system/core/libcutils/include/private/android_filesystem_config.h)
+AID = {"root": 0, "system": 1000, "radio": 1001, "shell": 2000, "log": 1007, "inet": 3003}
+
+
+def run(*cmd, check=True, **kw):
+    return subprocess.run([str(c) for c in cmd], check=check, **kw)
+
+
+def mounted(path):
+    return os.path.ismount(path)
+
+
+def mount(src, dst, *opts, fstype=None):
+    Path(dst).mkdir(parents=True, exist_ok=True)
+    cmd = ["mount"]
+    if fstype:
+        cmd += ["-t", fstype]
+    if opts:
+        cmd += ["-o", ",".join(opts)]
+    run(*cmd, src, dst)
+
+
+def device_config():
+    conf = tomllib.loads(DEVICE_TOML.read_text()).get("android")
+    if not conf:
+        sys.exit(f"{DEVICE_TOML}: no [android] section: this device has no Android container")
+    return conf
+
+
+def slot():
+    for line in Path("/proc/bootconfig").read_text().splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() == "androidboot.slot_suffix":
+            return value.strip().strip('"')
+    sys.exit("no androidboot.slot_suffix in /proc/bootconfig")
+
+
+# --- APEXes ---------------------------------------------------------------------------------
+
+def apex_manifest(path):
+    """name and version from apex_manifest.pb (protobuf: 1 name, 2 version)."""
+    data, i, name, version = Path(path).read_bytes(), 0, None, 0
+    while i < len(data):
+        key = data[i]
+        i += 1
+        field, wire = key >> 3, key & 7
+        if wire == 0:
+            value, shift = 0, 0
+            while True:
+                b = data[i]
+                i += 1
+                value |= (b & 0x7F) << shift
+                shift += 7
+                if not b & 0x80:
+                    break
+            if field == 2:
+                version = value
+        elif wire == 2:
+            n, shift = 0, 0
+            while True:
+                b = data[i]
+                i += 1
+                n |= (b & 0x7F) << shift
+                shift += 7
+                if not b & 0x80:
+                    break
+            if field == 1:
+                name = data[i:i + n].decode()
+            i += n
+        else:
+            break
+    return name, version
+
+
+def mount_apexes():
+    """Each .apex is a zip whose apex_payload.img is stored uncompressed: loop-mount it
+    in place (read-only), as apexd does, at <name>@<version> and <name>.
+
+    They are mounted under /mnt/apex, not /apex: init gives its own mount namespace
+    a fresh /apex (for apexd to fill); our init.rc binds /mnt/apex onto it."""
+    infos = []
+    for part in ("system", "system_ext", "vendor", "product"):
+        for apex in sorted(glob.glob(str(ROOT / part / "apex" / "*.apex"))):
+            with zipfile.ZipFile(apex) as z:
+                try:
+                    info = z.getinfo("apex_payload.img")
+                except KeyError:
+                    continue
+                if info.compress_type != zipfile.ZIP_STORED:
+                    continue
+            with open(apex, "rb") as f:
+                f.seek(info.header_offset)
+                hdr = f.read(30)
+                name_len, extra_len = struct.unpack_from("<HH", hdr, 26)
+                offset = info.header_offset + 30 + name_len + extra_len
+            loop = run("losetup", "-r", "-f", "--show", "-o", offset, "--sizelimit", info.file_size, apex,
+                       capture_output=True, text=True).stdout.strip()
+            tmp = RUN / "apex-probe"
+            mount(loop, tmp, "ro")
+            name, version = apex_manifest(tmp / "apex_manifest.pb")
+            run("umount", tmp)
+            if not name:
+                run("losetup", "-d", loop)
+                continue
+            versioned = APEX / f"{name}@{version}"
+            mount(loop, versioned, "ro", "nodev")
+            mount(versioned, APEX / name, "bind")
+            in_root = "/" + str(Path(apex).relative_to(ROOT))
+            infos.append((name, in_root, version))
+    xml = ['<?xml version="1.0" encoding="utf-8"?>', "<apex-info-list>"]
+    for name, path, version in infos:
+        xml.append(f'    <apex-info moduleName="{name}" modulePath="{path}" preinstalledModulePath="{path}" '
+                   f'versionCode="{version}" isFactory="true" isActive="true"/>')
+    xml.append("</apex-info-list>")
+    (APEX / "apex-info-list.xml").write_text("\n".join(xml) + "\n")
+    return len(infos)
+
+
+# --- SELinux ---------------------------------------------------------------------------------
+
+SELINUXFS = Path("/sys/fs/selinux")
+
+
+def selinux_status():
+    """(enforcing, policy loads) from selinuxfs's status page."""
+    _version, _sequence, enforcing, loads, _deny = struct.unpack_from("<5I", (SELINUXFS / "status").read_bytes())
+    return enforcing, loads
+
+
+def load_selinux_policy():
+    """Android's services need SELinux (servicemanager won't start without it), so the
+    vendor's precompiled policy is loaded, as Android's init would. In permissive mode:
+    nothing is denied, here or on the Linux side. Once loaded it stays until reboot."""
+    if not mounted(SELINUXFS):
+        mount("selinuxfs", SELINUXFS, fstype="selinuxfs")
+    enforcing, loads = selinux_status()
+    if enforcing:
+        sys.exit("SELinux is enforcing: refusing to load Android's policy")
+    if loads:
+        return
+    policy = ROOT / "vendor/etc/selinux/precompiled_sepolicy"
+    # the precompiled policy is only valid for the system policy it was built against
+    for part, prefix in (("system", "plat"), ("system_ext", "system_ext"), ("product", "product")):
+        mapping = ROOT / part / "etc/selinux" / f"{prefix}_sepolicy_and_mapping.sha256"
+        pinned = policy.parent / f"precompiled_sepolicy.{mapping.name}"
+        if mapping.exists() and mapping.read_text().strip() != pinned.read_text().strip():
+            sys.exit(f"{policy} doesn't match {mapping}")
+    with open(SELINUXFS / "load", "wb") as f:
+        f.write(policy.read_bytes())
+    enforcing, loads = selinux_status()
+    if enforcing:
+        (SELINUXFS / "enforce").write_text("0")
+    print("SELinux: Android's policy loaded, permissive")
+
+
+# --- start / stop --------------------------------------------------------------------------
+
+def prepare(conf):
+    RUN.mkdir(parents=True, exist_ok=True)
+    s = slot()
+    parts = conf.get("partitions", ["system", "system_ext", "product", "vendor"])
+    run(LIB / "android-super", "map", "--slot", s, *parts)
+
+    # the root: Android's system partition, then the others on it; all read-only
+    mount("/dev/mapper/android-system", ROOT, "ro", "noload")
+    for p in parts:
+        if p != "system":
+            mount(f"/dev/mapper/android-{p}", ROOT / p, "ro", "noload")
+    for d in ("apex", "linkerconfig", "mnt", "tmp"):
+        mount("tmpfs", ROOT / d, "mode=0755", "nosuid", "nodev", fstype="tmpfs")
+    print(f"{mount_apexes()} APEXes mounted")
+    load_selinux_policy()
+    mount("binder", BINDERFS, fstype="binder")
+    # and as the host's /dev/binder, /dev/hwbinder, /dev/vndbinder (as on Halium): the Linux
+    # side's binder clients (libgbinder) expect them there
+    for b in ("binder", "hwbinder", "vndbinder"):
+        os.chmod(BINDERFS / b, 0o666)
+        Path(f"/dev/{b}").unlink(missing_ok=True)
+        os.symlink(BINDERFS / b, f"/dev/{b}")
+
+    # /data and the vendor's own directories live on the host
+    data = STATE / "data"
+    data.mkdir(parents=True, exist_ok=True)
+    mount(data, ROOT / "data", "bind")
+    for name, spec in conf.get("vendor_dirs", {}).items():
+        src = STATE / "vendor" / name
+        if not src.is_dir():
+            sys.exit(f"{src} is missing (see {SHARE}/README)")
+        mount(src, ROOT / "mnt/vendor" / name, "bind", *(["ro"] if spec == "ro" else []))
+    extra_nodes = []
+    for name, partition in conf.get("vendor_images", {}).items():
+        # a vendor image partition (e.g. the modem firmware): through a read-only loop
+        # device, mounted read-only, and as the only block device in the container's
+        # /dev/block/by-name (the vendor daemons read it there too)
+        dev = f"/dev/disk/by-partlabel/{partition}{s}"
+        loop = run("losetup", "-r", "-f", "--show", dev, capture_output=True, text=True).stdout.strip()
+        mount(loop, ROOT / "mnt/vendor" / name, "ro", "nodev", "noload")
+        rdev = os.stat(loop).st_rdev
+        for alias in (partition + s, partition):
+            extra_nodes.append((f"block/by-name/{alias}", "b", os.major(rdev), os.minor(rdev),
+                                0o640, AID["root"], AID["radio"]))
+
+    # init.rc: ours (the generic part, then the device's), instead of Android's. Android's
+    # init directories are replaced by ones holding only what our init.rc imports.
+    rc = (SHARE / "init.rc").read_text() + "\n" + Path(conf["init"]).read_text()
+    imports = [line.split()[1] for line in rc.splitlines() if line.startswith("import ")]
+    keep = {i: (ROOT / i.lstrip("/")).read_bytes() for i in imports}
+    for d in INIT_DIRS:
+        if (ROOT / d).is_dir():
+            mount("tmpfs", ROOT / d, "mode=0755", "nosuid", "nodev", "noexec", fstype="tmpfs")
+    for path, content in keep.items():
+        target = ROOT / path.lstrip("/")
+        if not any(path.startswith(f"/{d}/") for d in INIT_DIRS):
+            sys.exit(f"init.rc imports {path}, outside the init directories")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+    (ROOT / "system/etc/init/hw").mkdir(exist_ok=True)
+    (ROOT / "system/etc/init/hw/init.rc").write_text(rc)
+    for d in INIT_DIRS:
+        if (ROOT / d).is_dir():
+            run("mount", "-o", "remount,ro", ROOT / d)
+    # cgroups: Android's own list without its cgroup v1 controllers (blkio, cpu, cpuset),
+    # which a cgroup v2 host can't give the container
+    run("mount", "--bind", "-o", "ro", SHARE / "cgroups.json", ROOT / "system/etc/cgroups.json")
+
+    # Our properties, as an odm build.prop (the comet has no odm partition; init reads
+    # /odm/etc/build.prop after vendor's). ro.cold_boot_done: ueventd would set it once
+    # it had created /dev; here android-container does that.
+    odm = ROOT / "odm"
+    mount("tmpfs", odm, "mode=0755", "nosuid", "nodev", "noexec", fstype="tmpfs")
+    (odm / "etc").mkdir()
+    (odm / "etc/build.prop").write_text("# Mobarchy's Android container (android-container)\n"
+                                        "ro.cold_boot_done=true\n")
+    run("mount", "-o", "remount,ro", odm)
+
+    # boot configuration: the bootloader's, plus init_rc so that init parses nothing else
+    # The boot mode is the container's own: a phone booted by plugging in its charger has
+    # "charger", which would make init run its charger mode instead of late-init.
+    bootconfig = "".join(line + "\n" for line in Path("/proc/bootconfig").read_text().splitlines()
+                         if line.partition("=")[0].strip() != "androidboot.mode")
+    bootconfig += 'androidboot.mode = "normal"\n'
+    bootconfig += 'androidboot.init_rc = "/system/etc/init/hw/init.rc"\n'
+    (RUN / "bootconfig").write_text(bootconfig)
+    write_lxc_config(conf, extra_nodes)
+
+
+def device_nodes(conf):
+    """[(path in container, type, major, minor, mode, uid, gid)] for the device's nodes."""
+    nodes = []
+    for pattern, (mode, owner, group) in conf.get("devices", {}).items():
+        for host in sorted(glob.glob(pattern)):
+            st = os.stat(host)
+            kind = "c" if stat.S_ISCHR(st.st_mode) else "b"
+            nodes.append((host.removeprefix("/dev/"), kind, os.major(st.st_rdev), os.minor(st.st_rdev),
+                          int(mode, 8), AID[owner], AID[group]))
+    return nodes
+
+
+def write_lxc_config(conf, extra_nodes):
+    nodes = device_nodes(conf) + extra_nodes
+    (RUN / "nodes").write_text("".join(" ".join(map(str, n)) + "\n" for n in nodes))
+    allow = ["c 1:3 rwm", "c 1:5 rwm", "c 1:7 rwm", "c 1:8 rwm", "c 1:9 rwm", "c 1:11 rw",
+             "c 5:0 rwm", "c 5:2 rwm", "c 136:* rwm", f"c {binder_major()}:* rwm"]
+    allow += sorted({f"{k} {ma}:{mi} {'r' if k == 'b' else 'rwm'}" for _, k, ma, mi, *_ in nodes})
+    lines = [
+        f"lxc.uts.name = {NAME}",
+        f"lxc.rootfs.path = dir:{ROOT}",
+        "lxc.init.cmd = /system/bin/init second_stage",
+        # no cgroup mount: init mounts cgroup v2 itself (its own subtree: LXC gives the
+        # container a cgroup namespace)
+        "lxc.mount.auto = proc:mixed sys:rw",
+        "lxc.autodev = 1",
+        # (lxc.environment below also applies to hooks: the interpreter by its path)
+        f"lxc.hook.autodev = /usr/bin/python3 {LIB}/android-container autodev",
+        f"lxc.hook.start-host = /usr/bin/python3 {LIB}/android-container start-host",
+        "lxc.tty.max = 0",
+        "lxc.pty.max = 16",
+        "lxc.console.path = none",
+        # the host's network namespace: the modem's data interfaces are the host's
+        "lxc.net.0.type = none",
+        "lxc.apparmor.profile = unconfined",
+        "lxc.cgroup2.devices.deny = a",
+        *[f"lxc.cgroup2.devices.allow = {a}" for a in allow],
+        f"lxc.mount.entry = {RUN}/bootconfig proc/bootconfig none bind,ro,create=file 0 0",
+        # /proc/sys is read-only (proc:mixed) except what init insists on writing (its
+        # built-in hardening: ASLR entropy, kernel pointer hiding)
+        "lxc.mount.entry = /proc/sys/vm/mmap_rnd_bits proc/sys/vm/mmap_rnd_bits none bind,rw 0 0",
+        "lxc.mount.entry = /proc/sys/kernel/kptr_restrict proc/sys/kernel/kptr_restrict none bind,rw 0 0",
+        "lxc.environment = PATH=/system/bin:/system_ext/bin:/vendor/bin",
+    ]
+    # SELinux: Mobarchy loads no policy, but Android's service managers insist on talking
+    # to selinuxfs. Without a policy the kernel allows everything, so a selinuxfs is
+    # enough; what could change that is masked: loading a policy, and enforcing mode
+    # (reads as permissive).
+    (RUN / "selinux-enforce").write_text("0")
+    lines += [
+        "lxc.mount.entry = selinuxfs sys/fs/selinux selinuxfs nosuid,noexec 0 0",
+        "lxc.mount.entry = /dev/null sys/fs/selinux/load none bind,ro 0 0",
+        f"lxc.mount.entry = {RUN}/selinux-enforce sys/fs/selinux/enforce none bind,ro 0 0",
+    ]
+    for path in conf.get("masked_sysfs", []):
+        lines.append(f"lxc.mount.entry = /dev/null {path.lstrip('/')} none bind,ro 0 0")
+    LXC_PATH.mkdir(parents=True, exist_ok=True)
+    (LXC_PATH / NAME).mkdir(exist_ok=True)
+    (LXC_PATH / NAME / "config").write_text("\n".join(lines) + "\n")
+
+
+def binder_major():
+    for line in Path("/proc/devices").read_text().splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[1] == "binder":
+            return int(parts[0])
+    sys.exit("no binder driver")
+
+
+def autodev():
+    """LXC hook: populate the container's /dev ($LXC_ROOTFS_MOUNT/dev)."""
+    dev = Path(os.environ["LXC_ROOTFS_MOUNT"]) / "dev"
+    # LXC's /dev is 500 KB; init keeps the property areas here (128 KB per context)
+    mount("tmpfs", dev / "__properties__", "mode=0755", "size=16m", "nosuid", "nodev", "noexec",
+          fstype="tmpfs")
+    (dev / "socket").mkdir(mode=0o755)     # first stage init would have made it
+    (dev / ".coldboot_done").touch()        # ueventd's: the nodes are all here already
+    # the host's binderfs instance (prepare() mounted it): Linux-side services (oFono's
+    # binder plugin) reach Android's service managers through the same binder context
+    binderfs = dev / "binderfs"
+    mount(BINDERFS, binderfs, "bind")
+    for b in ("binder", "hwbinder", "vndbinder"):
+        os.symlink(f"binderfs/{b}", dev / b)
+    os.mknod(dev / "kmsg", 0o620 | stat.S_IFCHR, os.makedev(1, 11))
+    for line in (RUN / "nodes").read_text().splitlines():
+        path, kind, major, minor, mode, uid, gid = line.split()
+        node = dev / path
+        node.parent.mkdir(parents=True, exist_ok=True)
+        os.mknod(node, int(mode) | (stat.S_IFCHR if kind == "c" else stat.S_IFBLK),
+                 os.makedev(int(major), int(minor)))
+        os.chown(node, int(uid), int(gid))
+        os.chmod(node, int(mode))
+
+
+MAX_STARTS = 3          # within STARTS_WINDOW seconds: then init is in a reboot loop
+STARTS_WINDOW = 120
+
+
+def start_host():
+    """LXC hook, at every (re)start. Android's init reboots on fatal errors, which LXC turns
+    into a restart: give up after a few in a row instead of looping."""
+    log = RUN / "starts"
+    now = time.time()
+    starts = [float(t) for t in (log.read_text().split() if log.exists() else [])]
+    starts = [t for t in starts if now - t < STARTS_WINDOW] + [now]
+    log.write_text("\n".join(map(str, starts)) + "\n")
+    if len(starts) > MAX_STARTS:
+        sys.exit(f"Android's init restarted {MAX_STARTS} times in {STARTS_WINDOW} s: giving up")
+
+
+def stop():
+    run("lxc-stop", "-P", LXC_PATH, "-n", NAME, "-k", check=False, capture_output=True)
+    for b in ("binder", "hwbinder", "vndbinder"):
+        if Path(f"/dev/{b}").is_symlink():
+            Path(f"/dev/{b}").unlink()
+    # unmount everything under the root, deepest first
+    mounts = [line.split()[1] for line in Path("/proc/self/mounts").read_text().splitlines()]
+    for m in sorted((m for m in mounts if m.startswith(str(RUN))), key=len, reverse=True):
+        run("umount", "-l", m, check=False)
+    for line in run("losetup", "-l", "-n", "-O", "NAME,BACK-FILE", capture_output=True, text=True).stdout.splitlines():
+        name, _, back = line.partition(" ")
+        back = back.strip()
+        if back.endswith(".apex") or "by-partlabel" in back or back.startswith("/dev/sd"):
+            if not mounted_device(name):
+                run("losetup", "-d", name, check=False)
+    run(LIB / "android-super", "unmap", "system", "system_ext", "product", "vendor", "vendor_dlkm",
+        check=False, capture_output=True)
+
+
+def mounted_device(dev):
+    return any(line.split()[0] == dev for line in Path("/proc/self/mounts").read_text().splitlines())
+
+
+def main():
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("command", choices=["prepare", "run", "start", "stop", "shell", "status", "check",
+                                       "autodev", "start-host"])
+    a, _ = p.parse_known_args()     # hooks get LXC's arguments after ours
+    os.environ["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/bin"
+    if a.command == "autodev":
+        return autodev()
+    if a.command == "start-host":
+        return start_host()
+    if a.command == "check":
+        sys.exit(0 if tomllib.loads(DEVICE_TOML.read_text()).get("android") else 1)
+    if os.geteuid() != 0:
+        sys.exit("needs root")
+    if a.command in ("prepare", "start"):
+        conf = device_config()
+        if mounted(ROOT):
+            sys.exit("already prepared; stop first")
+        try:
+            prepare(conf)
+        except BaseException:
+            stop()
+            raise
+    if a.command == "run":
+        os.execvp("lxc-start", ["lxc-start", "-P", str(LXC_PATH), "-n", NAME, "-F",
+                                "-o", str(RUN / "lxc.log"), "-l", "INFO"])
+    elif a.command == "start":
+        run("lxc-start", "-P", LXC_PATH, "-n", NAME, "-d", "-o", RUN / "lxc.log", "-l", "INFO")
+        print("started")
+    elif a.command == "stop":
+        stop()
+    elif a.command == "shell":
+        os.execvp("lxc-attach", ["lxc-attach", "-P", str(LXC_PATH), "-n", NAME, "--clear-env",
+                                 "-v", "PATH=/system/bin:/vendor/bin", "--", "/system/bin/sh"])
+    elif a.command == "status":
+        run("lxc-info", "-P", LXC_PATH, "-n", NAME, check=False)
+
+
+if __name__ == "__main__":
+    main()

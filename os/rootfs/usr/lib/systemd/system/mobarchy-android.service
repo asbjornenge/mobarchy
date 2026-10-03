@@ -1,0 +1,20 @@
+[Unit]
+Description=Android container: the vendor's own services telephony needs (ADR 0014)
+ConditionPathExists=/etc/mobarchy/device.toml
+After=local-fs.target systemd-sysusers.service
+
+[Service]
+ExecCondition=/usr/lib/mobarchy/android-container check
+ExecStartPre=/usr/lib/mobarchy/android-container prepare
+ExecStart=/usr/lib/mobarchy/android-container run
+ExecStopPost=/usr/lib/mobarchy/android-container stop
+# lxc-start -F returns when the container has stopped
+KillMode=mixed
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=10
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Install]
+WantedBy=multi-user.target

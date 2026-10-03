@@ -52,3 +52,5 @@ fi
 # Mark healthy boots successful in devinfo, or the bootloader stops in fastboot once the
 # slot's tries run out (see /usr/lib/mobarchy/mark-boot-successful).
 systemctl enable mobarchy-boot-success.timer mobarchy-audio.service mobarchy-bluetooth.service >/dev/null
+# Telephony (ADR 0014): the Android container (rild and the modem's daemons) and oFono.
+systemctl enable mobarchy-android.service ofono.service >/dev/null

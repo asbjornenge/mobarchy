@@ -1,0 +1,30 @@
+# oFono's plugin for Android's radio HAL over binder (mer-hybris): oFono on the Linux
+# side drives rild in the Android container (ADR 0014). Also builds
+# libofonobinderpluginext, its interface for vendor extensions.
+# Build: tools/pkg-build ofono-binder-plugin
+
+pkgname=ofono-binder-plugin
+pkgver=1.1.33
+pkgrel=1
+pkgdesc="oFono plugin for Android's radio HAL over binder"
+arch=(x86_64 aarch64)
+url='https://github.com/mer-hybris/ofono-binder-plugin'
+license=(BSD-3-Clause)
+depends=(ofono-sailfish libgbinder libgbinder-radio libglibutil libmce-glib glib2)
+makedepends=(git)
+provides=(libofonobinderpluginext)
+source=("git+$url.git#tag=$pkgver")
+sha256sums=('SKIP')
+
+build() {
+	cd $pkgname
+	make -C lib LIBDIR=/usr/lib KEEP_SYMBOLS=1 release pkgconfig
+	make KEEP_SYMBOLS=1 release
+}
+
+package() {
+	cd $pkgname
+	make DESTDIR="$pkgdir" PLUGINDIR="$(pkg-config ofono --variable=plugindir)" install
+	make -C lib LIBDIR=/usr/lib DESTDIR="$pkgdir" install install-dev
+	install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+}

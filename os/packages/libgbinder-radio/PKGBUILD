@@ -1,0 +1,25 @@
+# Binder client library for Android's radio interfaces (ADR 0014).
+# Build: tools/pkg-build libgbinder-radio
+
+pkgname=libgbinder-radio
+pkgver=1.6.6
+pkgrel=1
+pkgdesc="Binder client library for Android's radio interfaces"
+arch=(x86_64 aarch64)
+url='https://github.com/mer-hybris/libgbinder-radio'
+license=(BSD-3-Clause)
+depends=(glib2 libglibutil libgbinder)
+makedepends=(git)
+source=("git+$url.git#tag=$pkgver")
+sha256sums=('SKIP')
+
+build() {
+	cd $pkgname
+	make LIBDIR=/usr/lib KEEP_SYMBOLS=1 release pkgconfig
+}
+
+package() {
+	cd $pkgname
+	make LIBDIR=/usr/lib DESTDIR="$pkgdir" install-dev
+	install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+}

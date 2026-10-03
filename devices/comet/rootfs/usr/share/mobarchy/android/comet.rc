@@ -1,0 +1,39 @@
+# comet's part of the Android container's init (ADR 0014): the modem (Shannon 5400).
+# The service definitions are the vendor's own; this file only imports them and decides
+# what starts, and when.
+
+import /vendor/etc/init/cbd.rc
+import /vendor/etc/init/rfsd.rc
+import /vendor/etc/init/rild_exynos.rc
+
+on post-fs-data
+    # The vendor's directories for the radio (from vendor init.zumapro.board.rc).
+    chown radio system /sys/devices/platform/cp-tm1/cp_temp
+    chown radio system /sys/devices/platform/cpif/dynamic_pcie_spd/tp_threshold
+    chown radio system /sys/devices/platform/cpif/dynamic_pcie_spd/tp_hysteresis
+    chown radio system /sys/devices/platform/cpif/dynamic_pcie_spd/dynamic_spd_enable
+    mkdir /data/vendor 0771 radio system
+    mkdir /data/vendor/log 0771 radio system
+    mkdir /data/vendor/log/cbd 0771 radio system
+    mkdir /data/vendor/log/rfsd 0771 radio system
+    mkdir /data/vendor/rild 0771 radio system
+    mkdir /data/vendor/dump 0771 radio system
+    mkdir /data/vendor/slog 0771 system system
+    mkdir /data/vendor/ssrdump 0771 root system
+    mkdir /data/vendor/ssrdump/coredump 0771 root system
+    mkdir /data/vendor/radio 773 system radio
+    mkdir /data/vendor/radio/image 0771 radio system
+    mkdir /data/vendor/modem_stat 0771 radio system
+    mkdir /mnt/vendor/modem_userdata/replay 0775 radio system
+
+on mobarchy-start
+    # rfsd treats an unset efs.clear.action as a factory reset and deletes the modem's NV
+    # data (efs). Android keeps this property in /data across boots; here it is set
+    # before rfsd starts, every time. "none": nothing to clear.
+    setprop persist.vendor.modem.efs.clear.action none
+    start RFS-daemon
+    start cpboot-daemon
+
+# The radio HAL (AIDL android.hardware.radio.*, on /dev/binder), once the modem is up.
+on property:vendor.cbd.boot_done=1
+    start ril-daemon

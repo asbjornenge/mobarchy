@@ -1,0 +1,94 @@
+# Mobarchy's Android container (ADR 0014): Android's init runs this instead of Android's
+# init.rc (androidboot.init_rc points here, so init parses nothing else). It brings up
+# only the basics: the linker configuration, the service managers and /data. The device's
+# part (/usr/share/mobarchy/android/<device>.rc) is appended below it by android-container
+# and starts the device's services on "mobarchy-start".
+#
+# Deliberately absent, compared with Android's init.rc: mount_all (fstab), formatting,
+# zygote and the framework, ueventd (android-container creates the device nodes).
+#
+# SELinux has no policy loaded on Mobarchy, so init can't work out a service's domain
+# from its executable: every service and exec needs an explicit seclabel. Services whose
+# rc files have none are defined here (and in the device's part) with one, otherwise as
+# Android's own rc files define them.
+
+service logd /system/bin/logd
+    socket logd stream 0666 logd logd
+    socket logdr seqpacket 0666 logd logd
+    socket logdw dgram+passcred 0222 logd logd
+    file /dev/kmsg w
+    user logd
+    group logd system package_info readproc
+    capabilities SYSLOG AUDIT_CONTROL
+    seclabel u:r:logd:s0
+
+service servicemanager /system/bin/servicemanager
+    class core
+    user system
+    group system readproc
+    critical
+    file /dev/kmsg w
+    onrestart setprop servicemanager.ready false
+    seclabel u:r:servicemanager:s0
+    stdio_to_kmsg
+    shutdown critical
+
+service mobarchy-linkerconfig /apex/com.android.runtime/bin/linkerconfig --target /linkerconfig
+    user root
+    oneshot
+    disabled
+    stdio_to_kmsg
+    seclabel u:r:linkerconfig:s0
+
+service hwservicemanager /system/bin/hwservicemanager
+    user system
+    group system readproc
+    file /dev/kmsg w
+    stdio_to_kmsg
+    seclabel u:r:hwservicemanager:s0
+    shutdown critical
+
+# Wake locks for Android's services (they hold the phone awake through /sys/power/wake_lock,
+# which the Linux side shares). Nothing in the container asks it to suspend the phone:
+# that is the framework's (PowerManager), which doesn't run here.
+service system_suspend /system/bin/hw/android.system.suspend-service
+    user system
+    group system wakelock
+    capabilities BLOCK_SUSPEND
+    stdio_to_kmsg
+    seclabel u:r:system_suspend:s0
+
+service vndservicemanager /vendor/bin/vndservicemanager /dev/vndbinder
+    class core
+    user system
+    group system readproc
+    file /dev/kmsg w
+    seclabel u:r:vndservicemanager:s0
+    stdio_to_kmsg
+    shutdown critical
+
+on early-init
+    # The APEXes, mounted by android-container (instead of apexd).
+    mount none /mnt/apex /apex bind rec
+
+    # The linker configuration for the mounted APEXes (apexd has linkerconfig write it).
+    exec_start mobarchy-linkerconfig
+
+on init
+    mkdir /dev/socket 0755 root root
+    start logd
+    start servicemanager
+    start hwservicemanager
+    start vndservicemanager
+    start system_suspend
+
+on late-init
+    trigger post-fs-data
+    trigger mobarchy-start
+
+on post-fs-data
+    mkdir /data/property 0700 root root
+    mkdir /data/vendor 0771 root system
+    mkdir /data/misc 01771 system misc
+    mkdir /data/local/tmp 0771 shell shell
+    load_persist_props

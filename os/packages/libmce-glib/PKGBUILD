@@ -1,0 +1,26 @@
+# Client library for Sailfish's MCE (display and power state), which oFono's binder
+# plugin links against; without mced running it reports nothing (ADR 0014).
+# Build: tools/pkg-build libmce-glib
+
+pkgname=libmce-glib
+pkgver=1.1.0
+pkgrel=1
+pkgdesc='MCE client library (Sailfish OS)'
+arch=(x86_64 aarch64)
+url='https://github.com/sailfishos/libmce-glib'
+license=(BSD-3-Clause)
+depends=(glib2 libglibutil)
+makedepends=(git glib2-devel mce-headers)  # glib2-devel: gdbus-codegen
+source=("git+$url.git#tag=$pkgver")
+sha256sums=('SKIP')
+
+build() {
+	cd $pkgname
+	make LIBDIR=/usr/lib KEEP_SYMBOLS=1 release pkgconfig
+}
+
+package() {
+	cd $pkgname
+	make LIBDIR=/usr/lib DESTDIR="$pkgdir" install-dev
+	install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+}

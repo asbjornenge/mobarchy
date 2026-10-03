@@ -1,0 +1,18 @@
+# Sailfish MCE's D-Bus interface headers, needed to build libmce-glib (ADR 0014).
+# Build: tools/pkg-build mce-headers
+
+pkgname=mce-headers
+pkgver=1.32.1
+pkgrel=1
+pkgdesc='MCE D-Bus interface headers (Sailfish OS)'
+arch=(any)
+url='https://github.com/sailfishos/mce-dev'
+license=(LGPL-2.1-only)
+makedepends=(git)
+source=("git+$url.git#tag=$pkgver")
+sha256sums=('SKIP')
+
+package() {
+	cd mce-dev
+	make install PCDIR=/usr/lib/pkgconfig DESTDIR="$pkgdir"
+}

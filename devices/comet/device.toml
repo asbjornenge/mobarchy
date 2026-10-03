@@ -30,3 +30,34 @@ side_inset = 20     # trial value: the clock was cut off at the left edge
 [input]
 touch = "vendor"
 fold_sensor = true
+
+# The Android container for telephony (ADR 0014; os/rootfs/usr/lib/mobarchy/android-container).
+[android]
+partitions = ["system", "system_ext", "product", "vendor"]   # from super, read-only
+init = "/usr/share/mobarchy/android/comet.rc"
+# cpif's switch that crashes the modem on purpose: never writable from the container
+masked_sysfs = ["/sys/devices/platform/cpif/do_cp_crash"]
+
+# /var/lib/mobarchy/android/vendor/<name> -> /mnt/vendor/<name>. These hold the modem's
+# NV data (efs, efs_backup) and calibration (persist): for now copies, never the real
+# partitions (see ADR 0014).
+[android.vendor_dirs]
+efs = "rw"
+efs_backup = "rw"
+modem_userdata = "rw"
+persist = "rw"
+
+# <name> = partition: mounted read-only at /mnt/vendor/<name>, through a read-only loop
+[android.vendor_images]
+modem_img = "modem"
+
+# device nodes recreated in the container: mode, owner, group (vendor ueventd.rc)
+[android.devices]
+"/dev/umts_boot0" = ["0660", "radio", "system"]
+"/dev/umts_ipc0" = ["0660", "radio", "radio"]
+"/dev/umts_ipc1" = ["0660", "radio", "radio"]
+"/dev/umts_rfs0" = ["0660", "radio", "radio"]
+"/dev/umts_router" = ["0660", "system", "system"]
+"/dev/umts_dm0" = ["0660", "system", "system"]
+"/dev/oem_ipc*" = ["0660", "radio", "radio"]
+"/dev/oem_test" = ["0660", "radio", "radio"]

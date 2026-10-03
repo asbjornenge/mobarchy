@@ -1,0 +1,27 @@
+# GLib-style interface to binder (Android IPC), for oFono's binder plugin (ADR 0014).
+# Build: tools/pkg-build libgbinder
+
+pkgname=libgbinder
+pkgver=1.1.53
+pkgrel=1
+pkgdesc='GLib-style interface to binder'
+arch=(x86_64 aarch64)
+url='https://github.com/mer-hybris/libgbinder'
+license=(BSD-3-Clause)
+depends=(glib2 libglibutil)
+makedepends=(git)
+source=("git+$url.git#tag=$pkgver")
+sha256sums=('SKIP')
+
+build() {
+	cd $pkgname
+	make LIBDIR=/usr/lib KEEP_SYMBOLS=1 release pkgconfig
+	make -C tools KEEP_SYMBOLS=1 release
+}
+
+package() {
+	cd $pkgname
+	make LIBDIR=/usr/lib DESTDIR="$pkgdir" install-dev
+	make -C tools DESTDIR="$pkgdir" install
+	install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+}

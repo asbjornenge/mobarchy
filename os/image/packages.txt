@@ -38,6 +38,11 @@ pipewire-pulse
 pipewire-alsa
 rtkit
 alsa-utils
+# The Android container for telephony (ADR 0014; android-container) and its
+# mobile-broadband APN database (oFono's provisioning)
+lxc
+mobile-broadband-provider-info
+
 # Bluetooth: BlueZ (bluetoothd, btattach/btmgmt); audio over it is PipeWire's (pipewire-audio)
 bluez
 bluez-utils
