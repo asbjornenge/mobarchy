@@ -19,4 +19,6 @@ QtObject {
     // slow wheel-like glide), and the ends bounce (Flickable.DragAndOvershootBounds).
     readonly property real flickVelocity: 9000      // logical px/s
     readonly property real flickDeceleration: 1400  // logical px/s²
+    // How long an end takes to settle back after a bounce: Qt's default snaps back.
+    readonly property int reboundDuration: 550
 }

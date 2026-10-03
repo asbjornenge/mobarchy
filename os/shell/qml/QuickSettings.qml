@@ -366,6 +366,7 @@ Sheet {
                 ListView {
                     maximumFlickVelocity: Theme.flickVelocity
                     flickDeceleration: Theme.flickDeceleration
+                    rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
                     id: notificationList
                     width: parent.width
                     visible: count > 0
@@ -565,6 +566,7 @@ Sheet {
                 ListView {
                     maximumFlickVelocity: Theme.flickVelocity
                     flickDeceleration: Theme.flickDeceleration
+                    rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
                     id: networks
                     visible: quick.rfkill.wifiEnabled
                     width: parent.width
@@ -743,6 +745,7 @@ Sheet {
                 ListView {
                     maximumFlickVelocity: Theme.flickVelocity
                     flickDeceleration: Theme.flickDeceleration
+                    rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
                     id: bluetoothDevices
                     visible: quick.rfkill.bluetoothEnabled && quick.bluetooth.available
                     width: parent.width

@@ -67,6 +67,7 @@ Sheet {
         ListView {
             maximumFlickVelocity: Theme.flickVelocity
             flickDeceleration: Theme.flickDeceleration
+            rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             id: running
             anchors { left: parent.left; right: parent.right; top: openLabel.bottom; topMargin: 8 }
             height: 92
@@ -154,6 +155,7 @@ Sheet {
         GridView {
             maximumFlickVelocity: Theme.flickVelocity
             flickDeceleration: Theme.flickDeceleration
+            rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             id: grid
             anchors {
                 left: parent.left; right: parent.right; bottom: parent.bottom

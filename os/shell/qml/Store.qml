@@ -138,6 +138,7 @@ Window {
             ListView {
                 maximumFlickVelocity: Theme.flickVelocity
                 flickDeceleration: Theme.flickDeceleration
+                rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
                 width: parent.width
                 height: 34
                 orientation: ListView.Horizontal
@@ -179,6 +180,7 @@ Window {
         ListView {
             maximumFlickVelocity: Theme.flickVelocity
             flickDeceleration: Theme.flickDeceleration
+            rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             anchors { left: parent.left; right: parent.right; top: top.bottom; bottom: parent.bottom
                       topMargin: 12; leftMargin: 20; rightMargin: 20 }
             clip: true
@@ -259,6 +261,7 @@ Window {
     Flickable {
         maximumFlickVelocity: Theme.flickVelocity
         flickDeceleration: Theme.flickDeceleration
+        rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
         id: page
         // The selected app as the store has it now (installed, busy), re-read when it changes.
         property var app: null
@@ -377,6 +380,7 @@ Window {
             ListView {
                 maximumFlickVelocity: Theme.flickVelocity
                 flickDeceleration: Theme.flickDeceleration
+                rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
                 width: parent.width
                 height: visible ? 240 : 0
                 visible: page.app !== null && page.app.screenshots.length > 0

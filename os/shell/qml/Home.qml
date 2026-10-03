@@ -181,6 +181,7 @@ Window {
     ListView {
         maximumFlickVelocity: Theme.flickVelocity
         flickDeceleration: Theme.flickDeceleration
+        rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
         id: list
         anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: composer.top
                   leftMargin: 16; rightMargin: 16; topMargin: 8; bottomMargin: 16 }
@@ -263,6 +264,7 @@ Window {
         ListView {
             maximumFlickVelocity: Theme.flickVelocity
             flickDeceleration: Theme.flickDeceleration
+            rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             anchors { left: parent.left; right: parent.right; top: historyTitle.bottom; bottom: parent.bottom
                       margins: 12; topMargin: 12 }
             clip: true
