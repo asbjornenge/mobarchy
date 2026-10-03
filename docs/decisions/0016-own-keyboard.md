@@ -41,6 +41,12 @@ The shell is already Qt Quick (ADR 0009), in Mobarchy's theme.
     field asks for auto-capitalization. Two spaces after a word type ". ".
   - **Emoji:** an emoji panel from Unicode's list (tools/emoji-gen → data/emoji.json), with
     recently used emoji kept.
+- **The clipboard is the shell's too** (wlr-data-control): it sees every text copy, and the
+  keyboard's strip has a paste button (the latest copy; hold it for the last 20).
+  - The history is kept in memory only. Copies a password manager marks as secret
+    (x-kde-passwordManagerHint) aren't kept.
+  - The agent reads and sets the clipboard through mobarchy-mcp (wl-clipboard). Reading it
+    is an action, not a plain read, and isn't allowed while the phone is locked.
 - squeekboard is removed from the image and the session.
 
 ## Consequences

@@ -34,6 +34,7 @@ qt_add_qml_module(mobarchy-shell
         src/iconprovider.h
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h
+        src/clipboard.cpp src/clipboard.h
         src/logind.cpp src/logind.h
         src/mediaplayers.cpp src/mediaplayers.h
         src/notifications.cpp src/notifications.h
@@ -77,7 +78,8 @@ qt6_generate_wayland_protocol_client_sources(mobarchy-shell
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-output-power-management-unstable-v1.xml
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-idle-notify-v1.xml
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/input-method-unstable-v2.xml
-        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/virtual-keyboard-unstable-v1.xml)
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/virtual-keyboard-unstable-v1.xml
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-data-control-unstable-v1.xml)
 target_include_directories(mobarchy-shell PRIVATE src)
 target_link_libraries(mobarchy-shell PRIVATE
     core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::WaylandClient PkgConfig::PULSE PkgConfig::PAM PkgConfig::XCRYPT PkgConfig::XKBCOMMON)

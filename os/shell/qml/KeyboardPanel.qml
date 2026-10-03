@@ -12,6 +12,7 @@ LayerWindow {
     id: kb
 
     required property Keyboard keyboard
+    required property Clipboard clipboard
 
     shown: keyboard.visible
     color: Theme.bgDark
@@ -32,7 +33,7 @@ LayerWindow {
     height: stripHeight + 4 * rowHeight + pad
 
     // --- state ---------------------------------------------------------------------------
-    property string mode: "letters"     // letters, numbers, symbols, emoji
+    property string mode: "letters"     // letters, numbers, symbols, emoji, clipboard
     property bool shift: false
     property bool caps: false
     readonly property bool upper: caps || shift
@@ -180,29 +181,129 @@ LayerWindow {
                 case "symbols": return "#+="
                 case "letters": return "ABC"
                 case "emoji": return kb.mode === "emoji" ? "ABC" : "☺"
+                case "clear": return qsTr("Tøm")
                 default: return ""
                 }
             }
         }
     }
 
-    // the strip at the top: hide the keyboard (word suggestions come here later)
+    // the strip at the top: paste (hold for earlier copies), hide the keyboard. Word
+    // suggestions come here later.
     Item {
         id: strip
         width: parent.width; height: kb.stripHeight
+
+        Rectangle {
+            id: paste
+            visible: kb.clipboard.text !== "" || kb.clipboard.history.length > 0
+            anchors { left: parent.left; leftMargin: kb.pad + 2; verticalCenter: parent.verticalCenter }
+            height: kb.stripHeight - 10
+            width: Math.min(kb.width * 0.7, pasteLabel.implicitWidth + 24)
+            radius: height / 2
+            color: pasteTap.pressed || kb.mode === "clipboard" ? Theme.line : Theme.panel
+            Text {
+                id: pasteLabel
+                anchors { fill: parent; leftMargin: 12; rightMargin: 12 }
+                verticalAlignment: Text.AlignVCenter
+                elide: Text.ElideRight
+                color: Theme.fg
+                font { family: Theme.font; pixelSize: 14 }
+                // the first line, short
+                text: "󰅌  " + (kb.mode === "clipboard" ? qsTr("Utklipp")
+                       : kb.clipboard.text !== "" ? kb.clipboard.text.split("\n")[0] : qsTr("Utklipp"))
+            }
+            TapHandler {
+                id: pasteTap
+                onTapped: {
+                    if (kb.mode === "clipboard") kb.mode = "letters"
+                    else if (kb.clipboard.text !== "") kb.keyboard.type(kb.clipboard.text)
+                    else kb.mode = "clipboard"
+                }
+                onLongPressed: kb.mode = "clipboard"
+            }
+        }
         Text {
             anchors { right: parent.right; rightMargin: 14; verticalCenter: parent.verticalCenter }
             text: "⌄"
             color: Theme.muted
             font { family: Theme.font; pixelSize: 22 }
+            TapHandler { onTapped: kb.keyboard.visible = false }
         }
-        TapHandler { onTapped: kb.keyboard.visible = false }
+    }
+
+    // the clipboard's history: tap to paste, then back to the letters
+    Item {
+        id: clipPanel
+        visible: kb.mode === "clipboard"
+        y: kb.stripHeight
+        width: kb.width
+        height: kb.height - kb.stripHeight
+        ListView {
+            id: clipList
+            anchors { fill: parent; margins: kb.pad; bottomMargin: kb.keyHeight + 2 * kb.gap }
+            clip: true
+            spacing: kb.gap
+            flickDeceleration: Theme.flickDeceleration
+            maximumFlickVelocity: Theme.flickVelocity
+            boundsBehavior: Flickable.DragAndOvershootBounds
+            rebound: Transition {
+                NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic }
+            }
+            model: kb.clipboard.history
+            delegate: Rectangle {
+                id: entry
+                required property string modelData
+                width: clipList.width
+                height: Math.min(entryText.implicitHeight + 20, 84)
+                radius: 8
+                color: entryTap.pressed ? Theme.line : Theme.panel
+                Text {
+                    id: entryText
+                    anchors { fill: parent; margins: 10 }
+                    text: entry.modelData
+                    color: Theme.fg
+                    wrapMode: Text.Wrap
+                    elide: Text.ElideRight
+                    maximumLineCount: 3
+                    font { family: Theme.font; pixelSize: 14 }
+                }
+                TapHandler {
+                    id: entryTap
+                    onTapped: {
+                        kb.keyboard.type(entry.modelData)
+                        kb.clipboard.setText(entry.modelData)
+                        kb.mode = "letters"
+                    }
+                }
+            }
+            Text {
+                anchors.centerIn: parent
+                visible: clipList.count === 0
+                text: qsTr("Ingenting kopiert ennå")
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 14 }
+            }
+        }
+        Row {
+            anchors { bottom: parent.bottom; left: parent.left; right: parent.right; margins: kb.pad }
+            height: kb.keyHeight
+            spacing: kb.gap
+            Key {
+                spec: ({k: "letters", w: 1.6})
+                TapHandler { onTapped: kb.act({k: "letters"}) }
+            }
+            Key {
+                spec: ({k: "clear", w: 2.2})
+                TapHandler { onTapped: kb.clipboard.clearHistory() }
+            }
+        }
     }
 
     // letters, numbers and symbols
     Column {
         id: board
-        visible: kb.mode !== "emoji" && !kb.pad10
+        visible: kb.mode !== "emoji" && kb.mode !== "clipboard" && !kb.pad10
         y: kb.stripHeight
         x: kb.pad
         width: kb.width - 2 * kb.pad
@@ -236,7 +337,7 @@ LayerWindow {
     // a number pad (digits, phone numbers, PINs)
     Grid {
         id: numpad
-        visible: kb.pad10 && kb.mode !== "emoji"
+        visible: kb.pad10 && kb.mode !== "emoji" && kb.mode !== "clipboard"
         y: kb.stripHeight + kb.gap
         x: kb.pad
         columns: 3
@@ -284,7 +385,7 @@ LayerWindow {
     MultiPointTouchArea {
         anchors.fill: parent
         anchors.topMargin: kb.stripHeight
-        enabled: kb.mode !== "emoji"
+        enabled: kb.mode !== "emoji" && kb.mode !== "clipboard"
         mouseEnabled: true
         onPressed: (points) => {
             for (const p of points) {

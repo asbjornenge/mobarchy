@@ -60,3 +60,5 @@ chromium
 # MPRIS from the command line for the agent (playerctld follows the player active last).
 # Spotify is its web player in the browser (ADR 0011).
 playerctl
+# The clipboard from the command line for the agent (mobarchy-mcp clipboard tools)
+wl-clipboard

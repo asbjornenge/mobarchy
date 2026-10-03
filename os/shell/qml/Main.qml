@@ -8,7 +8,11 @@ QtObject {
     readonly property ToplevelModel toplevels: ToplevelModel {}
     readonly property Agent agent: Agent {}
     readonly property Keyboard keyboard: Keyboard {}
-    readonly property KeyboardPanel keyboardPanel: KeyboardPanel { keyboard: shell.keyboard }
+    readonly property Clipboard clipboard: Clipboard {}
+    readonly property KeyboardPanel keyboardPanel: KeyboardPanel {
+        keyboard: shell.keyboard
+        clipboard: shell.clipboard
+    }
     readonly property SystemStatus system: SystemStatus {}
     readonly property Brightness brightness: Brightness {}
     readonly property Power power: Power {}

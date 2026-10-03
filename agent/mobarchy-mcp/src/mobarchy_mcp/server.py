@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import bluetooth, clock, media, network, power, store, webapps
+from . import bluetooth, clipboard, clock, media, network, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -346,6 +346,27 @@ def media_seek(seconds: float, relative: bool = False) -> dict:
     """Jump to a position in the current track (seconds), or by an offset (relative=true,
     negative goes back)."""
     return _media(media.seek, seconds, relative)
+
+
+# The clipboard often holds passwords and codes: reading it is not a plain read, and not
+# while the phone is locked.
+@tool(Risk.ACT, "Read the clipboard", screen=True)
+def clipboard_get() -> dict:
+    """The text the owner copied last (empty if nothing, or not text)."""
+    try:
+        return clipboard.get()
+    except FileNotFoundError as e:
+        raise ToolError(f"clipboard: {e}") from e
+
+
+@tool(Risk.ACT, "Copy to the clipboard", screen=True)
+def clipboard_set(text: str) -> dict:
+    """Put text on the clipboard, for the owner to paste anywhere (the keyboard's paste
+    button shows it)."""
+    try:
+        return clipboard.set_text(text)
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"clipboard: {e}") from e
 
 
 @tool(Risk.READ, "Browse the app store")
