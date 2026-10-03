@@ -133,7 +133,11 @@ QtObject {
         device: shell.device
         notifications: shell.notifications
     }
-    readonly property Home home: Home { agent: shell.agent; keyboard: shell.keyboard; clipboard: shell.clipboard }
+    readonly property Home home: Home {
+        agent: shell.agent
+        keyboard: shell.keyboard
+        onCopyOffered: (text) => shell.copyBar.offer(text)
+    }
     readonly property Drawer drawer: Drawer {
         apps: shell.apps
         toplevels: shell.toplevels

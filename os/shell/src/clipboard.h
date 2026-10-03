@@ -124,5 +124,6 @@ private:
     QPointer<QSocketNotifier> m_reading, m_readingPrimary;
     QString m_text;
     QString m_selected;
+    bool m_primarySeen = false;
     QStringList m_history;
 };

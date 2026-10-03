@@ -25,6 +25,16 @@ LayerWindow {
     property bool copied: false
     property string text: ""        // what is offered (the selection when it appeared)
 
+    // Offer text for copying (the shell's own selections, e.g. in the conversation).
+    function offer(text) {
+        if (text.trim() === "")
+            return
+        bar.text = text
+        bar.copied = false
+        bar.shown = true
+        hide.restart()
+    }
+
     Connections {
         target: bar.clipboard
         function onSelectedChanged() {
@@ -35,10 +45,7 @@ LayerWindow {
                     bar.shown = false
                 return
             }
-            bar.text = selected
-            bar.copied = false
-            bar.shown = true
-            hide.restart()
+            bar.offer(selected)
         }
     }
     Timer {

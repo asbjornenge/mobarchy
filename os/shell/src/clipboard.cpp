@@ -109,7 +109,10 @@ void Clipboard::onPrimarySelection(ClipboardOffer *offer)
         if (!keep || text == m_selected)    // a secret is not offered for copying
             return;
         m_selected = text;
-        emit selectedChanged();
+        // the selection there was when the shell started is old news
+        if (m_primarySeen)
+            emit selectedChanged();
+        m_primarySeen = true;
     });
 }
 

@@ -15,7 +15,9 @@ Window {
 
     required property Agent agent
     required property Keyboard keyboard
-    required property Clipboard clipboard
+    // Text selected in the conversation: the shell's Copy button offers it.
+    signal copyOffered(string text)
+    property bool dragging: false   // a selection handle is being dragged
 
     title: "Mobarchy"
     color: Theme.bg
@@ -196,20 +198,25 @@ Window {
         highlightFollowsCurrentItem: false
         onCountChanged: Qt.callLater(positionViewAtEnd)
 
+        interactive: !home.dragging
         delegate: Rectangle {
             id: card
             required property string who
             required property string body
+            // tool calls and notes are shown short; the rest can be selected and copied
+            readonly property bool selectable: who !== "url" && who !== "tool" && who !== "note"
+            readonly property string prefix: ({ you: "❯ ", mobarchy: "✦ ", done: "✓ ", error: "✗ " }[who] ?? "")
             width: ListView.view.width
-            height: who === "url" ? 52 : msg.implicitHeight + (who === "tool" || who === "note" ? 8 : 24)
+            height: who === "url" ? 52
+                  : (selectable ? msg.implicitHeight : short.implicitHeight) + (selectable ? 24 : 8)
             radius: 12
             color: who === "you" ? Theme.panel : "transparent"
             border.width: who === "done" || who === "error" || who === "url" ? 1 : 0
             border.color: who === "error" ? Theme.red : who === "url" ? Theme.accent : Theme.green
 
             Text {
-                id: msg
-                visible: card.who !== "url"
+                id: short
+                visible: card.who === "tool" || card.who === "note"
                 anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
                           leftMargin: 12; rightMargin: 12 }
                 wrapMode: Text.Wrap
@@ -217,37 +224,108 @@ Window {
                 // Tool calls can be long (a whole shell script): two lines are enough here.
                 maximumLineCount: card.who === "tool" ? 2 : 10000
                 elide: Text.ElideRight
-                text: ({ you: "❯ ", mobarchy: "✦ ", tool: "→ ", done: "✓ ", error: "✗ " }[card.who] ?? "")
-                      + card.body
-                color: ({ mobarchy: Theme.accent, tool: Theme.muted, done: Theme.green,
-                          error: Theme.red, note: Theme.muted }[card.who] ?? Theme.fg)
-                font { family: Theme.font; pixelSize: card.who === "tool" || card.who === "note" ? 12 : 15 }
+                text: (card.who === "tool" ? "→ " : "") + card.body
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 12 }
             }
-            // Hold a message to copy it (its text, without the marker).
-            property bool copied: false
-            TapHandler {
-                enabled: card.who !== "url"
-                onLongPressed: {
-                    home.clipboard.setText(card.body)
-                    card.copied = true
-                    copiedTimer.restart()
+
+            // Selectable as on a phone: hold to select a word, drag the handles; the shell's
+            // Copy button offers what is selected.
+            TextEdit {
+                id: msg
+                visible: card.selectable
+                anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
+                          leftMargin: 12; rightMargin: 12 }
+                readOnly: true
+                selectByMouse: false
+                activeFocusOnPress: false   // no focus: the keyboard stays down
+                persistentSelection: true
+                textFormat: TextEdit.PlainText
+                wrapMode: TextEdit.Wrap
+                text: card.prefix + card.body
+                color: ({ mobarchy: Theme.accent, done: Theme.green, error: Theme.red }[card.who] ?? Theme.fg)
+                selectionColor: Theme.accent
+                selectedTextColor: Theme.bgDark
+                font { family: Theme.font; pixelSize: 15 }
+                onSelectedTextChanged: if (!home.dragging && selectedText !== "") home.copyOffered(selectedText)
+
+                // on the text itself: a handler here sees the press before the text does
+                TapHandler {
+                    onLongPressed: {
+                        msg.cursorPosition = msg.positionAt(point.position.x, point.position.y)
+                        msg.selectWord()
+                    }
+                    onTapped: msg.deselect()
                 }
             }
-            Timer { id: copiedTimer; interval: 1200; onTriggered: card.copied = false }
+            readonly property bool selecting: msg.selectedText !== ""
+
+
+            // the selection's handles
+            // a thin bar along the line with a dot (as phones draw them); a larger area takes the finger
+            component Handle: Item {
+                id: handle
+                required property bool start
+                readonly property rect at: msg.positionToRectangle(start ? msg.selectionStart : msg.selectionEnd)
+                visible: card.selecting
+                width: 36; height: at.height + 30
+                x: msg.x + at.x - width / 2
+                y: msg.y + at.y - (handle.start ? 12 : 0)
+                z: 5
+                Rectangle {     // the bar, the line's height
+                    x: handle.width / 2 - 1
+                    y: handle.start ? 12 : 0
+                    width: 2; height: handle.at.height
+                    color: Theme.accent
+                }
+                Rectangle {     // the dot: above the start, below the end
+                    width: 12; height: 12; radius: 6
+                    x: handle.width / 2 - 6
+                    y: handle.start ? 2 : handle.at.height - 2
+                    color: Theme.accent
+                }
+                DragHandler {
+                    target: null
+                    onActiveChanged: {
+                        home.dragging = active
+                        if (!active && msg.selectedText !== "")
+                            home.copyOffered(msg.selectedText)
+                    }
+                    onCentroidChanged: {
+                        if (!active) return
+                        // the finger sits on the dot: aim at the middle of the line
+                        const dy = handle.start ? 12 + handle.at.height / 2 : handle.at.height / 2
+                        const p = handle.mapToItem(msg, centroid.position.x,
+                                                   centroid.position.y - centroid.pressPosition.y + dy)
+                        const pos = msg.positionAt(p.x, p.y)
+                        if (handle.start)
+                            msg.select(Math.min(pos, msg.selectionEnd - 1), msg.selectionEnd)
+                        else
+                            msg.select(msg.selectionStart, Math.max(pos, msg.selectionStart + 1))
+                    }
+                }
+            }
+            Handle { start: true }
+            Handle { start: false }
+
+            // select the whole message
             Rectangle {
-                visible: card.copied
+                visible: card.selecting
                 anchors { right: parent.right; top: parent.top; margins: 4 }
-                width: copiedText.implicitWidth + 16; height: 24; radius: 12
+                width: allText.implicitWidth + 16; height: 24; radius: 12
                 color: Theme.bgDark
-                border.color: Theme.green
+                border.color: Theme.accent
+                z: 6
                 Text {
-                    id: copiedText
+                    id: allText
                     anchors.centerIn: parent
-                    text: "✓ " + qsTr("Kopiert")
-                    color: Theme.green
+                    text: qsTr("Alt")
+                    color: Theme.accent
                     font { family: Theme.font; pixelSize: 12 }
                 }
+                TapHandler { onTapped: msg.select(card.prefix.length, msg.length) }
             }
+
             // A link from the agent (e.g. the login page if the browser did not open).
             MouseArea {
                 anchors.fill: parent
