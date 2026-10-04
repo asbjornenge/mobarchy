@@ -62,11 +62,12 @@ wants frames.
   muxes both into one MP4 in the photos' folder when the video stops (GStreamer).
   - The camera HAL's codec2 service needs Android's mediaserver (its resource manager)
     and the codec list generator; both run in the container.
-  - For now the encoder is Android's software one (c2.android.avc.encoder): the
-    hardware encoder (c2.exynos.h264.encoder, Samsung's MFC) fails to queue buffers
-    (VIDIOC_QBUF: EINVAL) with the kernel's MFC driver. Software encoding of 1080p30
-    takes about two cores and warms the CPU (45 to 58 °C in 30 s); the hardware
-    encoder is the next step.
+  - The encoder is the hardware's (c2.exynos.h264.encoder, Samsung's MFC): 1080p30 in
+    H.264 High. Android's software one would take about two cores and warm the CPU
+    (45 to 58 °C in 30 s).
+  - The encoder's output is drained on a thread of its own, synchronously: with
+    MediaCodec's asynchronous callbacks, releasing a buffer from the callback while the
+    stream was being ended deadlocked.
 - Each new capture session reconfigures the HAL's whole pipeline, which is slow. So a
   stream's session also carries a JPEG output (a photo while streaming is one request),
   and a stream PipeWire pauses briefly keeps its session.

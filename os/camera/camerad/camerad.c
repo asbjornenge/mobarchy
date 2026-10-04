@@ -45,9 +45,9 @@
 #define VIDEO_H 1080
 #define VIDEO_BITRATE 16000000  /* bits/s, H.264 */
 #define VIDEO_FPS 30
-/* Android's software H.264 encoder: the hardware's (c2.exynos.h264.encoder, Samsung's MFC)
- * can't queue its buffers with the kernel's MFC driver yet (ADR 0018) */
-#define VIDEO_ENCODER "c2.android.avc.encoder"
+/* the hardware's H.264 encoder (Samsung's MFC); Android's software one is
+ * c2.android.avc.encoder */
+#define VIDEO_ENCODER "c2.exynos.h264.encoder"
 #define VIDEO_FILE "/data/mobarchy/recording.mp4"   /* (unlinked once open: the client gets the fd) */
 #define COLOR_FORMAT_SURFACE 0x7F000789             /* MediaCodecInfo.CodecCapabilities */
 
