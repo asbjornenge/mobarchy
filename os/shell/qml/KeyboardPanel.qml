@@ -25,8 +25,13 @@ LayerWindow {
 
     // --- geometry ------------------------------------------------------------------------
     readonly property real pad: 3
-    readonly property real gap: Math.max(5, width * 0.014)
-    readonly property real unit: (width - 2 * pad - 10 * gap) / 11      // one letter key
+    // The keys are at most a phone's width wide, centred: on a wide screen (an unfolded
+    // foldable) a full-width row puts the letters too far apart for the thumbs.
+    readonly property real maxKeysWidth: 720
+    readonly property real keysWidth: Math.min(width, maxKeysWidth)
+    readonly property real keysX: (width - keysWidth) / 2
+    readonly property real gap: Math.max(5, keysWidth * 0.014)
+    readonly property real unit: (keysWidth - 2 * pad - 10 * gap) / 11      // one letter key
     readonly property real keyHeight: Math.min(Math.max(unit * 1.25, 40), 52)
     readonly property real rowHeight: keyHeight + gap * 2
     readonly property real stripHeight: 40      // the top strip; previews of the top row rise into it
@@ -237,7 +242,8 @@ LayerWindow {
         id: clipPanel
         visible: kb.mode === "clipboard"
         y: kb.stripHeight
-        width: kb.width
+        x: kb.keysX
+        width: kb.keysWidth
         height: kb.height - kb.stripHeight
         ListView {
             id: clipList
@@ -305,8 +311,8 @@ LayerWindow {
         id: board
         visible: kb.mode !== "emoji" && kb.mode !== "clipboard" && !kb.pad10
         y: kb.stripHeight
-        x: kb.pad
-        width: kb.width - 2 * kb.pad
+        x: kb.keysX + kb.pad
+        width: kb.keysWidth - 2 * kb.pad
         Repeater {
             model: kb.rows.concat([kb.bottomRow()])
             delegate: Item {
@@ -339,10 +345,10 @@ LayerWindow {
         id: numpad
         visible: kb.pad10 && kb.mode !== "emoji" && kb.mode !== "clipboard"
         y: kb.stripHeight + kb.gap
-        x: kb.pad
+        x: kb.keysX + kb.pad
         columns: 3
         spacing: kb.gap
-        readonly property real cell: (kb.width - 2 * kb.pad - 2 * kb.gap) / 3
+        readonly property real cell: (kb.keysWidth - 2 * kb.pad - 2 * kb.gap) / 3
         Repeater {
             model: [].concat(...kb.digitPad, [{k: "letters", w: 1}, {k: "space", w: 1}, {k: "return", w: 1}])
             delegate: Key {
@@ -586,9 +592,10 @@ LayerWindow {
         id: emojiPanel
         visible: kb.mode === "emoji"
         y: kb.stripHeight
-        width: kb.width
+        x: kb.keysX
+        width: kb.keysWidth
         height: kb.height - kb.stripHeight
-        readonly property real cell: Math.floor(kb.width / 8)
+        readonly property real cell: Math.floor(width / 8)
 
         ListView {
             id: emojiList
