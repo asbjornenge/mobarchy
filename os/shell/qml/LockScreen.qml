@@ -14,6 +14,11 @@ LayerWindow {
     required property PinLock pinLock
     required property Torch torch
     required property Haptics haptics
+    // The screen's insets (the panel under the bezel: Device.inset): the lock screen covers
+    // the whole screen, its corner buttons keep clear of them.
+    property int insetLeft: 0
+    property int insetRight: 0
+    property int insetBottom: 0
     signal unlocked()
     signal touched()  // any interaction: keeps the screen on a little longer
 
@@ -127,7 +132,7 @@ LayerWindow {
         }
 
         Column {
-            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 56 }
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 56 + lock.insetBottom }
             spacing: 8
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -162,7 +167,8 @@ LayerWindow {
     // What's playing, above the swipe hint; it moves with the content when swiped.
     NowPlaying {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom
-                  leftMargin: 24; rightMargin: 24; bottomMargin: 120 }
+                  leftMargin: 24 + lock.insetLeft; rightMargin: 24 + lock.insetRight
+                  bottomMargin: 120 + lock.insetBottom }
         transform: Translate { y: -lock.lift * lock.height * 0.5 }
         opacity: 1 - lock.lift
         compact: true
@@ -174,7 +180,8 @@ LayerWindow {
     // The torch: the other corner.
     Rectangle {
         visible: !lock.askingPin && !lock.cameraOpen && lock.torch.available
-        anchors { left: parent.left; bottom: parent.bottom; leftMargin: 28; bottomMargin: 44 }
+        anchors { left: parent.left; bottom: parent.bottom
+                  leftMargin: 28 + lock.insetLeft; bottomMargin: 44 + lock.insetBottom }
         width: 56; height: 56; radius: 28
         opacity: 1 - lock.lift
         color: lock.torch.on ? Theme.fg : torchTap.pressed ? Theme.line : Theme.panel
@@ -194,7 +201,8 @@ LayerWindow {
     // The camera: a phone's corner shortcut. Locked: its photos are only the ones taken here.
     Rectangle {
         visible: !lock.askingPin && !lock.cameraOpen
-        anchors { right: parent.right; bottom: parent.bottom; rightMargin: 28; bottomMargin: 44 }
+        anchors { right: parent.right; bottom: parent.bottom
+                  rightMargin: 28 + lock.insetRight; bottomMargin: 44 + lock.insetBottom }
         width: 56; height: 56; radius: 28
         opacity: 1 - lock.lift
         color: cameraTap.pressed ? Theme.line : Theme.panel
@@ -240,7 +248,7 @@ LayerWindow {
     }
     Text {
         visible: lock.askingPin
-        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 48 }
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 48 + lock.insetBottom }
         text: qsTr("Cancel")
         color: Theme.muted
         font { family: Theme.font; pixelSize: 14 }

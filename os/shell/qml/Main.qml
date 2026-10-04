@@ -128,6 +128,9 @@ QtObject {
         pinLock: shell.pinLock
         torch: shell.torch
         haptics: shell.haptics
+        insetLeft: shell.leftInset.inset
+        insetRight: shell.rightInset.inset
+        insetBottom: shell.edge.inset
         onUnlocked: {
             shown = false
             // Focus goes back to the app behind; the keyboard should not come up with it.
