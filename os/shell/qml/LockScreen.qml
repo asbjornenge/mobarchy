@@ -12,6 +12,8 @@ LayerWindow {
     required property Notifications notifications
     required property MediaPlayers media
     required property PinLock pinLock
+    required property Torch torch
+    required property Haptics haptics
     signal unlocked()
     signal touched()  // any interaction: keeps the screen on a little longer
 
@@ -169,6 +171,26 @@ LayerWindow {
         onVisibleChanged: if (visible) lock.media.refreshPosition()
     }
 
+    // The torch: the other corner.
+    Rectangle {
+        visible: !lock.askingPin && !lock.cameraOpen && lock.torch.available
+        anchors { left: parent.left; bottom: parent.bottom; leftMargin: 28; bottomMargin: 44 }
+        width: 56; height: 56; radius: 28
+        opacity: 1 - lock.lift
+        color: lock.torch.on ? Theme.fg : torchTap.pressed ? Theme.line : Theme.panel
+        border.color: Theme.line
+        Text {
+            anchors.centerIn: parent
+            text: lock.torch.on ? "󰛨" : "󰛩"
+            color: lock.torch.on ? Theme.bg : Theme.fg
+            font { family: Theme.font; pixelSize: 24 }
+        }
+        TapHandler {
+            id: torchTap
+            onTapped: { lock.touched(); lock.haptics.click(); lock.torch.toggle() }
+        }
+    }
+
     // The camera: a phone's corner shortcut. Locked: its photos are only the ones taken here.
     Rectangle {
         visible: !lock.askingPin && !lock.cameraOpen
@@ -185,7 +207,7 @@ LayerWindow {
         }
         TapHandler {
             id: cameraTap
-            onTapped: { lock.touched(); lock.cameraOpen = true }
+            onTapped: { lock.touched(); lock.haptics.click(); lock.cameraOpen = true }
         }
     }
     Loader {

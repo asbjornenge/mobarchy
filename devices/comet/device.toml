@@ -31,6 +31,13 @@ side_inset = 20     # trial value: the clock was cut off at the left edge
 touch = "vendor"
 fold_sensor = true
 
+# Haptics (the cs40l26 actuator, a force-feedback input device): the click the shell plays
+# on buttons, a custom effect from the firmware's wavetable: bank (0: RAM) and index (2: the
+# click, as Pixel's vibrator HAL plays it)
+[haptics]
+click_bank = 0
+click_index = 2
+
 # The Android container for telephony (ADR 0014; os/rootfs/usr/lib/mobarchy/android-container).
 [android]
 partitions = ["system", "system_ext", "product", "vendor"]   # from super, read-only

@@ -21,6 +21,8 @@ Sheet {
     required property Notifications notifications
     required property Volume volume
     required property AppModel apps
+    required property Torch torch
+    required property Haptics haptics
 
     // A secured network without a saved passphrase was picked.
     signal passphraseNeeded(string ssid)
@@ -219,10 +221,12 @@ Sheet {
         property string icon
         property string label
         property bool warn: false
+        property bool lit: false            // on (the torch)
         signal clicked()
         width: Math.max(52, row.implicitWidth + 32); height: 44
         radius: 22
-        color: warn ? Qt.rgba(Theme.red.r, Theme.red.g, Theme.red.b, 0.18) : Theme.panel
+        color: warn ? Qt.rgba(Theme.red.r, Theme.red.g, Theme.red.b, 0.18)
+             : lit ? Theme.fg : Theme.panel
         border.color: warn ? Theme.red : Theme.line
         scale: rbTap.pressed ? 0.94 : 1
         Behavior on scale { NumberAnimation { duration: 90 } }
@@ -230,12 +234,12 @@ Sheet {
             id: row
             anchors.centerIn: parent
             spacing: 8
-            Text { text: rb.icon; color: rb.warn ? Theme.red : Theme.fg; font { family: Theme.font; pixelSize: 18 } }
+            Text { text: rb.icon; color: rb.warn ? Theme.red : rb.lit ? Theme.bg : Theme.fg; font { family: Theme.font; pixelSize: 18 } }
             Text {
                 visible: rb.label.length > 0
                 anchors.verticalCenter: parent.verticalCenter
                 text: rb.label
-                color: rb.warn ? Theme.red : Theme.fg
+                color: rb.warn ? Theme.red : rb.lit ? Theme.bg : Theme.fg
                 font { family: Theme.font; pixelSize: 12 }
             }
         }
@@ -562,11 +566,24 @@ Sheet {
                 Item {
                     width: parent.width
                     height: 44
-                    RoundButton {
+                    Row {
                         anchors.left: parent.left
-                        icon: "󰄀"
-                        label: qsTr("Camera")
-                        onClicked: { quick.apps.launch("org.mobarchy.Camera"); quick.close() }
+                        spacing: 10
+                        RoundButton {
+                            icon: "󰄀"
+                            label: qsTr("Camera")
+                            onClicked: {
+                                quick.haptics.click()
+                                quick.apps.launch("org.mobarchy.Camera")
+                                quick.close()
+                            }
+                        }
+                        RoundButton {
+                            visible: quick.torch.available
+                            icon: quick.torch.on ? "󰛨" : "󰛩"
+                            lit: quick.torch.on
+                            onClicked: { quick.haptics.click(); quick.torch.toggle() }
+                        }
                     }
                     Row {
                         anchors.right: parent.right

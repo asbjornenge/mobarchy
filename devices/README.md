@@ -40,6 +40,10 @@ side_inset = 0        # optional: the same at the left and right edges (panel un
 
 [input]
 touch = "..."
+
+[haptics]             # optional: the click the shell plays on buttons, as a force-feedback
+click_bank = 0        # custom effect (the actuator's own waveform: bank, index); without
+click_index = 2       # it, a short buzz
 ```
 
 Fields will be added as the porting work needs them. Keep this document in sync.

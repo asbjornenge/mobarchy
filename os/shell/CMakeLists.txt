@@ -35,6 +35,8 @@ qt_add_qml_module(mobarchy-shell
         src/appstore.cpp src/appstore.h
         src/bluetooth.cpp src/bluetooth.h
         src/camera.cpp src/camera.h
+        src/haptics.cpp src/haptics.h
+        src/torch.cpp src/torch.h
         src/iconprovider.h
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h

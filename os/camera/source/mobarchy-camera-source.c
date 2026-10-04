@@ -58,6 +58,12 @@ static const char introspection[] =
     "      <arg type='u' name='rotation' direction='in'/>"
     "      <arg type='s' name='path' direction='out'/>"
     "    </method>"
+    "    <!-- the torch (the flash as a light): on or off; returns its state now -->"
+    "    <method name='SetTorch'>"
+    "      <arg type='b' name='on' direction='in'/>"
+    "      <arg type='b' name='on' direction='out'/>"
+    "    </method>"
+    "    <property name='Torch' type='b' access='read'/>"
     "  </interface>"
     "</node>";
 
@@ -90,6 +96,8 @@ static struct {
     GDBusMethodInvocation *photo;
     char photo_camera[CAMERA_ID_SIZE];
     GDBusConnection *bus;
+    gboolean torch;
+    GQueue torch_calls;             /* SetTorch calls waiting for the bridge */
     int lid;                        /* the lid switch (SW_LID) device, or -1 */
     int folded;
 } app = { .bridge = -1, .pending = -1, .lid = -1 };
@@ -120,6 +128,7 @@ unmap_buffers(void)
 }
 
 static void photo_failed(const char *why);
+static void torch_changed(gboolean on);
 static void streams_create(void);
 static gboolean bridge_connect(gpointer unused);
 
@@ -134,6 +143,7 @@ bridge_lost(void)
     app.bridge = -1;
     unmap_buffers();
     app.active = NULL;
+    torch_changed(FALSE);               /* (cameraserver turns it off when the bridge goes) */
     if (app.photo)
         photo_failed("the camera bridge went away");
     g_timeout_add_seconds(RETRY_SECONDS, bridge_connect, NULL);
@@ -168,6 +178,26 @@ photo_failed(const char *why)
     g_dbus_method_invocation_return_error(app.photo, G_IO_ERROR, G_IO_ERROR_FAILED,
                                           "No photo: %s", why);
     app.photo = NULL;
+}
+
+static void
+torch_changed(gboolean on)
+{
+    GDBusMethodInvocation *inv;
+
+    while ((inv = g_queue_pop_head(&app.torch_calls)))
+        g_dbus_method_invocation_return_value(inv, g_variant_new("(b)", on));
+    if (on == app.torch)
+        return;
+    app.torch = on;
+    if (app.bus) {
+        GVariantBuilder changed;
+        g_variant_builder_init(&changed, G_VARIANT_TYPE_VARDICT);
+        g_variant_builder_add(&changed, "{sv}", "Torch", g_variant_new_boolean(on));
+        g_dbus_connection_emit_signal(app.bus, NULL, BUS_PATH, "org.freedesktop.DBus.Properties",
+                                      "PropertiesChanged",
+                                      g_variant_new("(sa{sv}as)", BUS_NAME, &changed, NULL), NULL);
+    }
 }
 
 static gboolean
@@ -223,6 +253,9 @@ on_bridge(gint fd, GIOCondition cond, gpointer unused)
     case MSG_JPEG:
         if (app.photo && nfds)
             photo_done(fds[0], m.size);
+        break;
+    case MSG_TORCH_STATE:
+        torch_changed(m.code != 0);
         break;
     case MSG_ERROR:
         g_warning("camera bridge: error %d", m.code);
@@ -445,6 +478,15 @@ on_method(GDBusConnection *bus, const char *sender, const char *path, const char
                                   ? "back" : "external", m->orientation, m->max_width, m->max_height);
         }
         g_dbus_method_invocation_return_value(inv, g_variant_new("(a(ssuuu))", &b));
+    } else if (!g_strcmp0(method, "SetTorch")) {
+        gboolean on;
+        g_variant_get(args, "(b)", &on);
+        struct camera_message m = { .type = MSG_TORCH, .code = on };   /* camera "": the flash's */
+        if (app.bridge < 0 || send(app.bridge, &m, sizeof m, MSG_NOSIGNAL) != sizeof m)
+            g_dbus_method_invocation_return_error(inv, G_IO_ERROR, G_IO_ERROR_NOT_CONNECTED,
+                                                  "The camera isn't up (the Android container)");
+        else
+            g_queue_push_tail(&app.torch_calls, inv);
     } else if (!g_strcmp0(method, "TakePhoto")) {
         const char *camera;
         guint32 w, h, rotation;
@@ -466,7 +508,15 @@ on_method(GDBusConnection *bus, const char *sender, const char *path, const char
     }
 }
 
-static const GDBusInterfaceVTable vtable = { .method_call = on_method };
+static GVariant *
+on_get_property(GDBusConnection *bus, const char *sender, const char *path, const char *iface,
+                const char *name, GError **error, gpointer unused)
+{
+    return g_variant_new_boolean(app.torch);        /* (the only one: Torch) */
+}
+
+static const GDBusInterfaceVTable vtable = { .method_call = on_method,
+                                             .get_property = on_get_property };
 
 static void
 on_bus(GDBusConnection *bus, const char *name, gpointer unused)

@@ -47,6 +47,9 @@ static int client = -1;
 static struct { char camera[CAMERA_ID_SIZE]; int width, height; } wanted;
 
 static void do_device_state(const struct camera_message *req);
+static void do_torch(const struct camera_message *req);
+static int torch_on;
+static void send_torch_state(void);
 
 /* the open camera and its session */
 static struct {
@@ -362,6 +365,10 @@ open_session(const char *id, int w, int h, int jw, int jh)
         close_session(0);
     }
     cam.failed = 0;
+    if (!cam.device && torch_on) {
+        torch_on = 0;                   /* opening a camera turns its torch off */
+        send_torch_state();
+    }
     if (!cam.device) {
         ACameraDevice_StateCallbacks cb = { .onDisconnected = on_disconnected, .onError = on_error };
         /* after a crash the provider restarts, and the camera is back a few seconds later */
@@ -471,6 +478,7 @@ do_list(void)
     ACameraManager_deleteCameraIdList(ids);
     struct camera_message end = { .type = MSG_END };
     send_msg(&end, NULL, 0);
+    send_torch_state();
 }
 
 /* the client's frame buffers for the session's YUV stream, sent to it (BUFFERS) */
@@ -651,6 +659,9 @@ serve(void)
         case MSG_DEVICE_STATE:
             do_device_state(&req);
             break;
+        case MSG_TORCH:
+            do_torch(&req);
+            break;
         }
     }
 }
@@ -675,13 +686,12 @@ class_on_transact(AIBinder *b, transaction_code_t code, const AParcel *in, AParc
 
 static int64_t device_state = -1;       /* as last told to cameraserver */
 
-static int
-notify_device_state(int64_t state)
+/* cameraserver, to call (a reference: AIBinder_decStrong it), or NULL */
+static AIBinder *
+camera_service(void)
 {
     static AIBinder_Class *clazz;
     static AIBinder *(*get_service)(const char *);
-    AParcel *in = NULL, *out = NULL;
-    binder_status_t st;
 
     if (!clazz) {
         void *lib = dlopen("libbinder_ndk.so", RTLD_NOW);
@@ -690,12 +700,24 @@ notify_device_state(int64_t state)
                                       class_on_destroy, class_on_transact);
     }
     AIBinder *service = get_service ? get_service(CAMERA_SERVICE) : NULL;
-    if (!service || !AIBinder_associateClass(service, clazz)) {
-        ERR("no %s to tell the device's state", CAMERA_SERVICE);
-        if (service)
-            AIBinder_decStrong(service);
-        return -1;
+    if (service && !AIBinder_associateClass(service, clazz)) {
+        AIBinder_decStrong(service);
+        service = NULL;
     }
+    if (!service)
+        ERR("no %s", CAMERA_SERVICE);
+    return service;
+}
+
+static int
+notify_device_state(int64_t state)
+{
+    AParcel *in = NULL, *out = NULL;
+    binder_status_t st;
+
+    AIBinder *service = camera_service();
+    if (!service)
+        return -1;
     st = AIBinder_prepareTransaction(service, &in);
     if (st == STATUS_OK)
         st = AParcel_writeInt64(in, state);
@@ -728,6 +750,131 @@ do_device_state(const struct camera_message *req)
         close_session(1);
         restore(1, wanted.camera, wanted.width, wanted.height);
     }
+}
+
+/* --- the torch -------------------------------------------------------------------------- */
+
+/* ICameraService (Android 17): void setTorchMode(String cameraId, boolean enabled,
+ * IBinder clientBinder, in AttributionSourceState clientAttribution, int devicePolicy).
+ * clientBinder: cameraserver turns the torch off when it dies (this process). */
+#define TX_SET_TORCH_MODE (FIRST_CALL_TRANSACTION + 15)
+
+static char torch_camera[CAMERA_ID_SIZE];
+
+static const char *
+no_strings(const void *array, size_t index, int32_t *length)
+{
+    return NULL;
+}
+
+/* frameworks/base AttributionSourceState: who asks (this process), as a parcelable */
+static binder_status_t
+write_attribution(AParcel *p)
+{
+    binder_status_t st = AParcel_writeInt32(p, 1);             /* not null */
+    int32_t start = AParcel_getDataPosition(p);
+
+    if (st == STATUS_OK) st = AParcel_writeInt32(p, 0);        /* its size, below */
+    if (st == STATUS_OK) st = AParcel_writeInt32(p, getpid());
+    if (st == STATUS_OK) st = AParcel_writeInt32(p, getuid());
+    if (st == STATUS_OK) st = AParcel_writeInt32(p, 0);        /* deviceId: the default */
+    if (st == STATUS_OK) st = AParcel_writeString(p, "mobarchy-camerad", 16);  /* packageName */
+    if (st == STATUS_OK) st = AParcel_writeString(p, NULL, -1);                /* attributionTag */
+    if (st == STATUS_OK) st = AParcel_writeStrongBinder(p, NULL);              /* token */
+    if (st == STATUS_OK) st = AParcel_writeStringArray(p, NULL, -1, no_strings); /* renouncedPermissions */
+    if (st == STATUS_OK) st = AParcel_writeInt32(p, 0);        /* next: none */
+    if (st != STATUS_OK)
+        return st;
+    int32_t end = AParcel_getDataPosition(p);
+    AParcel_setDataPosition(p, start);
+    AParcel_writeInt32(p, end - start);
+    return AParcel_setDataPosition(p, end);
+}
+
+static int
+set_torch(const char *id, int on)
+{
+    static AIBinder_Class *token_class;
+    static AIBinder *token;
+    AParcel *in = NULL, *out = NULL;
+    binder_status_t st;
+    int32_t exception = -1;
+
+    if (!token_class) {
+        token_class = AIBinder_Class_define("org.mobarchy.camerad.Torch", class_on_create,
+                                            class_on_destroy, class_on_transact);
+        token = AIBinder_new(token_class, NULL);
+    }
+    AIBinder *service = camera_service();
+    if (!service)
+        return -1;
+    st = AIBinder_prepareTransaction(service, &in);
+    if (st == STATUS_OK) st = AParcel_writeString(in, id, strlen(id));
+    if (st == STATUS_OK) st = AParcel_writeBool(in, on);
+    if (st == STATUS_OK) st = AParcel_writeStrongBinder(in, token);
+    if (st == STATUS_OK) st = write_attribution(in);
+    if (st == STATUS_OK) st = AParcel_writeInt32(in, 0);       /* devicePolicy: the default */
+    if (st == STATUS_OK)
+        st = AIBinder_transact(service, TX_SET_TORCH_MODE, &in, &out, 0);
+    else
+        AParcel_delete(in);
+    if (st == STATUS_OK)
+        st = AParcel_readInt32(out, &exception);               /* the status header */
+    AParcel_delete(out);
+    AIBinder_decStrong(service);
+    if (st != STATUS_OK || exception != 0) {
+        ERR("setTorchMode(%s, %d): %d, exception %d", id, on, st, exception);
+        return -1;
+    }
+    LOG("torch %s: %s", id, on ? "on" : "off");
+    return 0;
+}
+
+static void
+send_torch_state(void)
+{
+    struct camera_message m = { .type = MSG_TORCH_STATE, .code = torch_on };
+    snprintf(m.camera, sizeof m.camera, "%s", torch_camera);
+    send_msg(&m, NULL, 0);
+}
+
+/* the first camera with a flash (into id), or false */
+static bool
+flash_camera(char *id, size_t size)
+{
+    ACameraIdList *ids = NULL;
+    bool found = false;
+
+    if (ACameraManager_getCameraIdList(manager, &ids) != ACAMERA_OK)
+        return false;
+    for (int i = 0; i < ids->numCameras && !found; i++) {
+        ACameraMetadata *md = NULL;
+        ACameraMetadata_const_entry e;
+        if (ACameraManager_getCameraCharacteristics(manager, ids->cameraIds[i], &md) != ACAMERA_OK)
+            continue;
+        if (ACameraMetadata_getConstEntry(md, ACAMERA_FLASH_INFO_AVAILABLE, &e) == ACAMERA_OK
+            && e.data.u8[0] == ACAMERA_FLASH_INFO_AVAILABLE_TRUE) {
+            snprintf(id, size, "%s", ids->cameraIds[i]);
+            found = true;
+        }
+        ACameraMetadata_free(md);
+    }
+    ACameraManager_deleteCameraIdList(ids);
+    return found;
+}
+
+/* TORCH: camera "" is the first one with a flash */
+static void
+do_torch(const struct camera_message *req)
+{
+    char id[CAMERA_ID_SIZE];
+
+    snprintf(id, sizeof id, "%s", req->camera);
+    if ((id[0] || flash_camera(id, sizeof id)) && set_torch(id, req->code != 0) == 0) {
+        torch_on = req->code != 0;
+        snprintf(torch_camera, sizeof torch_camera, "%s", id);
+    }
+    send_torch_state();
 }
 
 /* The camera's callbacks come over binder: the process needs binder threads. libbinder_ndk
