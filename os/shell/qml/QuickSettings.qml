@@ -161,6 +161,8 @@ Sheet {
     }
 
     readonly property bool wide: width > 640
+    // A short, wide screen (a phone turned sideways): the overview in two columns.
+    readonly property bool twoColumns: width > height * 1.4
 
     component Tile: Rectangle {
         id: tile
@@ -217,6 +219,46 @@ Sheet {
         }
     }
 
+    // System actions, as Omarchy's system menu; the camera and torch on the other side.
+    component ActionsRow: Item {
+        height: 44
+        Row {
+            anchors.left: parent.left
+            spacing: 10
+            RoundButton {
+                icon: "󰄀"
+                label: qsTr("Camera")
+                onClicked: {
+                    quick.haptics.click()
+                    quick.apps.launch("org.mobarchy.Camera")
+                    quick.close()
+                }
+            }
+            RoundButton {
+                visible: quick.torch.available
+                icon: quick.torch.on ? "󰛨" : "󰛩"
+                lit: quick.torch.on
+                onClicked: { quick.haptics.click(); quick.torch.toggle() }
+            }
+        }
+        Row {
+            anchors.right: parent.right
+            spacing: 10
+            RoundButton {
+                icon: "󰜉"
+                label: quick.confirming === "reboot" ? qsTr("Tap to restart") : ""
+                warn: quick.confirming === "reboot"
+                onClicked: quick.confirmOr("reboot", () => quick.power.reboot())
+            }
+            RoundButton {
+                icon: "󰐥"
+                label: quick.confirming === "poweroff" ? qsTr("Tap to power off") : ""
+                warn: quick.confirming === "poweroff"
+                onClicked: quick.confirmOr("poweroff", () => quick.power.powerOff())
+            }
+        }
+    }
+
     component RoundButton: Rectangle {
         id: rb
         property string icon
@@ -261,7 +303,9 @@ Sheet {
     Rectangle {
         id: panel
         width: parent.width
-        height: [overview, wifiPage, bluetoothPage, lockPage][quick.page].implicitHeight + 28 + handle.height
+        // as tall as the page, up to the screen (the pages scroll beyond that)
+        height: Math.min([overview, wifiPage, bluetoothPage, lockPage][quick.page].implicitHeight + 28 + handle.height,
+                         quick.height)
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         y: -(1 - quick.openness) * height
         radius: 18
@@ -279,755 +323,787 @@ Sheet {
             Behavior on x { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
 
             // --- overview ---------------------------------------------------------------
-            Column {
-                id: overview
-                x: 20
-                width: pages.width - 40
-                spacing: 18
-
-                // Time, date and battery, Omarchy style.
-                Item {
-                    width: parent.width
-                    height: 48
-                    Column {
-                        anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                        Text {
-                            text: Qt.formatTime(clock.now, "HH:mm")
-                            color: Theme.fg
-                            font { family: Theme.font; pixelSize: 26; bold: true }
-                        }
-                        Text {
-                            text: clock.now.toLocaleDateString(Qt.locale(), "dddd d MMMM")
-                            color: Theme.muted
-                            font { family: Theme.font; pixelSize: 12 }
-                        }
-                    }
-                    Column {
-                        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                        visible: quick.system.battery >= 0
-                        Text {
-                            anchors.right: parent.right
-                            text: (quick.system.charging ? "󰂄 " : "󰁹 ") + quick.system.battery + "%"
-                            color: quick.system.battery <= 15 && !quick.system.charging ? Theme.red : Theme.fg
-                            font { family: Theme.font; pixelSize: 18 }
-                        }
-                        Text {
-                            anchors.right: parent.right
-                            text: quick.system.charging ? qsTr("Charging") : qsTr("Battery")
-                            color: Theme.muted
-                            font { family: Theme.font; pixelSize: 12 }
-                        }
-                    }
-                    QtObject {
-                        id: clock
-                        property date now: new Date()
-                    }
-                    Timer {
-                        interval: 1000
-                        running: quick.shown
-                        repeat: true
-                        triggeredOnStart: true
-                        onTriggered: clock.now = new Date()
-                    }
-                }
-
-                LevelSlider {
-                    width: parent.width
-                    visible: quick.brightness.available
-                    icon: "󰃠"
-                    value: quick.brightness.level
-                    onMoved: (v) => quick.brightness.level = v
-                }
-                LevelSlider {
-                    width: parent.width
-                    visible: quick.volume.available
-                    icon: quick.volume.muted || quick.volume.volume === 0 ? "󰖁"
-                        : quick.volume.volume < 0.34 ? "󰕿" : quick.volume.volume < 0.67 ? "󰖀" : "󰕾"
-                    iconActive: quick.volume.muted
-                    value: quick.volume.muted ? 0 : quick.volume.volume
-                    onMoved: (v) => quick.volume.volume = v
-                    onIconClicked: quick.volume.muted = !quick.volume.muted
-                }
-
-                NowPlaying {
-                    width: parent.width
-                    player: quick.media
-                }
+            // One column; two side by side on a short, wide screen (a phone turned sideways):
+            // the clock, sliders and media on the left, the tiles and actions on the right.
+            Flickable {
+                id: overviewFlick
+                width: pages.width
+                height: pages.height
+                contentHeight: overview.implicitHeight
+                clip: true
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
 
                 Grid {
-                    id: tiles
-                    width: parent.width
-                    columns: quick.wide ? 3 : 2
-                    spacing: 12
+                    id: overview
+                    x: 20
+                    width: pages.width - 40
+                    columns: quick.twoColumns ? 2 : 1
+                    columnSpacing: 24
+                    rowSpacing: 18
+                    readonly property real columnWidth: quick.twoColumns ? (width - columnSpacing) / 2 : width
 
-                    Tile {
-                        icon: !quick.rfkill.wifiEnabled ? "󰤮" : quick.wifi.ssid ? "󰤨" : "󰤯"
-                        label: qsTr("Wi-Fi")
-                        detail: !quick.rfkill.wifiEnabled ? qsTr("Off")
-                              : quick.wifi.ssid || (quick.wifi.connecting ? qsTr("Connecting …") : qsTr("Not connected"))
-                        active: quick.rfkill.wifiEnabled && quick.wifi.ssid.length > 0
-                        chevron: true
-                        supported: quick.rfkill.hasWifi || quick.wifi.available
-                        onClicked: quick.showWifi()
-                    }
-                    Tile {
-                        icon: "󰀝"
-                        label: qsTr("Flight mode")
-                        detail: quick.rfkill.flightMode ? qsTr("On") : qsTr("Off")
-                        active: quick.rfkill.flightMode
-                        supported: quick.rfkill.available
-                        onClicked: quick.rfkill.flightMode = !quick.rfkill.flightMode
-                    }
-                    Tile {
-                        icon: quick.pinLock.hasPin ? "󰌾" : "󰍁"
-                        label: qsTr("Screen lock")
-                        detail: quick.pinLock.hasPin ? qsTr("PIN") : qsTr("Swipe only")
-                        active: quick.pinLock.hasPin
-                        chevron: true
-                        onClicked: quick.showLock()
-                    }
-                    Tile {
-                        icon: "󰌌"
-                        label: qsTr("Keyboard")
-                        detail: quick.keyboard.visible ? qsTr("Shown") : qsTr("Hidden")
-                        active: quick.keyboard.visible
-                        onClicked: quick.keyboard.toggle()
-                    }
-                    Tile {
-                        visible: quick.rotation.supported
-                        icon: quick.rotation.locked ? "󰑙" : "󰑵"
-                        label: qsTr("Rotation")
-                        detail: quick.rotation.locked ? qsTr("Locked") : qsTr("Automatic")
-                        active: !quick.rotation.locked
-                        onClicked: quick.rotation.setLocked(!quick.rotation.locked)
-                    }
-                    Tile {
-                        icon: "󰒢"
-                        label: qsTr("Mobile network")
-                        detail: qsTr("Not supported yet")
-                        supported: false
-                    }
-                    Tile {
-                        icon: quick.volume.muted ? "󰖁" : "󰕾"
-                        label: qsTr("Sound")
-                        detail: !quick.volume.available ? qsTr("No audio output")
-                              : quick.volume.muted ? qsTr("Muted")
-                              : Math.round(quick.volume.volume * 100) + " %"
-                        active: quick.volume.available && !quick.volume.muted
-                        supported: quick.volume.available
-                        onClicked: quick.volume.muted = !quick.volume.muted
-                    }
-                    Tile {
-                        icon: !quick.rfkill.bluetoothEnabled ? "󰂲" : quick.bluetooth.connectedNames.length > 0 ? "󰂱" : "󰂯"
-                        label: qsTr("Bluetooth")
-                        detail: !quick.rfkill.bluetoothEnabled ? qsTr("Off")
-                              : quick.bluetooth.connectedNames.join(", ") || qsTr("On")
-                        active: quick.rfkill.bluetoothEnabled && quick.bluetooth.connectedNames.length > 0
-                        chevron: true
-                        supported: quick.rfkill.hasBluetooth || quick.bluetooth.available
-                        onClicked: quick.showBluetooth()
-                    }
-                }
+                    Column {
+                        width: overview.columnWidth
+                        spacing: 18
 
-                // Notifications
-                Item {
-                    width: parent.width
-                    height: 24
-                    visible: quick.notifications.count > 0
-                    Text {
-                        anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                        text: qsTr("Notifications")
-                        color: Theme.muted
-                        font { family: Theme.font; pixelSize: 12 }
-                    }
-                    Text {
-                        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                        text: qsTr("Clear all")
-                        color: Theme.accent
-                        font { family: Theme.font; pixelSize: 12 }
-                        MouseArea {
-                            anchors { fill: parent; margins: -10 }
-                            onClicked: quick.notifications.clear()
-                        }
-                    }
-                }
-                ListView {
-                    maximumFlickVelocity: Theme.flickVelocity
-                    flickDeceleration: Theme.flickDeceleration
-                    rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
-                    id: notificationList
-                    width: parent.width
-                    visible: count > 0
-                    height: Math.min(contentHeight, 300)
-                    clip: true
-                    spacing: 8
-                    currentIndex: -1  // see Home.qml
-                    highlightFollowsCurrentItem: false
-                    boundsBehavior: Flickable.DragAndOvershootBounds
-                    model: quick.notifications
-                    delegate: Rectangle {
-                        id: note
-                        required property int notificationId
-                        required property string app
-                        required property string icon
-                        required property string summary
-                        required property string body
-                        required property var actions
-                        required property int urgency
-                        required property date time
-                        width: ListView.view.width
-                        height: noteColumn.implicitHeight + 24
-                        radius: 14
-                        color: noteTap.pressed ? Theme.line : Theme.panel
-                        border.color: urgency >= 2 ? Theme.red : "transparent"
-
-                        MouseArea {
-                            id: noteTap
-                            anchors.fill: parent
-                            onClicked: {
-                                quick.notifications.invoke(note.notificationId, "default")
-                                quick.close()
+                        // Time, date and battery, Omarchy style.
+                        Item {
+                            width: parent.width
+                            height: 48
+                            Column {
+                                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                                Text {
+                                    text: Qt.formatTime(clock.now, "HH:mm")
+                                    color: Theme.fg
+                                    font { family: Theme.font; pixelSize: 26; bold: true }
+                                }
+                                Text {
+                                    text: clock.now.toLocaleDateString(Qt.locale(), "dddd d MMMM")
+                                    color: Theme.muted
+                                    font { family: Theme.font; pixelSize: 12 }
+                                }
+                            }
+                            Column {
+                                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                                visible: quick.system.battery >= 0
+                                Text {
+                                    anchors.right: parent.right
+                                    text: (quick.system.charging ? "󰂄 " : "󰁹 ") + quick.system.battery + "%"
+                                    color: quick.system.battery <= 15 && !quick.system.charging ? Theme.red : Theme.fg
+                                    font { family: Theme.font; pixelSize: 18 }
+                                }
+                                Text {
+                                    anchors.right: parent.right
+                                    text: quick.system.charging ? qsTr("Charging") : qsTr("Battery")
+                                    color: Theme.muted
+                                    font { family: Theme.font; pixelSize: 12 }
+                                }
+                            }
+                            QtObject {
+                                id: clock
+                                property date now: new Date()
+                            }
+                            Timer {
+                                interval: 1000
+                                running: quick.shown
+                                repeat: true
+                                triggeredOnStart: true
+                                onTriggered: clock.now = new Date()
                             }
                         }
-                        Image {
-                            id: noteIcon
-                            anchors { left: parent.left; leftMargin: 14; top: parent.top; topMargin: 14 }
-                            width: 28; height: 28
-                            sourceSize: Qt.size(56, 56)
-                            asynchronous: true
-                            source: note.icon ? "image://icon/" + note.icon : ""
-                            visible: status === Image.Ready
+
+                        LevelSlider {
+                            width: parent.width
+                            visible: quick.brightness.available
+                            icon: "󰃠"
+                            value: quick.brightness.level
+                            onMoved: (v) => quick.brightness.level = v
                         }
-                        Column {
-                            id: noteColumn
-                            anchors { left: noteIcon.visible ? noteIcon.right : parent.left; leftMargin: 14
-                                      right: closeNote.left; top: parent.top; topMargin: 12 }
-                            spacing: 3
+                        LevelSlider {
+                            width: parent.width
+                            visible: quick.volume.available
+                            icon: quick.volume.muted || quick.volume.volume === 0 ? "󰖁"
+                                : quick.volume.volume < 0.34 ? "󰕿" : quick.volume.volume < 0.67 ? "󰖀" : "󰕾"
+                            iconActive: quick.volume.muted
+                            value: quick.volume.muted ? 0 : quick.volume.volume
+                            onMoved: (v) => quick.volume.volume = v
+                            onIconClicked: quick.volume.muted = !quick.volume.muted
+                        }
+
+                        NowPlaying {
+                            width: parent.width
+                            player: quick.media
+                        }
+
+                        ActionsRow {
+                            width: parent.width
+                            visible: quick.twoColumns
+                        }
+                    }
+
+                    Column {
+                        width: overview.columnWidth
+                        spacing: 18
+
+                        Grid {
+                            id: tiles
+                            width: parent.width
+                            columns: quick.wide && !quick.twoColumns ? 3 : 2
+                            spacing: 12
+
+                            Tile {
+                                icon: !quick.rfkill.wifiEnabled ? "󰤮" : quick.wifi.ssid ? "󰤨" : "󰤯"
+                                label: qsTr("Wi-Fi")
+                                detail: !quick.rfkill.wifiEnabled ? qsTr("Off")
+                                      : quick.wifi.ssid || (quick.wifi.connecting ? qsTr("Connecting …") : qsTr("Not connected"))
+                                active: quick.rfkill.wifiEnabled && quick.wifi.ssid.length > 0
+                                chevron: true
+                                supported: quick.rfkill.hasWifi || quick.wifi.available
+                                onClicked: quick.showWifi()
+                            }
+                            Tile {
+                                icon: "󰀝"
+                                label: qsTr("Flight mode")
+                                detail: quick.rfkill.flightMode ? qsTr("On") : qsTr("Off")
+                                active: quick.rfkill.flightMode
+                                supported: quick.rfkill.available
+                                onClicked: quick.rfkill.flightMode = !quick.rfkill.flightMode
+                            }
+                            Tile {
+                                icon: quick.pinLock.hasPin ? "󰌾" : "󰍁"
+                                label: qsTr("Screen lock")
+                                detail: quick.pinLock.hasPin ? qsTr("PIN") : qsTr("Swipe only")
+                                active: quick.pinLock.hasPin
+                                chevron: true
+                                onClicked: quick.showLock()
+                            }
+                            Tile {
+                                icon: "󰌌"
+                                label: qsTr("Keyboard")
+                                detail: quick.keyboard.visible ? qsTr("Shown") : qsTr("Hidden")
+                                active: quick.keyboard.visible
+                                onClicked: quick.keyboard.toggle()
+                            }
+                            Tile {
+                                visible: quick.rotation.supported
+                                icon: quick.rotation.locked ? "󰑙" : "󰑵"
+                                label: qsTr("Rotation")
+                                detail: quick.rotation.locked ? qsTr("Locked") : qsTr("Automatic")
+                                active: !quick.rotation.locked
+                                onClicked: quick.rotation.setLocked(!quick.rotation.locked)
+                            }
+                            Tile {
+                                icon: "󰒢"
+                                label: qsTr("Mobile network")
+                                detail: qsTr("Not supported yet")
+                                supported: false
+                            }
+                            Tile {
+                                icon: quick.volume.muted ? "󰖁" : "󰕾"
+                                label: qsTr("Sound")
+                                detail: !quick.volume.available ? qsTr("No audio output")
+                                      : quick.volume.muted ? qsTr("Muted")
+                                      : Math.round(quick.volume.volume * 100) + " %"
+                                active: quick.volume.available && !quick.volume.muted
+                                supported: quick.volume.available
+                                onClicked: quick.volume.muted = !quick.volume.muted
+                            }
+                            Tile {
+                                icon: !quick.rfkill.bluetoothEnabled ? "󰂲" : quick.bluetooth.connectedNames.length > 0 ? "󰂱" : "󰂯"
+                                label: qsTr("Bluetooth")
+                                detail: !quick.rfkill.bluetoothEnabled ? qsTr("Off")
+                                      : quick.bluetooth.connectedNames.join(", ") || qsTr("On")
+                                active: quick.rfkill.bluetoothEnabled && quick.bluetooth.connectedNames.length > 0
+                                chevron: true
+                                supported: quick.rfkill.hasBluetooth || quick.bluetooth.available
+                                onClicked: quick.showBluetooth()
+                            }
+                        }
+
+                        // Notifications
+                        Item {
+                            width: parent.width
+                            height: 24
+                            visible: quick.notifications.count > 0
                             Text {
-                                width: parent.width
-                                text: note.app + "  ·  " + Qt.formatTime(note.time, "HH:mm")
-                                elide: Text.ElideRight
+                                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                                text: qsTr("Notifications")
                                 color: Theme.muted
-                                font { family: Theme.font; pixelSize: 11 }
-                            }
-                            Text {
-                                width: parent.width
-                                text: note.summary
-                                wrapMode: Text.Wrap
-                                maximumLineCount: 2
-                                elide: Text.ElideRight
-                                color: Theme.fg
-                                font { family: Theme.font; pixelSize: 13; bold: true }
-                            }
-                            Text {
-                                width: parent.width
-                                visible: text.length > 0
-                                text: note.body
-                                wrapMode: Text.Wrap
-                                maximumLineCount: 3
-                                elide: Text.ElideRight
-                                color: Theme.fg
                                 font { family: Theme.font; pixelSize: 12 }
                             }
-                            Row {
-                                visible: note.actions.length > 0
-                                spacing: 8
-                                topPadding: 4
-                                Repeater {
-                                    model: note.actions
-                                    delegate: Rectangle {
-                                        id: actionButton
-                                        required property var modelData
-                                        width: actionText.implicitWidth + 24; height: 30; radius: 15
-                                        color: "transparent"
-                                        border.color: Theme.accent
-                                        Text {
-                                            id: actionText
-                                            anchors.centerIn: parent
-                                            text: actionButton.modelData.label
-                                            color: Theme.accent
-                                            font { family: Theme.font; pixelSize: 11 }
+                            Text {
+                                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                                text: qsTr("Clear all")
+                                color: Theme.accent
+                                font { family: Theme.font; pixelSize: 12 }
+                                MouseArea {
+                                    anchors { fill: parent; margins: -10 }
+                                    onClicked: quick.notifications.clear()
+                                }
+                            }
+                        }
+                        ListView {
+                            maximumFlickVelocity: Theme.flickVelocity
+                            flickDeceleration: Theme.flickDeceleration
+                            rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
+                            id: notificationList
+                            width: parent.width
+                            visible: count > 0
+                            height: Math.min(contentHeight, 300)
+                            clip: true
+                            spacing: 8
+                            currentIndex: -1  // see Home.qml
+                            highlightFollowsCurrentItem: false
+                            boundsBehavior: Flickable.DragAndOvershootBounds
+                            model: quick.notifications
+                            delegate: Rectangle {
+                                id: note
+                                required property int notificationId
+                                required property string app
+                                required property string icon
+                                required property string summary
+                                required property string body
+                                required property var actions
+                                required property int urgency
+                                required property date time
+                                width: ListView.view.width
+                                height: noteColumn.implicitHeight + 24
+                                radius: 14
+                                color: noteTap.pressed ? Theme.line : Theme.panel
+                                border.color: urgency >= 2 ? Theme.red : "transparent"
+
+                                MouseArea {
+                                    id: noteTap
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        quick.notifications.invoke(note.notificationId, "default")
+                                        quick.close()
+                                    }
+                                }
+                                Image {
+                                    id: noteIcon
+                                    anchors { left: parent.left; leftMargin: 14; top: parent.top; topMargin: 14 }
+                                    width: 28; height: 28
+                                    sourceSize: Qt.size(56, 56)
+                                    asynchronous: true
+                                    source: note.icon ? "image://icon/" + note.icon : ""
+                                    visible: status === Image.Ready
+                                }
+                                Column {
+                                    id: noteColumn
+                                    anchors { left: noteIcon.visible ? noteIcon.right : parent.left; leftMargin: 14
+                                              right: closeNote.left; top: parent.top; topMargin: 12 }
+                                    spacing: 3
+                                    Text {
+                                        width: parent.width
+                                        text: note.app + "  ·  " + Qt.formatTime(note.time, "HH:mm")
+                                        elide: Text.ElideRight
+                                        color: Theme.muted
+                                        font { family: Theme.font; pixelSize: 11 }
+                                    }
+                                    Text {
+                                        width: parent.width
+                                        text: note.summary
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 2
+                                        elide: Text.ElideRight
+                                        color: Theme.fg
+                                        font { family: Theme.font; pixelSize: 13; bold: true }
+                                    }
+                                    Text {
+                                        width: parent.width
+                                        visible: text.length > 0
+                                        text: note.body
+                                        wrapMode: Text.Wrap
+                                        maximumLineCount: 3
+                                        elide: Text.ElideRight
+                                        color: Theme.fg
+                                        font { family: Theme.font; pixelSize: 12 }
+                                    }
+                                    Row {
+                                        visible: note.actions.length > 0
+                                        spacing: 8
+                                        topPadding: 4
+                                        Repeater {
+                                            model: note.actions
+                                            delegate: Rectangle {
+                                                id: actionButton
+                                                required property var modelData
+                                                width: actionText.implicitWidth + 24; height: 30; radius: 15
+                                                color: "transparent"
+                                                border.color: Theme.accent
+                                                Text {
+                                                    id: actionText
+                                                    anchors.centerIn: parent
+                                                    text: actionButton.modelData.label
+                                                    color: Theme.accent
+                                                    font { family: Theme.font; pixelSize: 11 }
+                                                }
+                                                MouseArea {
+                                                    anchors { fill: parent; margins: -4 }
+                                                    onClicked: quick.notifications.invoke(note.notificationId, actionButton.modelData.key)
+                                                }
+                                            }
                                         }
-                                        MouseArea {
-                                            anchors { fill: parent; margins: -4 }
-                                            onClicked: quick.notifications.invoke(note.notificationId, actionButton.modelData.key)
-                                        }
+                                    }
+                                }
+                                MouseArea {
+                                    id: closeNote
+                                    anchors { right: parent.right; top: parent.top }
+                                    width: 44; height: 44
+                                    onClicked: quick.notifications.dismiss(note.notificationId)
+                                    Text {
+                                        anchors.centerIn: parent
+                                        text: "󰅖"
+                                        color: Theme.muted
+                                        font { family: Theme.font; pixelSize: 14 }
                                     }
                                 }
                             }
                         }
-                        MouseArea {
-                            id: closeNote
-                            anchors { right: parent.right; top: parent.top }
-                            width: 44; height: 44
-                            onClicked: quick.notifications.dismiss(note.notificationId)
-                            Text {
-                                anchors.centerIn: parent
-                                text: "󰅖"
-                                color: Theme.muted
-                                font { family: Theme.font; pixelSize: 14 }
-                            }
-                        }
-                    }
-                }
 
-                // System actions, as Omarchy's system menu; the camera on the other side.
-                Item {
-                    width: parent.width
-                    height: 44
-                    Row {
-                        anchors.left: parent.left
-                        spacing: 10
-                        RoundButton {
-                            icon: "󰄀"
-                            label: qsTr("Camera")
-                            onClicked: {
-                                quick.haptics.click()
-                                quick.apps.launch("org.mobarchy.Camera")
-                                quick.close()
-                            }
-                        }
-                        RoundButton {
-                            visible: quick.torch.available
-                            icon: quick.torch.on ? "󰛨" : "󰛩"
-                            lit: quick.torch.on
-                            onClicked: { quick.haptics.click(); quick.torch.toggle() }
-                        }
-                    }
-                    Row {
-                        anchors.right: parent.right
-                        spacing: 10
-                        RoundButton {
-                            icon: "󰜉"
-                            label: quick.confirming === "reboot" ? qsTr("Tap to restart") : ""
-                            warn: quick.confirming === "reboot"
-                            onClicked: quick.confirmOr("reboot", () => quick.power.reboot())
-                        }
-                        RoundButton {
-                            icon: "󰐥"
-                            label: quick.confirming === "poweroff" ? qsTr("Tap to power off") : ""
-                            warn: quick.confirming === "poweroff"
-                            onClicked: quick.confirmOr("poweroff", () => quick.power.powerOff())
+                        ActionsRow {
+                            width: parent.width
+                            visible: !quick.twoColumns
                         }
                     }
                 }
             }
 
             // --- Wi-Fi ------------------------------------------------------------------
-            Column {
-                id: wifiPage
-                x: pages.width + 20
-                width: pages.width - 40
-                spacing: 14
+            Flickable {
+                x: pages.width
+                width: pages.width
+                height: pages.height
+                contentHeight: wifiPage.implicitHeight
+                clip: true
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
 
-                Item {
-                    width: parent.width
-                    height: 40
-                    MouseArea {
-                        id: back
-                        anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-                        width: backRow.implicitWidth + 16
-                        onClicked: quick.page = 0
-                        Row {
-                            id: backRow
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 10
-                            Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
-                                   font { family: Theme.font; pixelSize: 16 }
-                                   anchors.verticalCenter: parent.verticalCenter }
-                            Text { text: qsTr("Wi-Fi"); color: Theme.fg
-                                   font { family: Theme.font; pixelSize: 18; bold: true } }
-                        }
-                    }
-                    Text {
-                        anchors { right: wifiSwitch.left; rightMargin: 18; verticalCenter: parent.verticalCenter }
-                        visible: quick.rfkill.wifiEnabled
-                        text: quick.wifi.scanning ? "󰑓 " + qsTr("Scanning") : "󰑓"
-                        color: quick.wifi.scanning ? Theme.accent : Theme.muted
-                        font { family: Theme.font; pixelSize: 14 }
+                Column {
+                    id: wifiPage
+                    x: 20
+                    width: pages.width - 40
+                    spacing: 14
+
+                    Item {
+                        width: parent.width
+                        height: 40
                         MouseArea {
-                            anchors { fill: parent; margins: -12 }
-                            onClicked: quick.wifi.scan()
-                        }
-                    }
-                    Switch {
-                        id: wifiSwitch
-                        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                        checked: quick.rfkill.wifiEnabled
-                        onToggled: quick.rfkill.wifiEnabled = !quick.rfkill.wifiEnabled
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    visible: quick.wifiError.length > 0
-                    text: "✗ " + quick.wifiError
-                    wrapMode: Text.Wrap
-                    color: Theme.red
-                    font { family: Theme.font; pixelSize: 12 }
-                }
-
-                Text {
-                    visible: !quick.rfkill.wifiEnabled
-                    text: quick.rfkill.flightMode ? qsTr("Flight mode is on.") : qsTr("Wi-Fi is off.")
-                    color: Theme.muted
-                    font { family: Theme.font; pixelSize: 13 }
-                }
-
-                ListView {
-                    maximumFlickVelocity: Theme.flickVelocity
-                    flickDeceleration: Theme.flickDeceleration
-                    rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
-                    id: networks
-                    visible: quick.rfkill.wifiEnabled
-                    width: parent.width
-                    height: Math.min(contentHeight, quick.height * 0.55)
-                    clip: true
-                    spacing: 6
-                    currentIndex: -1  // see Home.qml
-                    highlightFollowsCurrentItem: false
-                    boundsBehavior: Flickable.DragAndOvershootBounds
-                    model: quick.wifi.networks
-                    delegate: Rectangle {
-                        id: net
-                        required property var modelData
-                        readonly property bool joining: quick.wifi.connecting === modelData.ssid
-                        width: ListView.view.width
-                        height: 56
-                        radius: 12
-                        color: modelData.connected ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12)
-                                                   : (rowTap.pressed ? Theme.line : Theme.panel)
-                        border.color: modelData.connected ? Theme.accent : "transparent"
-
-                        MouseArea {
-                            id: rowTap
-                            anchors.fill: parent
-                            onClicked: {
-                                quick.wifiError = ""
-                                if (net.modelData.connected)
-                                    return
-                                if (!quick.wifi.join(net.modelData.ssid))
-                                    quick.passphraseNeeded(net.modelData.ssid)
-                            }
-                        }
-                        Text {
-                            id: bars
-                            anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
-                            text: ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"][net.modelData.bars]
-                            color: net.modelData.connected ? Theme.accent : Theme.fg
-                            font { family: Theme.font; pixelSize: 20 }
-                        }
-                        Column {
-                            anchors { left: bars.right; leftMargin: 14; right: trailing.left; rightMargin: 8
-                                      verticalCenter: parent.verticalCenter }
-                            Text {
-                                width: parent.width
-                                text: net.modelData.ssid
-                                elide: Text.ElideRight
-                                color: Theme.fg
-                                font { family: Theme.font; pixelSize: 14 }
-                            }
-                            Text {
-                                width: parent.width
-                                visible: text.length > 0
-                                text: net.joining ? qsTr("Connecting …")
-                                    : net.modelData.connected ? qsTr("Connected")
-                                    : net.modelData.known ? qsTr("Saved") : ""
-                                color: net.modelData.connected || net.joining ? Theme.accent : Theme.muted
-                                font { family: Theme.font; pixelSize: 11 }
-                            }
-                        }
-                        Row {
-                            id: trailing
-                            anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
-                            spacing: 12
-                            Text {
+                            id: back
+                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                            width: backRow.implicitWidth + 16
+                            onClicked: quick.page = 0
+                            Row {
+                                id: backRow
                                 anchors.verticalCenter: parent.verticalCenter
-                                visible: net.modelData.secured
-                                text: "󰌾"
-                                color: Theme.muted
-                                font { family: Theme.font; pixelSize: 14 }
-                            }
-                            // Forget a saved network.
-                            Rectangle {
-                                visible: net.modelData.known
-                                width: forgetText.implicitWidth + 20; height: 30; radius: 15
-                                color: "transparent"
-                                // A second tap confirms: the passphrase is gone afterwards.
-                                readonly property bool confirm: quick.confirming === "forget:" + net.modelData.ssid
-                                border.color: confirm ? Theme.red : Theme.line
-                                Text {
-                                    id: forgetText
-                                    anchors.centerIn: parent
-                                    text: parent.confirm ? qsTr("Tap to forget") : qsTr("Forget")
-                                    color: parent.confirm ? Theme.red : Theme.muted
-                                    font { family: Theme.font; pixelSize: 11 }
-                                }
-                                MouseArea {
-                                    anchors { fill: parent; margins: -6 }
-                                    onClicked: quick.confirmOr("forget:" + net.modelData.ssid,
-                                                               () => quick.wifi.forget(net.modelData.ssid))
-                                }
+                                spacing: 10
+                                Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
+                                       font { family: Theme.font; pixelSize: 16 }
+                                       anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: qsTr("Wi-Fi"); color: Theme.fg
+                                       font { family: Theme.font; pixelSize: 18; bold: true } }
                             }
                         }
-                    }
-                }
-
-                Text {
-                    visible: quick.rfkill.wifiEnabled && networks.count === 0
-                    text: quick.wifi.scanning ? qsTr("Looking for networks …") : qsTr("No networks found.")
-                    color: Theme.muted
-                    font { family: Theme.font; pixelSize: 13 }
-                }
-            }
-
-            // --- Bluetooth --------------------------------------------------------------
-            Column {
-                id: bluetoothPage
-                x: 2 * pages.width + 20
-                width: pages.width - 40
-                spacing: 14
-
-                // Paired devices, then the ones around, each list under its heading.
-                readonly property var rows: {
-                    const paired = quick.bluetooth.devices.filter(d => d.paired)
-                    const around = quick.bluetooth.devices.filter(d => !d.paired)
-                    let rows = []
-                    if (paired.length > 0)
-                        rows = rows.concat([{ heading: qsTr("My devices") }], paired)
-                    if (around.length > 0)
-                        rows = rows.concat([{ heading: qsTr("Available") }], around)
-                    return rows
-                }
-
-                Item {
-                    width: parent.width
-                    height: 40
-                    MouseArea {
-                        anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-                        width: btBackRow.implicitWidth + 16
-                        onClicked: quick.page = 0
-                        Row {
-                            id: btBackRow
-                            anchors.verticalCenter: parent.verticalCenter
-                            spacing: 10
-                            Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
-                                   font { family: Theme.font; pixelSize: 16 }
-                                   anchors.verticalCenter: parent.verticalCenter }
-                            Text { text: qsTr("Bluetooth"); color: Theme.fg
-                                   font { family: Theme.font; pixelSize: 18; bold: true } }
-                        }
-                    }
-                    Text {
-                        anchors { right: bluetoothSwitch.left; rightMargin: 18; verticalCenter: parent.verticalCenter }
-                        visible: quick.bluetooth.discovering
-                        text: "󰑓 " + qsTr("Searching")
-                        color: Theme.accent
-                        font { family: Theme.font; pixelSize: 14 }
-                    }
-                    Switch {
-                        id: bluetoothSwitch
-                        anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                        checked: quick.rfkill.bluetoothEnabled
-                        onToggled: quick.rfkill.bluetoothEnabled = !quick.rfkill.bluetoothEnabled
-                    }
-                }
-
-                Text {
-                    width: parent.width
-                    visible: quick.bluetoothError.length > 0
-                    text: "✗ " + quick.bluetoothError
-                    wrapMode: Text.Wrap
-                    color: Theme.red
-                    font { family: Theme.font; pixelSize: 12 }
-                }
-
-                Text {
-                    width: parent.width
-                    visible: !quick.rfkill.bluetoothEnabled || !quick.bluetooth.available
-                    text: quick.rfkill.flightMode ? qsTr("Flight mode is on.")
-                        : !quick.rfkill.bluetoothEnabled ? qsTr("Bluetooth is off.")
-                        : qsTr("Starting Bluetooth …")
-                    wrapMode: Text.Wrap
-                    color: Theme.muted
-                    font { family: Theme.font; pixelSize: 13 }
-                }
-
-                ListView {
-                    maximumFlickVelocity: Theme.flickVelocity
-                    flickDeceleration: Theme.flickDeceleration
-                    rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
-                    id: bluetoothDevices
-                    visible: quick.rfkill.bluetoothEnabled && quick.bluetooth.available
-                    width: parent.width
-                    height: Math.min(contentHeight, quick.height * 0.55)
-                    clip: true
-                    spacing: 6
-                    currentIndex: -1  // see Home.qml
-                    highlightFollowsCurrentItem: false
-                    boundsBehavior: Flickable.DragAndOvershootBounds
-                    model: bluetoothPage.rows
-                    delegate: Item {
-                        id: dev
-                        required property var modelData
-                        readonly property bool heading: modelData.heading !== undefined
-                        width: ListView.view.width
-                        height: heading ? 30 : 56
-
                         Text {
-                            visible: dev.heading
-                            anchors { left: parent.left; bottom: parent.bottom; bottomMargin: 4 }
-                            text: dev.modelData.heading ?? ""
-                            color: Theme.muted
-                            font { family: Theme.font; pixelSize: 12 }
+                            anchors { right: wifiSwitch.left; rightMargin: 18; verticalCenter: parent.verticalCenter }
+                            visible: quick.rfkill.wifiEnabled
+                            text: quick.wifi.scanning ? "󰑓 " + qsTr("Scanning") : "󰑓"
+                            color: quick.wifi.scanning ? Theme.accent : Theme.muted
+                            font { family: Theme.font; pixelSize: 14 }
+                            MouseArea {
+                                anchors { fill: parent; margins: -12 }
+                                onClicked: quick.wifi.scan()
+                            }
                         }
-                        Rectangle {
-                            visible: !dev.heading
-                            anchors.fill: parent
+                        Switch {
+                            id: wifiSwitch
+                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                            checked: quick.rfkill.wifiEnabled
+                            onToggled: quick.rfkill.wifiEnabled = !quick.rfkill.wifiEnabled
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: quick.wifiError.length > 0
+                        text: "✗ " + quick.wifiError
+                        wrapMode: Text.Wrap
+                        color: Theme.red
+                        font { family: Theme.font; pixelSize: 12 }
+                    }
+
+                    Text {
+                        visible: !quick.rfkill.wifiEnabled
+                        text: quick.rfkill.flightMode ? qsTr("Flight mode is on.") : qsTr("Wi-Fi is off.")
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 13 }
+                    }
+
+                    ListView {
+                        maximumFlickVelocity: Theme.flickVelocity
+                        flickDeceleration: Theme.flickDeceleration
+                        rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
+                        id: networks
+                        visible: quick.rfkill.wifiEnabled
+                        width: parent.width
+                        height: Math.min(contentHeight, quick.height * 0.55)
+                        clip: true
+                        spacing: 6
+                        currentIndex: -1  // see Home.qml
+                        highlightFollowsCurrentItem: false
+                        boundsBehavior: Flickable.DragAndOvershootBounds
+                        model: quick.wifi.networks
+                        delegate: Rectangle {
+                            id: net
+                            required property var modelData
+                            readonly property bool joining: quick.wifi.connecting === modelData.ssid
+                            width: ListView.view.width
+                            height: 56
                             radius: 12
-                            color: dev.modelData.connected ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12)
-                                                           : (devTap.pressed ? Theme.line : Theme.panel)
-                            border.color: dev.modelData.connected ? Theme.accent : "transparent"
+                            color: modelData.connected ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12)
+                                                       : (rowTap.pressed ? Theme.line : Theme.panel)
+                            border.color: modelData.connected ? Theme.accent : "transparent"
 
                             MouseArea {
-                                id: devTap
+                                id: rowTap
                                 anchors.fill: parent
                                 onClicked: {
-                                    quick.bluetoothError = ""
-                                    quick.bluetooth.activate(dev.modelData.path)
+                                    quick.wifiError = ""
+                                    if (net.modelData.connected)
+                                        return
+                                    if (!quick.wifi.join(net.modelData.ssid))
+                                        quick.passphraseNeeded(net.modelData.ssid)
                                 }
                             }
                             Text {
-                                id: devIcon
+                                id: bars
                                 anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
-                                text: quick.deviceIcon(dev.modelData.icon ?? "")
-                                color: dev.modelData.connected ? Theme.accent : Theme.fg
+                                text: ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"][net.modelData.bars]
+                                color: net.modelData.connected ? Theme.accent : Theme.fg
                                 font { family: Theme.font; pixelSize: 20 }
                             }
                             Column {
-                                anchors { left: devIcon.right; leftMargin: 14; right: devTrailing.left; rightMargin: 8
+                                anchors { left: bars.right; leftMargin: 14; right: trailing.left; rightMargin: 8
                                           verticalCenter: parent.verticalCenter }
                                 Text {
                                     width: parent.width
-                                    text: dev.modelData.name ?? ""
+                                    text: net.modelData.ssid
                                     elide: Text.ElideRight
                                     color: Theme.fg
                                     font { family: Theme.font; pixelSize: 14 }
                                 }
                                 Text {
                                     width: parent.width
-                                    text: dev.modelData.busy ? (dev.modelData.paired ? qsTr("Connecting …") : qsTr("Pairing …"))
-                                        : dev.modelData.connected ? qsTr("Connected")
-                                              + (dev.modelData.battery >= 0 ? "  ·  󰁹 " + dev.modelData.battery + " %" : "")
-                                        : dev.modelData.paired ? qsTr("Not connected") : qsTr("Tap to pair")
-                                    color: dev.modelData.connected || dev.modelData.busy ? Theme.accent : Theme.muted
+                                    visible: text.length > 0
+                                    text: net.joining ? qsTr("Connecting …")
+                                        : net.modelData.connected ? qsTr("Connected")
+                                        : net.modelData.known ? qsTr("Saved") : ""
+                                    color: net.modelData.connected || net.joining ? Theme.accent : Theme.muted
                                     font { family: Theme.font; pixelSize: 11 }
                                 }
                             }
-                            // Forget a paired device.
-                            Rectangle {
-                                id: devTrailing
+                            Row {
+                                id: trailing
                                 anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
-                                visible: dev.modelData.paired === true
-                                width: visible ? devForgetText.implicitWidth + 20 : 0; height: 30; radius: 15
-                                color: "transparent"
-                                readonly property bool confirm: quick.confirming === "forget-bt:" + dev.modelData.path
-                                border.color: confirm ? Theme.red : Theme.line
+                                spacing: 12
                                 Text {
-                                    id: devForgetText
-                                    anchors.centerIn: parent
-                                    text: parent.confirm ? qsTr("Tap to forget") : qsTr("Forget")
-                                    color: parent.confirm ? Theme.red : Theme.muted
-                                    font { family: Theme.font; pixelSize: 11 }
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    visible: net.modelData.secured
+                                    text: "󰌾"
+                                    color: Theme.muted
+                                    font { family: Theme.font; pixelSize: 14 }
                                 }
-                                MouseArea {
-                                    anchors { fill: parent; margins: -6 }
-                                    onClicked: quick.confirmOr("forget-bt:" + dev.modelData.path,
-                                                               () => quick.bluetooth.forget(dev.modelData.path))
+                                // Forget a saved network.
+                                Rectangle {
+                                    visible: net.modelData.known
+                                    width: forgetText.implicitWidth + 20; height: 30; radius: 15
+                                    color: "transparent"
+                                    // A second tap confirms: the passphrase is gone afterwards.
+                                    readonly property bool confirm: quick.confirming === "forget:" + net.modelData.ssid
+                                    border.color: confirm ? Theme.red : Theme.line
+                                    Text {
+                                        id: forgetText
+                                        anchors.centerIn: parent
+                                        text: parent.confirm ? qsTr("Tap to forget") : qsTr("Forget")
+                                        color: parent.confirm ? Theme.red : Theme.muted
+                                        font { family: Theme.font; pixelSize: 11 }
+                                    }
+                                    MouseArea {
+                                        anchors { fill: parent; margins: -6 }
+                                        onClicked: quick.confirmOr("forget:" + net.modelData.ssid,
+                                                                   () => quick.wifi.forget(net.modelData.ssid))
+                                    }
                                 }
                             }
                         }
                     }
-                }
 
-                Text {
-                    visible: quick.rfkill.bluetoothEnabled && quick.bluetooth.available && bluetoothDevices.count === 0
-                    text: quick.bluetooth.discovering ? qsTr("Looking for devices …") : qsTr("No devices found.")
-                    color: Theme.muted
-                    font { family: Theme.font; pixelSize: 13 }
+                    Text {
+                        visible: quick.rfkill.wifiEnabled && networks.count === 0
+                        text: quick.wifi.scanning ? qsTr("Looking for networks …") : qsTr("No networks found.")
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 13 }
+                    }
+                }
+            }
+
+            // --- Bluetooth --------------------------------------------------------------
+            Flickable {
+                x: 2 * pages.width
+                width: pages.width
+                height: pages.height
+                contentHeight: bluetoothPage.implicitHeight
+                clip: true
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
+
+                Column {
+                    id: bluetoothPage
+                    x: 20
+                    width: pages.width - 40
+                    spacing: 14
+
+                    // Paired devices, then the ones around, each list under its heading.
+                    readonly property var rows: {
+                        const paired = quick.bluetooth.devices.filter(d => d.paired)
+                        const around = quick.bluetooth.devices.filter(d => !d.paired)
+                        let rows = []
+                        if (paired.length > 0)
+                            rows = rows.concat([{ heading: qsTr("My devices") }], paired)
+                        if (around.length > 0)
+                            rows = rows.concat([{ heading: qsTr("Available") }], around)
+                        return rows
+                    }
+
+                    Item {
+                        width: parent.width
+                        height: 40
+                        MouseArea {
+                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                            width: btBackRow.implicitWidth + 16
+                            onClicked: quick.page = 0
+                            Row {
+                                id: btBackRow
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 10
+                                Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
+                                       font { family: Theme.font; pixelSize: 16 }
+                                       anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: qsTr("Bluetooth"); color: Theme.fg
+                                       font { family: Theme.font; pixelSize: 18; bold: true } }
+                            }
+                        }
+                        Text {
+                            anchors { right: bluetoothSwitch.left; rightMargin: 18; verticalCenter: parent.verticalCenter }
+                            visible: quick.bluetooth.discovering
+                            text: "󰑓 " + qsTr("Searching")
+                            color: Theme.accent
+                            font { family: Theme.font; pixelSize: 14 }
+                        }
+                        Switch {
+                            id: bluetoothSwitch
+                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                            checked: quick.rfkill.bluetoothEnabled
+                            onToggled: quick.rfkill.bluetoothEnabled = !quick.rfkill.bluetoothEnabled
+                        }
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: quick.bluetoothError.length > 0
+                        text: "✗ " + quick.bluetoothError
+                        wrapMode: Text.Wrap
+                        color: Theme.red
+                        font { family: Theme.font; pixelSize: 12 }
+                    }
+
+                    Text {
+                        width: parent.width
+                        visible: !quick.rfkill.bluetoothEnabled || !quick.bluetooth.available
+                        text: quick.rfkill.flightMode ? qsTr("Flight mode is on.")
+                            : !quick.rfkill.bluetoothEnabled ? qsTr("Bluetooth is off.")
+                            : qsTr("Starting Bluetooth …")
+                        wrapMode: Text.Wrap
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 13 }
+                    }
+
+                    ListView {
+                        maximumFlickVelocity: Theme.flickVelocity
+                        flickDeceleration: Theme.flickDeceleration
+                        rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
+                        id: bluetoothDevices
+                        visible: quick.rfkill.bluetoothEnabled && quick.bluetooth.available
+                        width: parent.width
+                        height: Math.min(contentHeight, quick.height * 0.55)
+                        clip: true
+                        spacing: 6
+                        currentIndex: -1  // see Home.qml
+                        highlightFollowsCurrentItem: false
+                        boundsBehavior: Flickable.DragAndOvershootBounds
+                        model: bluetoothPage.rows
+                        delegate: Item {
+                            id: dev
+                            required property var modelData
+                            readonly property bool heading: modelData.heading !== undefined
+                            width: ListView.view.width
+                            height: heading ? 30 : 56
+
+                            Text {
+                                visible: dev.heading
+                                anchors { left: parent.left; bottom: parent.bottom; bottomMargin: 4 }
+                                text: dev.modelData.heading ?? ""
+                                color: Theme.muted
+                                font { family: Theme.font; pixelSize: 12 }
+                            }
+                            Rectangle {
+                                visible: !dev.heading
+                                anchors.fill: parent
+                                radius: 12
+                                color: dev.modelData.connected ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12)
+                                                               : (devTap.pressed ? Theme.line : Theme.panel)
+                                border.color: dev.modelData.connected ? Theme.accent : "transparent"
+
+                                MouseArea {
+                                    id: devTap
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        quick.bluetoothError = ""
+                                        quick.bluetooth.activate(dev.modelData.path)
+                                    }
+                                }
+                                Text {
+                                    id: devIcon
+                                    anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
+                                    text: quick.deviceIcon(dev.modelData.icon ?? "")
+                                    color: dev.modelData.connected ? Theme.accent : Theme.fg
+                                    font { family: Theme.font; pixelSize: 20 }
+                                }
+                                Column {
+                                    anchors { left: devIcon.right; leftMargin: 14; right: devTrailing.left; rightMargin: 8
+                                              verticalCenter: parent.verticalCenter }
+                                    Text {
+                                        width: parent.width
+                                        text: dev.modelData.name ?? ""
+                                        elide: Text.ElideRight
+                                        color: Theme.fg
+                                        font { family: Theme.font; pixelSize: 14 }
+                                    }
+                                    Text {
+                                        width: parent.width
+                                        text: dev.modelData.busy ? (dev.modelData.paired ? qsTr("Connecting …") : qsTr("Pairing …"))
+                                            : dev.modelData.connected ? qsTr("Connected")
+                                                  + (dev.modelData.battery >= 0 ? "  ·  󰁹 " + dev.modelData.battery + " %" : "")
+                                            : dev.modelData.paired ? qsTr("Not connected") : qsTr("Tap to pair")
+                                        color: dev.modelData.connected || dev.modelData.busy ? Theme.accent : Theme.muted
+                                        font { family: Theme.font; pixelSize: 11 }
+                                    }
+                                }
+                                // Forget a paired device.
+                                Rectangle {
+                                    id: devTrailing
+                                    anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                                    visible: dev.modelData.paired === true
+                                    width: visible ? devForgetText.implicitWidth + 20 : 0; height: 30; radius: 15
+                                    color: "transparent"
+                                    readonly property bool confirm: quick.confirming === "forget-bt:" + dev.modelData.path
+                                    border.color: confirm ? Theme.red : Theme.line
+                                    Text {
+                                        id: devForgetText
+                                        anchors.centerIn: parent
+                                        text: parent.confirm ? qsTr("Tap to forget") : qsTr("Forget")
+                                        color: parent.confirm ? Theme.red : Theme.muted
+                                        font { family: Theme.font; pixelSize: 11 }
+                                    }
+                                    MouseArea {
+                                        anchors { fill: parent; margins: -6 }
+                                        onClicked: quick.confirmOr("forget-bt:" + dev.modelData.path,
+                                                                   () => quick.bluetooth.forget(dev.modelData.path))
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Text {
+                        visible: quick.rfkill.bluetoothEnabled && quick.bluetooth.available && bluetoothDevices.count === 0
+                        text: quick.bluetooth.discovering ? qsTr("Looking for devices …") : qsTr("No devices found.")
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 13 }
+                    }
                 }
             }
 
             // --- screen lock ------------------------------------------------------------
-            Column {
-                id: lockPage
-                x: 3 * pages.width + 20
-                width: pages.width - 40
-                spacing: 18
+            Flickable {
+                x: 3 * pages.width
+                width: pages.width
+                height: pages.height
+                contentHeight: lockPage.implicitHeight
+                clip: true
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
 
-                MouseArea {
-                    width: lockBackRow.implicitWidth + 16
-                    height: 40
-                    onClicked: {
-                        if (quick.pinStep !== "") {
-                            quick.pinStep = ""
-                            quick.pinAction = ""
-                        } else {
-                            quick.page = 0
+                Column {
+                    id: lockPage
+                    x: 20
+                    width: pages.width - 40
+                    spacing: 18
+
+                    MouseArea {
+                        width: lockBackRow.implicitWidth + 16
+                        height: 40
+                        onClicked: {
+                            if (quick.pinStep !== "") {
+                                quick.pinStep = ""
+                                quick.pinAction = ""
+                            } else {
+                                quick.page = 0
+                            }
+                        }
+                        Row {
+                            id: lockBackRow
+                            anchors.verticalCenter: parent.verticalCenter
+                            spacing: 10
+                            Text { text: "\uf053"; color: Theme.muted; font { family: Theme.font; pixelSize: 16 }
+                                   anchors.verticalCenter: parent.verticalCenter }
+                            Text { text: qsTr("Screen lock"); color: Theme.fg
+                                   font { family: Theme.font; pixelSize: 18; bold: true } }
                         }
                     }
-                    Row {
-                        id: lockBackRow
-                        anchors.verticalCenter: parent.verticalCenter
-                        spacing: 10
-                        Text { text: "\uf053"; color: Theme.muted; font { family: Theme.font; pixelSize: 16 }
-                               anchors.verticalCenter: parent.verticalCenter }
-                        Text { text: qsTr("Screen lock"); color: Theme.fg
-                               font { family: Theme.font; pixelSize: 18; bold: true } }
-                    }
-                }
 
-                Text {
-                    width: parent.width
-                    visible: quick.pinStep === ""
-                    text: quick.pinLock.hasPin
-                          ? qsTr("The phone asks for your PIN after the swipe. It also protects your saved logins (the keyring).")
-                          : qsTr("Without a PIN, a swipe unlocks the phone. A PIN also protects your saved logins (the keyring).")
-                    wrapMode: Text.Wrap
-                    color: Theme.muted
-                    font { family: Theme.font; pixelSize: 13 }
-                }
-                Row {
-                    visible: quick.pinStep === ""
-                    spacing: 10
-                    RoundButton {
-                        visible: !quick.pinLock.hasPin
-                        icon: "󰌾"
-                        label: qsTr("Set a PIN")
-                        onClicked: quick.startPin("set")
+                    Text {
+                        width: parent.width
+                        visible: quick.pinStep === ""
+                        text: quick.pinLock.hasPin
+                              ? qsTr("The phone asks for your PIN after the swipe. It also protects your saved logins (the keyring).")
+                              : qsTr("Without a PIN, a swipe unlocks the phone. A PIN also protects your saved logins (the keyring).")
+                        wrapMode: Text.Wrap
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 13 }
                     }
-                    RoundButton {
-                        visible: quick.pinLock.hasPin
-                        icon: "󰌾"
-                        label: qsTr("Change PIN")
-                        onClicked: quick.startPin("change")
+                    Row {
+                        visible: quick.pinStep === ""
+                        spacing: 10
+                        RoundButton {
+                            visible: !quick.pinLock.hasPin
+                            icon: "󰌾"
+                            label: qsTr("Set a PIN")
+                            onClicked: quick.startPin("set")
+                        }
+                        RoundButton {
+                            visible: quick.pinLock.hasPin
+                            icon: "󰌾"
+                            label: qsTr("Change PIN")
+                            onClicked: quick.startPin("change")
+                        }
+                        RoundButton {
+                            visible: quick.pinLock.hasPin
+                            icon: "󰍁"
+                            label: qsTr("Remove PIN")
+                            warn: true
+                            onClicked: quick.startPin("remove")
+                        }
                     }
-                    RoundButton {
-                        visible: quick.pinLock.hasPin
-                        icon: "󰍁"
-                        label: qsTr("Remove PIN")
-                        warn: true
-                        onClicked: quick.startPin("remove")
+                    PinPad {
+                        id: lockPad
+                        visible: quick.pinStep !== ""
+                        width: parent.width
+                        title: quick.pinStep === "old" ? qsTr("Current PIN")
+                             : quick.pinStep === "new" ? qsTr("New PIN") : qsTr("New PIN again")
+                        enabled_: !quick.pinLock.busy && quick.pinLock.wait === 0
+                        onEntered: (pin) => quick.pinEntered(pin)
                     }
-                }
-                PinPad {
-                    id: lockPad
-                    visible: quick.pinStep !== ""
-                    width: parent.width
-                    title: quick.pinStep === "old" ? qsTr("Current PIN")
-                         : quick.pinStep === "new" ? qsTr("New PIN") : qsTr("New PIN again")
-                    enabled_: !quick.pinLock.busy && quick.pinLock.wait === 0
-                    onEntered: (pin) => quick.pinEntered(pin)
                 }
             }
         }
