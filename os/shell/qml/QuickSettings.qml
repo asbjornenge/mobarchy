@@ -20,6 +20,7 @@ Sheet {
     required property PinLock pinLock
     required property Notifications notifications
     required property Volume volume
+    required property AppModel apps
 
     // A secured network without a saved passphrase was picked.
     signal passphraseNeeded(string ssid)
@@ -557,21 +558,31 @@ Sheet {
                     }
                 }
 
-                // System actions, as Omarchy's system menu.
-                Row {
-                    anchors.right: parent.right
-                    spacing: 10
+                // System actions, as Omarchy's system menu; the camera on the other side.
+                Item {
+                    width: parent.width
+                    height: 44
                     RoundButton {
-                        icon: "󰜉"
-                        label: quick.confirming === "reboot" ? qsTr("Tap to restart") : ""
-                        warn: quick.confirming === "reboot"
-                        onClicked: quick.confirmOr("reboot", () => quick.power.reboot())
+                        anchors.left: parent.left
+                        icon: "󰄀"
+                        label: qsTr("Camera")
+                        onClicked: { quick.apps.launch("org.mobarchy.Camera"); quick.close() }
                     }
-                    RoundButton {
-                        icon: "󰐥"
-                        label: quick.confirming === "poweroff" ? qsTr("Tap to power off") : ""
-                        warn: quick.confirming === "poweroff"
-                        onClicked: quick.confirmOr("poweroff", () => quick.power.powerOff())
+                    Row {
+                        anchors.right: parent.right
+                        spacing: 10
+                        RoundButton {
+                            icon: "󰜉"
+                            label: quick.confirming === "reboot" ? qsTr("Tap to restart") : ""
+                            warn: quick.confirming === "reboot"
+                            onClicked: quick.confirmOr("reboot", () => quick.power.reboot())
+                        }
+                        RoundButton {
+                            icon: "󰐥"
+                            label: quick.confirming === "poweroff" ? qsTr("Tap to power off") : ""
+                            warn: quick.confirming === "poweroff"
+                            onClicked: quick.confirmOr("poweroff", () => quick.power.powerOff())
+                        }
                     }
                 }
             }

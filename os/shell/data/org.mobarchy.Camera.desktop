@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Camera
+Comment=Take photos
+Exec=mobarchy-shell --camera
+Icon=org.mobarchy.Camera
+Categories=Graphics;Photography;
+# Opened from the quick settings and the lock screen, not the app list
+NoDisplay=true

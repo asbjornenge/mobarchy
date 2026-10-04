@@ -37,7 +37,12 @@ LayerWindow {
     property real lift: 0
     // Swiped up, and the PIN pad is showing.
     property bool askingPin: false
-    onShownChanged: if (shown) { settle.stop(); lift = 0; askingPin = false; pad.clear(); pad.message = "" }
+    // The camera, opened from the lock screen without unlocking (ADR 0018).
+    property bool cameraOpen: false
+    onShownChanged: {
+        cameraOpen = false
+        if (shown) { settle.stop(); lift = 0; askingPin = false; pad.clear(); pad.message = "" }
+    }
 
     function swiped() {
         if (pinLock.hasPin) {
@@ -162,6 +167,41 @@ LayerWindow {
         visible: !lock.askingPin && player.available && (player.title.length > 0 || player.identity.length > 0)
         player: lock.media
         onVisibleChanged: if (visible) lock.media.refreshPosition()
+    }
+
+    // The camera: a phone's corner shortcut. Locked: its photos are only the ones taken here.
+    Rectangle {
+        visible: !lock.askingPin && !lock.cameraOpen
+        anchors { right: parent.right; bottom: parent.bottom; rightMargin: 28; bottomMargin: 44 }
+        width: 56; height: 56; radius: 28
+        opacity: 1 - lock.lift
+        color: cameraTap.pressed ? Theme.line : Theme.panel
+        border.color: Theme.line
+        Text {
+            anchors.centerIn: parent
+            text: "󰄀"
+            color: Theme.fg
+            font { family: Theme.font; pixelSize: 24 }
+        }
+        TapHandler {
+            id: cameraTap
+            onTapped: { lock.touched(); lock.cameraOpen = true }
+        }
+    }
+    Loader {
+        anchors.fill: parent
+        active: lock.cameraOpen
+        sourceComponent: CameraView {
+            locked: true
+            onCloseRequested: lock.cameraOpen = false
+        }
+    }
+    // the screen stays on while the camera is open
+    Timer {
+        interval: 10000
+        repeat: true
+        running: lock.cameraOpen
+        onTriggered: lock.touched()
     }
 
     // The PIN, after the swipe.

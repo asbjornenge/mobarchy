@@ -10,7 +10,7 @@ pkgdesc='The Mobarchy phone shell: status bar, swipe-up app drawer, agent home s
 arch=(aarch64 x86_64)
 depends=(qt6-base qt6-declarative qt6-wayland qt6-svg layer-shell-qt ttf-jetbrains-mono-nerd
          adwaita-icon-theme iw systemd libpulse pam libxcrypt accountsservice libxkbcommon
-         noto-fonts-emoji)
+         noto-fonts-emoji qt6-multimedia qt6-multimedia-ffmpeg libpipewire)
 makedepends=(cmake ninja wayland pkgconf)
 options=(!debug)
 

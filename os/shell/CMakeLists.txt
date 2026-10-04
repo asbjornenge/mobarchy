@@ -6,12 +6,13 @@ cmake_minimum_required(VERSION 3.21)
 # C: the protocol code from wayland-scanner.
 project(mobarchy-shell VERSION 0.1 LANGUAGES C CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Gui GuiPrivate Quick DBus WaylandClient Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Gui GuiPrivate Quick DBus WaylandClient Multimedia Test)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PAM REQUIRED IMPORTED_TARGET pam)
 pkg_check_modules(XCRYPT REQUIRED IMPORTED_TARGET libxcrypt)
 pkg_check_modules(PULSE REQUIRED IMPORTED_TARGET libpulse)
 pkg_check_modules(XKBCOMMON REQUIRED IMPORTED_TARGET xkbcommon)
+pkg_check_modules(PIPEWIRE REQUIRED IMPORTED_TARGET libpipewire-0.3)
 qt_standard_project_setup(REQUIRES 6.5)
 qt_policy(SET QTP0004 NEW)  # qmldir files for the qml/ subdirectory
 
@@ -31,6 +32,7 @@ qt_add_qml_module(mobarchy-shell
         src/agent.cpp src/agent.h
         src/appstore.cpp src/appstore.h
         src/bluetooth.cpp src/bluetooth.h
+        src/camera.cpp src/camera.h
         src/iconprovider.h
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h
@@ -70,6 +72,8 @@ qt_add_qml_module(mobarchy-shell
         qml/Store.qml
         qml/KeyboardPanel.qml
         qml/CopyBar.qml
+        qml/CameraApp.qml
+        qml/CameraView.qml
     RESOURCES
         data/emoji.json
 )
@@ -83,14 +87,15 @@ qt6_generate_wayland_protocol_client_sources(mobarchy-shell
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-data-control-unstable-v1.xml)
 target_include_directories(mobarchy-shell PRIVATE src)
 target_link_libraries(mobarchy-shell PRIVATE
-    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::WaylandClient PkgConfig::PULSE PkgConfig::PAM PkgConfig::XCRYPT PkgConfig::XKBCOMMON)
+    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::WaylandClient Qt6::Multimedia
+    PkgConfig::PIPEWIRE PkgConfig::PULSE PkgConfig::PAM PkgConfig::XCRYPT PkgConfig::XKBCOMMON)
 
 include(GNUInstallDirs)
 install(TARGETS mobarchy-shell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # The app ID of the shell's windows (portals look it up).
-install(FILES data/org.mobarchy.Shell.desktop data/org.mobarchy.Store.desktop
+install(FILES data/org.mobarchy.Shell.desktop data/org.mobarchy.Store.desktop data/org.mobarchy.Camera.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(FILES data/org.mobarchy.Store.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+install(FILES data/org.mobarchy.Store.svg data/org.mobarchy.Camera.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 
 enable_testing()
 qt_add_executable(tst_desktopentry tests/tst_desktopentry.cpp)

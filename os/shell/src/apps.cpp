@@ -121,9 +121,10 @@ bool AppModel::launch(const QString &appId)
 {
     // A desktop file ID, with or without ".desktop" (app IDs come without it).
     const QString id = appId.endsWith(QLatin1String(".desktop")) ? appId : appId + QStringLiteral(".desktop");
-    const auto it = std::find_if(m_apps.cbegin(), m_apps.cend(),
+    // (hidden apps too: the shell opens some from elsewhere, as the camera)
+    const auto it = std::find_if(m_all.cbegin(), m_all.cend(),
                                  [&](const DesktopEntry &e) { return e.id == id; });
-    if (it == m_apps.cend())
+    if (it == m_all.cend())
         return false;
     QStringList args = desktopentry::execArgs(*it);
     if (args.isEmpty()) {

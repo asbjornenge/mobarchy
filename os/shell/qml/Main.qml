@@ -156,6 +156,7 @@ QtObject {
         pinLock: shell.pinLock
         notifications: shell.notifications
         volume: shell.volume
+        apps: shell.apps
         onPassphraseNeeded: (ssid) => {
             shell.quick.close()
             shell.wifiPassword.ask(ssid)

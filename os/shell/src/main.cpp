@@ -1,6 +1,7 @@
 // mobarchy-shell: status bar, bottom edge with swipe-up app drawer, and the agent home
 // screen. See ADR 0009.
 //   mobarchy-shell --store    the app store (ADR 0012), an app of its own
+//   mobarchy-shell --camera   the camera (ADR 0018), an app of its own
 #include "iconprovider.h"
 
 #include <QGuiApplication>
@@ -15,22 +16,29 @@ int main(int argc, char *argv[])
     if (!qEnvironmentVariableIsSet("QML_NO_TOUCH_COMPRESSION"))
         qputenv("QML_NO_TOUCH_COMPRESSION", "1");
 
-    const bool store = argc > 1 && qstrcmp(argv[1], "--store") == 0;
-    // The app_id of the shell's own windows: the window list leaves them out. The store is
-    // an app like any other.
-    QGuiApplication::setDesktopFileName(store ? QStringLiteral("org.mobarchy.Store")
-                                              : QStringLiteral("org.mobarchy.Shell"));
+    // The apps in the shell's binary: --store, --camera. The app_id of the shell's own
+    // windows: the window list leaves them out. The apps are apps like any other.
+    struct App { const char *flag, *id, *name, *qml; };
+    static const App apps[] = {
+        {"--store", "org.mobarchy.Store", "mobarchy-store", "Store"},
+        {"--camera", "org.mobarchy.Camera", "mobarchy-camera", "CameraApp"},
+    };
+    const App *own = nullptr;
+    for (const App &a : apps)
+        if (argc > 1 && qstrcmp(argv[1], a.flag) == 0)
+            own = &a;
+    QGuiApplication::setDesktopFileName(QString::fromLatin1(own ? own->id : "org.mobarchy.Shell"));
     QGuiApplication app(argc, argv);
-    app.setApplicationName(store ? QStringLiteral("mobarchy-store") : QStringLiteral("mobarchy-shell"));
+    app.setApplicationName(QString::fromLatin1(own ? own->name : "mobarchy-shell"));
     // Layer surfaces are closed by the compositor when their output goes away (a fold);
     // the shell puts them back, so a moment without windows is not the end.
-    app.setQuitOnLastWindowClosed(store);
+    app.setQuitOnLastWindowClosed(own != nullptr);
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("icon"), new IconProvider(qEnvironmentVariable(
         "MOBARCHY_ICON_THEME", QStringLiteral("Adwaita"))));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
-    engine.loadFromModule("Mobarchy.Shell", store ? "Store" : "Main");
+    engine.loadFromModule("Mobarchy.Shell", own ? own->qml : "Main");
     return app.exec();
 }
