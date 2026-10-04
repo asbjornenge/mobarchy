@@ -42,3 +42,17 @@ void Device::rotate(const QString &orientation) const
     const QString program = args.takeFirst();
     QProcess::startDetached(program, args << orientation);
 }
+
+int Device::inset(const QString &connector, const QString &edge, int turns) const
+{
+    // the panel's edges, clockwise from its top
+    const int panel[4] = {deviceinfo::topInset(m_device, connector), deviceinfo::sideInset(m_device, connector),
+                          0, deviceinfo::sideInset(m_device, connector)};
+    static const QStringList edges = {QStringLiteral("top"), QStringLiteral("right"),
+                                      QStringLiteral("bottom"), QStringLiteral("left")};
+    const qsizetype e = edges.indexOf(edge);
+    if (e < 0)
+        return 0;
+    // the device turned clockwise by a quarter: the panel's top is now on the right
+    return panel[(e - turns % 4 + 8) % 4];
+}

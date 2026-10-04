@@ -140,6 +140,7 @@ QtObject {
         quick: shell.quick
         device: shell.device
         notifications: shell.notifications
+        turns: shell.rotation.turns
     }
     readonly property Home home: Home {
         agent: shell.agent
@@ -183,11 +184,22 @@ QtObject {
         target: shell.quick
         function onOpening() { shell.drawer.close() }
     }
-    // The screen in use (the status bar follows it) and its side inset. The strips are
-    // arranged first (bottom layer), so the bars and windows all sit inside them.
-    readonly property int sideInset: device.sideInset(statusBar.screen ? statusBar.screen.name : "")
-    readonly property SideInset leftInset: SideInset { left: true; inset: shell.sideInset }
-    readonly property SideInset rightInset: SideInset { left: false; inset: shell.sideInset }
+    // The screen in use (the status bar follows it) and its insets at the other edges, as
+    // it is turned. The strips are arranged first (bottom layer), so the bars and windows
+    // all sit inside them.
+    readonly property string inUse: statusBar.screen ? statusBar.screen.name : ""
+    readonly property SideInset leftInset: SideInset {
+        edge: "left"
+        inset: shell.device.inset(shell.inUse, "left", shell.rotation.turns)
+    }
+    readonly property SideInset rightInset: SideInset {
+        edge: "right"
+        inset: shell.device.inset(shell.inUse, "right", shell.rotation.turns)
+    }
+    readonly property SideInset bottomInset: SideInset {
+        edge: "bottom"
+        inset: shell.device.inset(shell.inUse, "bottom", shell.rotation.turns)
+    }
     readonly property Edge edge: Edge {
         drawer: shell.drawer
         keyboard: shell.keyboard

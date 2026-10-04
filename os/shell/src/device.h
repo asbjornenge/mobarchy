@@ -17,6 +17,10 @@ public:
     // See deviceinfo::topInset. connector: QScreen::name(), e.g. "DSI-1".
     Q_INVOKABLE int topInset(const QString &connector) const;
     Q_INVOKABLE int sideInset(const QString &connector) const;
+    // The inset at an edge of the screen as it is turned now (edge: "top", "right",
+    // "bottom", "left"; turns: quarter turns clockwise of the device, Rotation.turns): the
+    // panel's own insets (top_inset at its top, side_inset at its sides) move with it.
+    Q_INVOKABLE int inset(const QString &connector, const QString &edge, int turns) const;
     // Rotation (ADR 0020): whether the device can turn its screens ([rotation] hook), and
     // whether a display's rotation is locked until the owner unlocks it (rotation_locked).
     Q_INVOKABLE bool canRotate() const;

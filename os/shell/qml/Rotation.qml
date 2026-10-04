@@ -28,15 +28,22 @@ QtObject {
     }
     Component.onCompleted: locks = JSON.parse(settings.value("locks", "{}"))
 
+    // the screen as turned now: quarter turns clockwise of the device (left-up: 1)
+    property int turns: 0
+    readonly property var orientationTurns: ({ "normal": 0, "left-up": 1, "bottom-up": 2, "right-up": 3 })
+
     function update() {
         if (!supported || connector === "")
             return
         const o = locked ? "normal" : sensor.orientation
-        if (o !== "undefined")      // (not known yet, or the screen is off: as it is)
+        if (o !== "undefined") {    // (not known yet, or the screen is off: as it is)
             device.rotate(o)
+            turns = orientationTurns[o]
+        }
     }
     onLockedChanged: update()
-    onConnectorChanged: update()
+    // (a fold turns the screen back upright first)
+    onConnectorChanged: { turns = 0; update() }
 
     readonly property DeviceOrientation sensor: DeviceOrientation {
         // (the sensor runs only while the screen is on)

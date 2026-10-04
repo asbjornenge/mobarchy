@@ -13,7 +13,9 @@ LayerWindow {
     // The bar starts at the very top edge, where a swipe starts, and covers the strip the
     // device keeps clear (camera cutout, corners: device.toml top_inset). Its content sits
     // below that strip.
-    readonly property int inset: device.topInset(screen ? screen.name : "")
+    // how the screen is turned (Rotation.turns): the strip is at the panel's top only upright
+    property int turns: 0
+    readonly property int inset: device.inset(screen ? screen.name : "", "top", turns)
     height: inset + 28
     color: Theme.bgDark
     LayerShell.Window.scope: "mobarchy-status"
