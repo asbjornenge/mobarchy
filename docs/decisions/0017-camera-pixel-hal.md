@@ -91,6 +91,9 @@ run far enough to show what it asks for.
 
 - Both cameras are listed (back 4000×3000, front 3840×2600). The back camera takes JPEGs
   with auto exposure and white balance working.
-- The front camera fails: Google's image DSP (GXP) firmware faults during the session,
-  and the HAL's ML pipeline then crashes.
+- Both cameras stream and take photos. The GXP faults that crashed the HAL's ML pipeline
+  came from firmware of another build than the vendor's; it now comes from the vendor
+  partition (ADR 0019).
+- The HAL gets the motion sensors (gyro, for stabilisation) through Android's own
+  sensorservice and ISensorManager in the container (os/android-sensors).
 - Not yet measured: preview frame rate and heat on llvmpipe.

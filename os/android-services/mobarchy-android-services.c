@@ -13,10 +13,6 @@
  *   accepted and dropped, and the optional features (hint sessions, headroom) are
  *   reported unsupported, which HALs handle. Its binder extension is Pixel's IPowerExt
  *   (named modes and boosts, which the camera HAL uses), with the same answers.
- * - android.frameworks.sensorservice.ISensorManager/default: Android's sensor service, for
- *   HALs (the camera HAL's gyro, for stabilisation). On Android it lives in system_server.
- *   Until Mobarchy bridges the sensors (they are behind the container's sensor HAL), it
- *   has none to offer: an empty list, and "no such sensor".
  * - activity, appops, permission, permission_checker, sensor_privacy, media.camera.proxy,
  *   processinfo: system_server's services that cameraserver asks about its clients:
  *   whether they are in the foreground (and their priority, for which client gets a
@@ -28,6 +24,15 @@
  *   IPermissionController, IPermissionChecker.aidl and ISensorPrivacyManager.aidl;
  *   frameworks/av ICameraServiceProxy.aidl; frameworks/base IProcessInfoService.aidl; as
  *   of Android 17.)
+ * - vendor.google.whitechapel.audio.extension.IAudioExtension/default: Pixel's audio HAL's
+ *   extension. The sensor HAL waits for it while activating its sensors (to tell the audio
+ *   HAL, which runs the ultrasound proximity sensor, whether the display is always on). The
+ *   container runs no audio HAL (sound is the Linux side's), so: a sensor handler that
+ *   accepts that, and nothing else supported.
+ * - package_native: the package manager, for native code. sensorservice asks it for the
+ *   device's features (whether it is a car): none.
+ * - batterystats: the battery history. sensorservice notes each sensor it starts and stops
+ *   there (and waits 5 s for it, each time, if it isn't there): dropped.
  * - SurfaceFlingerAIDL: Android's compositor. cameraserver waits for it while creating any
  *   output stream (for preview streams paced by the display's vsync). The container has
  *   no display of its own (Mobarchy's compositor is on the Linux side), so it offers no
@@ -52,7 +57,6 @@
 
 #define STATUS_UNKNOWN_TRANSACTION  (-74)   /* -EBADMSG, as libbinder */
 #define EX_UNSUPPORTED_OPERATION    (-7)
-#define EX_SERVICE_SPECIFIC         (-8)
 
 struct service;
 typedef GBinderLocalReply *(*Handler)(struct service *s, GBinderLocalObject *obj,
@@ -97,18 +101,6 @@ reply_unsupported(GBinderLocalObject *obj)
     gbinder_local_reply_append_int32(reply, EX_UNSUPPORTED_OPERATION);
     gbinder_local_reply_append_string16(reply, NULL);   /* no message */
     gbinder_local_reply_append_int32(reply, 0);         /* no remote stack trace */
-    return reply;
-}
-
-static GBinderLocalReply *
-reply_error(GBinderLocalObject *obj, gint32 code)
-{
-    GBinderLocalReply *reply = gbinder_local_object_new_reply(obj);
-
-    gbinder_local_reply_append_int32(reply, EX_SERVICE_SPECIFIC);
-    gbinder_local_reply_append_string16(reply, NULL);   /* no message */
-    gbinder_local_reply_append_int32(reply, 0);         /* no remote stack trace */
-    gbinder_local_reply_append_int32(reply, code);
     return reply;
 }
 
@@ -160,33 +152,46 @@ power(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code
     return NULL;
 }
 
-/* --- ISensorManager V1 (frameworks/hardware/interfaces/sensorservice/aidl) ------------ */
+/* --- Pixel's IAudioExtension V5 (vendor.google.whitechapel.audio.extension) ---------- */
 
-#define RESULT_NOT_EXIST 1      /* ISensorManager.RESULT_NOT_EXIST */
+static Service sensor_handler;
 
 static GBinderLocalReply *
-sensors(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
+audio_extension(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
       int *status)
 {
     GBinderLocalReply *reply;
 
-    if (++s->calls == 1)
-        GINFO("ISensorManager: the first request came (no sensors yet)");
     switch (code) {
-    case TX(1):     /* createAshmemDirectChannel */
-    case TX(2):     /* createEventQueue */
-    case TX(3):     /* createGrallocDirectChannel */
-        return reply_unsupported(obj);
-    case TX(4):     /* SensorInfo getDefaultSensor(SensorType) */
-        return reply_error(obj, RESULT_NOT_EXIST);
-    case TX(5):     /* SensorInfo[] getSensorList() */
+    case TX(16):    /* ISensorHandler getSensorHandler() */
         reply = reply_ok(obj);
-        gbinder_local_reply_append_int32(reply, 0);    /* no sensors */
+        gbinder_local_reply_append_local_object(reply, sensor_handler.obj);
         return reply;
+    }
+    /* the rest (call status, CCA, runtime tuning, the DC and telephony handlers) are the
+     * audio HAL's own business */
+    return reply_unsupported(obj);
+}
+
+static GBinderLocalReply *
+sensor_handler_tx(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
+      int *status)
+{
+    switch (code) {
+    case TX(1):     /* setAlwaysAvailableDisplayEnabled(boolean) */
+        return reply_ok(obj);
     }
     *status = STATUS_UNKNOWN_TRANSACTION;
     return NULL;
 }
+
+#define AUDIO_EXTENSION_HASH "28c2fe35f0b67ebb01ac97f1bf2ec3d23d79a817"     /* V5 */
+
+static Service sensor_handler = {
+    .name = "vendor.google.whitechapel.audio.extension.ISensorHandler (IAudioExtension's)",
+    .iface = "vendor.google.whitechapel.audio.extension.ISensorHandler", .version = 5,
+    .hash = AUDIO_EXTENSION_HASH, .handle = sensor_handler_tx,
+};
 
 /* --- system_server's services, for cameraserver ------------------------------------- */
 
@@ -359,6 +364,29 @@ processinfo(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guin
     return reply;
 }
 
+/* package_native (frameworks/base IPackageManagerNative.aidl): the device's features. Only
+ * sensorservice asks, whether this is a car; it isn't, and has none of the others either. */
+static GBinderLocalReply *
+package_native(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
+      int *status)
+{
+    switch (code) {
+    case TX(14):    /* boolean hasSystemFeature(String featureName, int version) */
+        return reply_bool(obj, FALSE);
+    }
+    return reply_unsupported(obj);
+}
+
+/* batterystats (frameworks/native IBatteryStats.h, frameworks/base IBatteryStats.aidl):
+ * native code notes what it starts and stops (sensors, audio, video, camera, flashlight)
+ * for the battery history. Mobarchy keeps none: noted, and dropped. */
+static GBinderLocalReply *
+battery_stats(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
+      int *status)
+{
+    return reply_ok(obj);
+}
+
 /* SurfaceFlingerAIDL (frameworks/native libs/gui ISurfaceComposer.aidl): nothing to offer */
 static GBinderLocalReply *
 surface_composer(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
@@ -432,9 +460,9 @@ static Service services[] = {
     { .name = "android.hardware.power.IPower/default", .iface = "android.hardware.power.IPower",
       .version = 7, .hash = "4642211f44ad39c8c592b3611e62d29974b784b5", .handle = power,
       .extension = &power_extension },
-    { .name = "android.frameworks.sensorservice.ISensorManager/default",
-      .iface = "android.frameworks.sensorservice.ISensorManager",
-      .version = 1, .hash = "514f08f7a595501066b94e5de878d240b4d49456", .handle = sensors },
+    { .name = "vendor.google.whitechapel.audio.extension.IAudioExtension/default",
+      .iface = "vendor.google.whitechapel.audio.extension.IAudioExtension",
+      .version = 5, .hash = AUDIO_EXTENSION_HASH, .handle = audio_extension },
     /* (system interfaces: no version or hash, and the service manager refuses VINTF
      * stability for names the VINTF manifests don't declare) */
     { .name = "activity", .iface = "android.app.IActivityManager", .handle = activity,
@@ -451,6 +479,10 @@ static Service services[] = {
       .handle = camera_proxy, .system = TRUE },
     { .name = "processinfo", .iface = "android.os.IProcessInfoService", .handle = processinfo,
       .system = TRUE },
+    { .name = "package_native", .iface = "android.content.pm.IPackageManagerNative",
+      .handle = package_native, .system = TRUE },
+    { .name = "batterystats", .iface = "com.android.internal.app.IBatteryStats",
+      .handle = battery_stats, .system = TRUE },
     { .name = "SurfaceFlingerAIDL", .iface = "android.gui.ISurfaceComposer",
       .handle = surface_composer, .system = TRUE },
 };
@@ -551,6 +583,8 @@ main(void)
             new_object(sm, services[i].extension);
     }
 
+    new_object(sm, &sensor_handler);
+
     observer_token = gbinder_servicemanager_new_local_object(sm, NULL, NULL, NULL);
     gbinder_local_object_set_stability(observer_token, GBINDER_STABILITY_SYSTEM);
 
@@ -571,6 +605,7 @@ main(void)
         if (services[i].extension)
             gbinder_local_object_drop(services[i].extension->obj);
     }
+    gbinder_local_object_drop(sensor_handler.obj);
     gbinder_local_object_drop(observer_token);
     gbinder_servicemanager_unref(sm);
     g_main_loop_unref(loop);

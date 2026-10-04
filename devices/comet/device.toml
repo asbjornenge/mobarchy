@@ -84,3 +84,6 @@ modem_img = "modem"
 # the sensors (USF, on the AOC): the camera HAL reads the gyro (stabilisation) through them
 "/dev/acd-com.google.usf" = ["0660", "system", "system"]
 "/dev/acd-com.google.usf.non_wake_up" = ["0660", "system", "system"]
+# the AOC itself: the sensor HAL maps direct channels' buffers (the gyro the camera HAL
+# reads at its own rate) into it
+"/dev/aoc" = ["0660", "system", "system"]
