@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import bluetooth, clipboard, clock, media, network, power, store, webapps
+from . import bluetooth, camera, clipboard, clock, media, network, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -367,6 +367,20 @@ def clipboard_set(text: str) -> dict:
         return clipboard.set_text(text)
     except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
         raise ToolError(f"clipboard: {e}") from e
+
+
+# A photo shows the owner's surroundings: an action, and not while the phone is locked
+# (as the screen; ADR 0018).
+@tool(Risk.ACT, "Take a photo", screen=True)
+def take_photo(facing: str = "back") -> list:
+    """Take a photo with the back or front camera and look at it. It is saved in the
+    owner's photos (~/Pictures/Camera, as from the camera app). On a foldable, the front
+    camera is the outer one when folded and the inner one when open."""
+    try:
+        path = camera.take_photo(facing)
+    except camera.CameraError as e:
+        raise ToolError(f"camera: {e}") from e
+    return [f"Saved as {path}", Image(path=path)]
 
 
 @tool(Risk.READ, "Browse the app store")
