@@ -2,7 +2,9 @@ import QtQuick
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
-// The bottom edge: swipe up for the app drawer, tap for home, and a keyboard toggle.
+// The bottom edge: swipe up for the app drawer, tap for home, and a keyboard toggle. While
+// the on-screen keyboard is up, a tap is taken for a space bar that was missed: it doesn't
+// go home (a swipe up still opens the drawer).
 LayerWindow {
     id: edge
 
@@ -34,7 +36,7 @@ LayerWindow {
         onBegan: edge.drawer.beginDrag()
         onMoved: (distance) => edge.drawer.dragTo(distance)
         onEnded: (velocity) => edge.drawer.endDrag(velocity)
-        onTapped: edge.home()
+        onTapped: if (!edge.keyboard.visible) edge.home()
     }
 
     MouseArea {

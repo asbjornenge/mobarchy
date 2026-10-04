@@ -98,4 +98,9 @@ int sideInset(const Device &device, const QString &connector)
     return display(device, connector).value(QStringLiteral("side_inset")).toInt();
 }
 
+int bottomInset(const Device &device, const QString &connector)
+{
+    return display(device, connector).value(QStringLiteral("bottom_inset")).toInt();
+}
+
 }  // namespace deviceinfo

@@ -47,7 +47,7 @@ int Device::inset(const QString &connector, const QString &edge, int turns) cons
 {
     // the panel's edges, clockwise from its top
     const int panel[4] = {deviceinfo::topInset(m_device, connector), deviceinfo::sideInset(m_device, connector),
-                          0, deviceinfo::sideInset(m_device, connector)};
+                          deviceinfo::bottomInset(m_device, connector), deviceinfo::sideInset(m_device, connector)};
     static const QStringList edges = {QStringLiteral("top"), QStringLiteral("right"),
                                       QStringLiteral("bottom"), QStringLiteral("left")};
     const qsizetype e = edges.indexOf(edge);

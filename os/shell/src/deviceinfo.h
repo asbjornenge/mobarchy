@@ -25,5 +25,7 @@ QVariantMap display(const Device &device, const QString &connector);
 int topInset(const Device &device, const QString &connector);
 // The same at the left and right edges (panel under the bezel): `side_inset`.
 int sideInset(const Device &device, const QString &connector);
+// The same at the bottom edge: `bottom_inset`.
+int bottomInset(const Device &device, const QString &connector);
 
 }  // namespace deviceinfo
