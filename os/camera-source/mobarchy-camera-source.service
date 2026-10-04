@@ -1,0 +1,14 @@
+[Unit]
+Description=The cameras as PipeWire sources, and photos (org.mobarchy.Camera)
+Documentation=file:///usr/share/doc/mobarchy/decisions/0018-camera-bridge-pipewire.md
+After=pipewire.service
+Requires=pipewire.service
+
+[Service]
+Type=dbus
+BusName=org.mobarchy.Camera
+ExecStart=/usr/lib/mobarchy/mobarchy-camera-source
+Restart=on-failure
+
+[Install]
+WantedBy=pipewire.service

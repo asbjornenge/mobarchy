@@ -221,14 +221,13 @@ on post-fs-data
 on mobarchy-start
     start vendor.graphics.allocator-default
     start vendor.sensors-hal-multihal
+    start sensorservice
     start android-hardware-media-c2-hal-1-2
     start android-hardware-media-c2-hal-2-0-google
     start vendor-dolby-media-c2-hal
     start media.swcodec
-    # Not started yet: the camera HAL needs OpenCL on the GPU (HDRnet), which panthor
-    # doesn't give it, and aborts. Without it it restarts every few seconds.
-    #start vendor.camera-provider-2-7-google
-    #start cameraserver
+    start vendor.camera-provider-2-7-google
+    start cameraserver
 
 # The sensors (USF, on the AOC), through Android's sensor HAL: it loads the sensor registry
 # (the vendor's, and the factory calibration in persist), which the camera HAL waits for

@@ -76,6 +76,38 @@ service tombstoned /system/bin/tombstoned
     socket tombstoned_java_trace seqpacket 0666 system system
     seclabel u:r:tombstoned:s0
 
+# The camera bridge (ADR 0018): the cameras for the Linux side, on /data/mobarchy/camera.
+# It runs while cameraserver does (on devices whose init starts it).
+service mobarchy-camerad /system/bin/mobarchy-camerad
+    user cameraserver
+    group camera
+    seclabel u:r:cameraserver:s0
+
+on property:init.svc.cameraserver=running
+    start mobarchy-camerad
+
+on property:init.svc.cameraserver=stopped
+    stop mobarchy-camerad
+
+# Android's sensor service, in front of the device's sensor HAL (devices whose init starts
+# their sensor HAL start this too), and mobarchy-sensormanager, which offers it to HALs as
+# ISensorManager (the camera HAL's gyro). On Android both live in system_server.
+service sensorservice /system/bin/sensorservice
+    user system
+    group system input wakelock
+    seclabel u:r:system_server:s0
+
+service mobarchy-sensormanager /system/bin/mobarchy-sensormanager
+    user system
+    group system
+    seclabel u:r:system_server:s0
+
+on property:init.svc.sensorservice=running
+    start mobarchy-sensormanager
+
+on property:init.svc.sensorservice=stopped
+    stop mobarchy-sensormanager
+
 service vndservicemanager /vendor/bin/vndservicemanager /dev/vndbinder
     class core
     user system
@@ -120,4 +152,5 @@ on post-fs-data
     mkdir /data/local/tmp 0771 shell shell
     mkdir /data/tombstones 0771 system system
     mkdir /data/anr 0775 system system
+    mkdir /data/mobarchy 0755 cameraserver camera
     load_persist_props

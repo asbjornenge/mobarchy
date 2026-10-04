@@ -48,9 +48,13 @@ BINDERFS = RUN / "binderfs"     # the container's binder devices, shared with th
 APEX = ROOT / "mnt/apex"
 NAME = "android"
 LXC_PATH = RUN / "lxc"
-# Mobarchy's own libraries for the Android side (e.g. Mesa: GLES and OpenCL for the vendor's
-# HALs), from packages: the container's /odm/lib64
+# Mobarchy's own libraries for the Android side's vendor processes (e.g. Mesa: GLES and
+# OpenCL for the HALs), from packages: the container's /odm/lib64
 ODM_LIBS = LIB / "android/odm/lib64"
+# Mobarchy's own programs on Android's system side (the camera bridge, an NDK client of
+# cameraserver), from packages: merged into the container's /system/bin, where they get
+# the system's libraries (linkerconfig's system section)
+SYSTEM_BIN = LIB / "android/system/bin"
 
 # Android's init directories (init reads every .rc in them, unless told not to)
 INIT_DIRS = ["system/etc/init", "system_ext/etc/init", "product/etc/init", "vendor/etc/init"]
@@ -201,6 +205,7 @@ def mount_apexes():
 # --- SELinux ---------------------------------------------------------------------------------
 
 SELINUXFS = Path("/sys/fs/selinux")
+FIRMWARE_PATH = Path("/sys/module/firmware_class/parameters/path")
 
 
 def selinux_status():
@@ -251,6 +256,7 @@ def prepare(conf):
             mount(f"/dev/mapper/android-{p}", ROOT / p, "ro", "noload")
     for d in ("apex", "linkerconfig", "mnt", "tmp"):
         mount("tmpfs", ROOT / d, "mode=0755", "nosuid", "nodev", fstype="tmpfs")
+    vendor_firmware(True)
     print(f"{mount_apexes()} APEXes mounted")
     load_selinux_policy()
     mount("binder", BINDERFS, fstype="binder")
@@ -338,6 +344,9 @@ def prepare(conf):
     # GLES drivers (Mesa's, as lib{EGL,GLESv2}_<name>.so): Android's EGL loader only looks
     # in /vendor/lib64/egl, so they are merged into it (read-only overlayfs, the vendor's
     # own files stay). ro.hardware.egl (a device property) chooses the driver.
+    if SYSTEM_BIN.is_dir():
+        mount("overlay", ROOT / "system/bin", f"lowerdir={SYSTEM_BIN}:{ROOT / 'system/bin'}",
+              fstype="overlay")
     vendor_egl = ROOT / "vendor/lib64/egl"
     if (ODM_LIBS / "egl").is_dir() and vendor_egl.is_dir():
         mount("overlay", vendor_egl, f"lowerdir={ODM_LIBS / 'egl'}:{vendor_egl}", fstype="overlay")
@@ -468,6 +477,16 @@ def start_host():
         sys.exit(f"Android's init restarted {MAX_STARTS} times in {STARTS_WINDOW} s: giving up")
 
 
+def vendor_firmware(on):
+    """While the container runs, the kernel loads firmware from the vendor partition first
+    (ADR 0019): the DSP and TPU firmware the vendor's HALs talk to must be the one they were
+    built with, and /usr/lib/firmware may be from another build. Firmware loaded before the
+    container (early boot) still comes from /usr/lib/firmware."""
+    fw = ROOT / "vendor/firmware"
+    if FIRMWARE_PATH.exists() and (not on or fw.is_dir()):
+        FIRMWARE_PATH.write_text(str(fw) if on else "")
+
+
 def stop():
     run("lxc-stop", "-P", LXC_PATH, "-n", NAME, "-k", check=False, capture_output=True)
     # A container whose lxc-start is gone (killed) can't be reached by lxc-stop, but its
@@ -488,6 +507,7 @@ def stop():
     for b in ("binder", "hwbinder", "vndbinder"):
         if Path(f"/dev/{b}").is_symlink():
             Path(f"/dev/{b}").unlink()
+    vendor_firmware(False)
     # unmount everything under the root, deepest first
     mounts = [line.split()[1] for line in Path("/proc/self/mounts").read_text().splitlines()]
     for m in sorted({m for m in mounts if m.startswith(str(RUN))}, key=len, reverse=True):
