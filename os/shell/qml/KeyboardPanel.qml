@@ -28,7 +28,11 @@ LayerWindow {
     // The keys are at most a phone's width wide, centred: on a wide screen (an unfolded
     // foldable) a full-width row puts the letters too far apart for the thumbs.
     readonly property real maxKeysWidth: 720
-    readonly property real keysWidth: Math.min(width, maxKeysWidth)
+    // (from the screen, not the window: before the compositor has sized the window its
+    // width isn't known, and a height worked out from that would place it wrong at first)
+    readonly property real keysWidth: Math.min(screen ? screen.width - 2 * sideInsets : width, maxKeysWidth)
+    // the screen's side strips (SideInset), which the window sits between
+    property real sideInsets: 0
     readonly property real keysX: (width - keysWidth) / 2
     readonly property real gap: Math.max(5, keysWidth * 0.014)
     readonly property real unit: (keysWidth - 2 * pad - 10 * gap) / 11      // one letter key

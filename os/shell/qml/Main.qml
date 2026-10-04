@@ -13,6 +13,7 @@ QtObject {
     readonly property KeyboardPanel keyboardPanel: KeyboardPanel {
         keyboard: shell.keyboard
         clipboard: shell.clipboard
+        sideInsets: shell.leftInset.inset + shell.rightInset.inset
     }
     readonly property SystemStatus system: SystemStatus {}
     readonly property Brightness brightness: Brightness {}
