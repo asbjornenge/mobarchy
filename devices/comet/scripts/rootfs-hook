@@ -54,3 +54,6 @@ fi
 systemctl enable mobarchy-boot-success.timer mobarchy-audio.service mobarchy-bluetooth.service >/dev/null
 # Telephony (ADR 0014): the Android container (rild and the modem's daemons) and oFono.
 systemctl enable mobarchy-android.service ofono.service >/dev/null
+# The cameras on the Linux side (ADR 0018), through the container's camera HAL: the user
+# session's PipeWire sources.
+systemctl --global enable mobarchy-camera-source.service >/dev/null

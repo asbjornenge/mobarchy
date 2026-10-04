@@ -18,3 +18,9 @@ ofono-sailfish
 ofono-binder-plugin
 # Stand-ins for Android services the container's vendor HALs wait for (os/android-services)
 mobarchy-android-services
+# Android's sensor service for the container's HALs (os/android-sensors), and Mesa for
+# them (EGL/GLES, OpenCL: the camera HAL; os/android-mesa)
+mobarchy-android-sensors
+mobarchy-android-mesa
+# The cameras on the Linux side (ADR 0018): the bridge, PipeWire sources, photos (os/camera)
+mobarchy-camera

@@ -1,7 +1,7 @@
 /*
  * mobarchy-camera-source: the cameras on the Linux side (ADR 0018). It is the camera
  * bridge's client (mobarchy-camerad in the Android container; protocol in
- * os/android-camera/protocol.h) and offers
+ * os/camera/protocol.h) and offers
  *   - a PipeWire video source per camera ("Back camera", "Front camera"), which streams
  *     while something reads it (the camera app, a browser through the camera portal, ...);
  *   - org.mobarchy.Camera on the session bus: the cameras, and photos (the HAL's JPEGs,
@@ -12,7 +12,7 @@
  * switch, SW_LID, closed: a foldable's hinge sensor) or not. On a foldable, the front
  * camera is then the outer one when folded and the inner one when open, as on Android.
  */
-#include "../android-camera/protocol.h"
+#include "../protocol.h"
 
 #include <errno.h>
 #include <fcntl.h>

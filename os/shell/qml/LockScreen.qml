@@ -189,12 +189,14 @@ LayerWindow {
         }
     }
     Loader {
+        id: cameraLoader
         anchors.fill: parent
         active: lock.cameraOpen
-        sourceComponent: CameraView {
-            locked: true
-            onCloseRequested: lock.cameraOpen = false
-        }
+        sourceComponent: CameraView { locked: true }
+    }
+    Connections {
+        target: cameraLoader.item
+        function onCloseRequested() { lock.cameraOpen = false }
     }
     // the screen stays on while the camera is open
     Timer {

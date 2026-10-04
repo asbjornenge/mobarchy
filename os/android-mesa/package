@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Package Mesa for the Android container (os/android-mesa/build's result) as
+# mobarchy-android-mesa, for Mobarchy's repository: the libraries android-container
+# mounts as the container's /odm/lib64 (/usr/lib/mobarchy/android/odm/lib64).
+#
+#   os/android-mesa/package --out <dir>      (after os/android-mesa/build)
+#   tools/repo-build --repo <dir> --add <dir>/mobarchy-android-mesa-*.pkg.tar.zst
+set -euo pipefail
+out=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --out) out="$(realpath -m "$2")"; shift 2 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+[ -n "$out" ] || { echo "usage: $0 --out <dir>" >&2; exit 2; }
+work="$HOME/.cache/mobarchy/android-mesa"
+[ -f "$work/odm/lib64/libgallium_dri.so" ] || { echo "no build in $work: run os/android-mesa/build" >&2; exit 1; }
+version=$(cat "$work/src/mesa/VERSION" | tr - _)
+image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
+    echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
+mkdir -p "$out"
+
+docker run --rm --platform linux/arm64 -v "$work/odm:/odm:ro" -v "$out:/out" "$image" bash -euo pipefail -c "
+    pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+    pacman -Sy --noconfirm --needed --disable-sandbox fakeroot >/dev/null
+    useradd -m builder
+    mkdir -p /tmp/pkg/root/usr/lib/mobarchy/android && cp -a /odm /tmp/pkg/root/usr/lib/mobarchy/android/
+    cat > /tmp/pkg/PKGBUILD <<'EOP'
+pkgname=mobarchy-android-mesa
+pkgver=PKGVER
+pkgrel=1
+pkgdesc=\"Mesa for Mobarchy's Android container: EGL/GLES and OpenCL (rusticl) on llvmpipe, for the vendor HALs (ADR 0017)\"
+arch=(aarch64)
+url='https://mesa3d.org'
+license=(MIT)
+options=(!strip !debug)
+package() { cp -a \"\$startdir/root/.\" \"\$pkgdir/\"; }
+EOP
+    sed -i 's/PKGVER/$version/' /tmp/pkg/PKGBUILD
+    chown -R builder /tmp/pkg
+    su builder -c 'cd /tmp/pkg && PKGDEST=/tmp/pkg PKGEXT=.pkg.tar.zst makepkg --nodeps --noconfirm >/tmp/pkg/makepkg.log 2>&1' \
+        || { tail -20 /tmp/pkg/makepkg.log >&2; exit 1; }
+    cp /tmp/pkg/mobarchy-android-mesa-*.pkg.tar.zst /out/
+    chmod a+r /out/*
+"
+ls "$out"/mobarchy-android-mesa-*.pkg.tar.zst

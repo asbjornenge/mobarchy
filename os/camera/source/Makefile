@@ -4,7 +4,7 @@ CFLAGS ?= -O2
 CFLAGS += -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers $(shell pkg-config --cflags $(PKGS))
 LDLIBS += $(shell pkg-config --libs $(PKGS))
 
-mobarchy-camera-source: mobarchy-camera-source.c ../android-camera/protocol.h
+mobarchy-camera-source: mobarchy-camera-source.c ../protocol.h
 	$(CC) $(CFLAGS) -o $@ mobarchy-camera-source.c $(LDLIBS)
 
 install: mobarchy-camera-source

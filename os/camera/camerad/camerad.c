@@ -5,7 +5,7 @@
  * The protocol is in protocol.h.
  */
 #define _GNU_SOURCE     /* memfd_create */
-#include "protocol.h"
+#include "../protocol.h"
 
 #include <camera/NdkCameraCaptureSession.h>
 #include <camera/NdkCameraDevice.h>

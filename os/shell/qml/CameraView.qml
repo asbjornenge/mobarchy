@@ -28,7 +28,6 @@ Rectangle {
         videoSink: viewfinder.videoSink
         // frames only while the viewfinder shows
         active: win.active && win.visible && !win.viewing
-        deviceRotation: Screen.angleBetween(Screen.nativeOrientation, Screen.orientation)
         onFailed: (message) => { win.error = message; errorTimer.restart() }
         onPhotoTaken: (path) => { win.error = ""; win.taken = [path].concat(win.taken) }
     }

@@ -42,7 +42,7 @@ docker run --rm --platform linux/arm64 --memory 20g --cpus 8 -e MAKEFLAGS=-j6 -e
     # Dependencies are installed here, as root: makepkg --syncdeps would need sudo, and
     # setuid does not work under qemu-user.
     deps=$(bash -c "source /pkg/PKGBUILD; printf \"%s\n\" \"\${depends[@]}\" \"\${makedepends[@]}\" \"\${checkdepends[@]}\"")
-    pacman -S --noconfirm --needed --disable-sandbox $deps >/dev/null
+    [ -z "$deps" ] || pacman -S --noconfirm --needed --disable-sandbox $deps >/dev/null
     useradd -m builder
     cp -r /pkg /tmp/build && chown -R builder /tmp/build
     su builder -c "cd /tmp/build && PKGDEST=/tmp/build/out BUILDDIR=/tmp/makepkg PKGEXT=.pkg.tar.zst makepkg --noconfirm" \

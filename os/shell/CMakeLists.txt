@@ -26,6 +26,8 @@ set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(mobarchy-shell
     URI Mobarchy.Shell
     VERSION 1.0
+    # (QtMultimedia: the types of C++ properties, e.g. CameraSource.videoSink, for qmllint)
+    DEPENDENCIES QtMultimedia
     SOURCES
         src/apps.cpp src/apps.h
         src/device.cpp src/device.h

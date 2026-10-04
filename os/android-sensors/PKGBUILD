@@ -1,0 +1,18 @@
+# Android's sensor service for the HALs in Mobarchy's Android container: the ISensorManager
+# host (built with the NDK beforehand: make ndk); sensorservice itself is Android's.
+#   tools/repo-build --repo <dir> os/android-sensors
+pkgname=mobarchy-android-sensors
+pkgver=0.1
+pkgrel=1
+pkgdesc="ISensorManager for the vendor HALs in Mobarchy's Android container, in front of Android's sensorservice"
+arch=(aarch64)
+options=(!debug !strip)
+
+prepare() {
+    [ -x "$startdir/mobarchy-sensormanager" ] || {
+        echo "no mobarchy-sensormanager: build it with the NDK first (make ndk)" >&2; return 1; }
+}
+
+package() {
+    make -C "$startdir" DESTDIR="$pkgdir" install
+}

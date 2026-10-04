@@ -4,13 +4,18 @@
 #
 #   tools/repo-build --repo <dir> [--builder container|device] [--add <pkg file>]... [what...]
 #
-#   what       os/shell, agent, os/store, or a name in os/packages (default: all of them)
+#   what       os/shell, agent, os/store, os/android-services, os/android-sensors, os/camera,
+#              or a name in os/packages (default: all of them)
 #   --builder  container: the Arch Linux ARM container under qemu-user (tools/pkg-build);
 #              slow for big C/C++ builds.
 #              device: on a connected device over ssh (MOBARCHY_DEVICE, default
 #              mob@172.16.42.1, key ~/.config/mobarchy/device_ed25519), natively. Build
 #              dependencies get installed there.
 #   --add      a package built elsewhere (e.g. os/mesa/build's mesa-mobarchy)
+#
+# Parts that run in the Android container are built here first, with the Android NDK
+# (tools/android-ndk): a package directory whose Makefile has an "ndk" target gets
+# "make ndk" on the host; its PKGBUILD then packages the result.
 #
 # os/image/build installs from this repository (--repo). Unsigned for now.
 set -euo pipefail
@@ -26,7 +31,8 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$repo" ] || { echo "usage: $0 --repo <dir> [--builder container|device] [--add <pkg>]... [what...]" >&2; exit 2; }
-[ ${#what[@]} -gt 0 ] || what=(os/shell agent os/store $(cd "$repo_root/os/packages" && ls))
+[ ${#what[@]} -gt 0 ] || what=(os/shell agent os/store os/android-services os/android-sensors os/camera
+                               $(cd "$repo_root/os/packages" && ls))
 mkdir -p "$repo"
 
 pkgdir_of() {  # name or path -> directory with the PKGBUILD
@@ -64,6 +70,9 @@ REMOTE
 for w in "${what[@]}"; do
     dir=$(pkgdir_of "$w")
     echo "== $w ($builder)"
+    if grep -q '^ndk:' "$dir/Makefile" 2>/dev/null; then
+        NDK=$("$repo_root/tools/android-ndk") make -C "$dir" ndk
+    fi
     case $builder in
         container) "$repo_root/tools/pkg-build" "$dir" --out "$repo" ;;
         device) build_on_device "$dir" ;;

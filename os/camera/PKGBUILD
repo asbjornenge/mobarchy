@@ -1,0 +1,27 @@
+# The camera bridge (ADR 0018), built from this directory: mobarchy-camerad (the Android
+# container's end, built with the NDK beforehand: make ndk) and mobarchy-camera-source.
+#   tools/repo-build --repo <dir> os/camera
+pkgname=mobarchy-camera
+pkgver=0.1
+pkgrel=1
+pkgdesc="The cameras of Mobarchy's Android container on the Linux side: a bridge from cameraserver, PipeWire sources and photos (org.mobarchy.Camera)"
+arch=(aarch64)
+depends=(pipewire glib2)
+makedepends=(pkgconf)
+options=(!debug !strip)
+
+prepare() {
+    [ -x "$startdir/camerad/mobarchy-camerad" ] || {
+        echo "no camerad/mobarchy-camerad: build it with the NDK first (make ndk)" >&2; return 1; }
+    rm -rf "$srcdir/camera" && mkdir -p "$srcdir/camera"
+    cp -r "$startdir"/{Makefile,protocol.h,camerad,source} "$srcdir/camera"
+    make -C "$srcdir/camera/source" clean
+}
+
+build() {
+    make -C "$srcdir/camera" source
+}
+
+package() {
+    make -C "$srcdir/camera" DESTDIR="$pkgdir" install
+}

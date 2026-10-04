@@ -16,7 +16,7 @@ The cameras work through Pixel's camera HAL and cameraserver in the Android cont
 
 ## Decision
 
-- **A camera bridge in the container** (`os/android-camera`, `mobarchy-camerad`): a small
+- **A camera bridge in the container** (`os/camera/camerad`, `mobarchy-camerad`): a small
   native service built with the NDK.
   - It uses the NDK camera API, as an app would.
   - It serves the Linux side on a Unix socket in the container's /data, which the host
@@ -24,7 +24,7 @@ The cameras work through Pixel's camera HAL and cameraserver in the Android cont
   - It opens a camera on request and streams its frames (YUV) through shared memory
     (memfd, passed with SCM_RIGHTS).
   - It takes stills as JPEG, at full quality, through the HAL's own pipeline.
-- **PipeWire video sources on the Linux side** (`mobarchy-camera-source`): one PipeWire
+- **PipeWire video sources on the Linux side** (`os/camera/source`, `mobarchy-camera-source`): one PipeWire
   node per camera ("Back camera", "Front camera").
   - A node streams while something uses it.
   - Any PipeWire client gets the cameras: browsers through the camera portal,
