@@ -21,6 +21,9 @@ Rectangle {
     signal closeRequested()
 
     property string error: ""
+    // photos or videos: what the shutter does
+    property string mode: "photo"       // photo, video
+    function isVideo(path: string): bool { return path.endsWith(".mp4") }
     // what shows: the viewfinder, the photos in a grid, or one photo (swipe for the others)
     property string view: "finder"      // finder, grid, photo
     readonly property bool viewing: view !== "finder"
@@ -45,6 +48,7 @@ Rectangle {
         deviceRotation: orientation.degrees
         onFailed: (message) => { win.error = message; errorTimer.restart() }
         onPhotoTaken: (path) => { win.error = ""; win.taken = [path].concat(win.taken) }
+        onVideoRecorded: (path) => { win.error = ""; win.taken = [path].concat(win.taken) }
     }
 
     // --- the viewfinder ------------------------------------------------------------------
@@ -104,18 +108,27 @@ Rectangle {
             color: Theme.panel
             border.color: Theme.line
             clip: true
+            // the newest: the one just taken, before the folder has caught up
+            readonly property string newest: camera.lastPhoto !== "" ? camera.lastPhoto
+                                           : photos.count > 0 ? photos.get(0, "filePath") : ""
             Image {
                 anchors.fill: parent
-                // the newest: the one just taken, before the folder has caught up
-                source: camera.lastPhoto !== "" ? "file://" + camera.lastPhoto
-                      : photos.count > 0 ? "file://" + photos.get(0, "filePath") : ""
+                visible: !win.isVideo(parent.newest)
+                source: parent.newest !== "" && visible ? "file://" + parent.newest : ""
                 sourceSize: Qt.size(120, 120)
                 fillMode: Image.PreserveAspectCrop
                 autoTransform: true
                 asynchronous: true
             }
+            Text {
+                anchors.centerIn: parent
+                visible: win.isVideo(parent.newest)
+                color: Theme.fg
+                font { family: Theme.font; pixelSize: 24 }
+                text: "󰐊"
+            }
             TapHandler {
-                enabled: photos.count > 0
+                enabled: photos.count > 0 && !camera.recording
                 onTapped: win.showPhoto(0)
             }
         }
@@ -129,15 +142,64 @@ Rectangle {
             border { color: "white"; width: 5 }
             Rectangle {
                 anchors.centerIn: parent
-                width: shutterTap.pressed ? 58 : 66
-                height: width; radius: width / 2
-                color: camera.busy ? Theme.muted : "white"
+                // a photo: white; a video: a red dot, a red square while recording
+                width: camera.recording ? 34 : shutterTap.pressed ? 58 : 66
+                height: width
+                radius: camera.recording ? 8 : width / 2
+                color: camera.busy ? Theme.muted : win.mode === "video" ? Theme.red : "white"
                 Behavior on width { NumberAnimation { duration: 80 } }
+                Behavior on radius { NumberAnimation { duration: 80 } }
             }
             TapHandler {
                 id: shutterTap
                 enabled: !camera.busy && camera.current !== ""
-                onTapped: { flashOut.restart(); camera.takePhoto() }
+                onTapped: {
+                    if (win.mode === "photo") {
+                        flashOut.restart()
+                        camera.takePhoto()
+                    } else if (camera.recording) {
+                        camera.stopRecording()
+                    } else {
+                        camera.startRecording()
+                    }
+                }
+            }
+        }
+
+        // photo or video
+        Row {
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: shutter.top; bottomMargin: 14 }
+            spacing: 24
+            visible: !camera.recording
+            Repeater {
+                model: [{mode: "photo", label: qsTr("Photo")}, {mode: "video", label: qsTr("Video")}]
+                delegate: Text {
+                    id: modeLabel
+                    required property var modelData
+                    text: modelData.label
+                    color: win.mode === modelData.mode ? Theme.accent : "white"
+                    font { family: Theme.font; pixelSize: 14; bold: win.mode === modelData.mode }
+                    TapHandler {
+                        onTapped: win.mode = modeLabel.modelData.mode
+                    }
+                }
+            }
+        }
+
+        // how long the video has been recording
+        Text {
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: shutter.top; bottomMargin: 14 }
+            visible: camera.recording
+            color: Theme.red
+            font { family: Theme.font; pixelSize: 16; bold: true }
+            property int seconds: 0
+            text: "● " + Math.floor(seconds / 60) + ":" + String(seconds % 60).padStart(2, "0")
+            Timer {
+                interval: 1000
+                repeat: true
+                running: camera.recording
+                onRunningChanged: if (running) parent.seconds = 0
+                onTriggered: parent.seconds++
             }
         }
 
@@ -146,7 +208,7 @@ Rectangle {
             anchors { right: parent.right; rightMargin: 36; verticalCenter: parent.verticalCenter }
             width: 60; height: 60; radius: 30
             color: switchTap.pressed ? Theme.line : "#55ffffff"
-            visible: camera.cameras.length > 1
+            visible: camera.cameras.length > 1 && !camera.recording
             Text {
                 anchors.centerIn: parent
                 color: "white"
@@ -185,7 +247,7 @@ Rectangle {
         folder: "file://" + StandardPaths.writableLocation(StandardPaths.PicturesLocation)
                 .toString().replace("file://", "") + "/Camera"
         // locked: only the photos taken here (or none)
-        nameFilters: !win.locked ? ["*.jpg", "*.jpeg"]
+        nameFilters: !win.locked ? ["*.jpg", "*.jpeg", "*.mp4"]
                    : win.taken.length > 0 ? win.taken.map(p => p.split("/").pop()) : ["-"]
         sortField: FolderListModel.Time
         showDirs: false
@@ -201,15 +263,50 @@ Rectangle {
         highlightRangeMode: ListView.StrictlyEnforceRange
         boundsBehavior: Flickable.StopAtBounds
         model: photos
-        delegate: Image {
+        delegate: Item {
+            id: page
             required property string filePath
+            required property int index
+            readonly property bool video: win.isVideo(filePath)
+            readonly property bool current: ListView.isCurrentItem && win.view === "photo"
             width: gallery.width
             height: gallery.height
-            source: "file://" + filePath
-            sourceSize: Qt.size(gallery.width * 2, gallery.height * 2)
-            fillMode: Image.PreserveAspectFit
-            autoTransform: true
-            asynchronous: true
+            Image {
+                anchors.fill: parent
+                visible: !page.video
+                source: page.video ? "" : "file://" + page.filePath
+                sourceSize: Qt.size(gallery.width * 2, gallery.height * 2)
+                fillMode: Image.PreserveAspectFit
+                autoTransform: true
+                asynchronous: true
+            }
+            // a video: plays when tapped, stops when swiped away
+            Loader {
+                anchors.fill: parent
+                active: page.video && page.current
+                sourceComponent: Item {
+                    MediaPlayer {
+                        id: player
+                        source: "file://" + page.filePath
+                        videoOutput: videoOut
+                        audioOutput: AudioOutput {}
+                    }
+                    VideoOutput {
+                        id: videoOut
+                        anchors.fill: parent
+                    }
+                    Text {
+                        anchors.centerIn: parent
+                        visible: player.playbackState !== MediaPlayer.PlayingState
+                        color: "white"
+                        font { family: Theme.font; pixelSize: 64 }
+                        text: "󰐊"
+                    }
+                    TapHandler {
+                        onTapped: player.playbackState === MediaPlayer.PlayingState ? player.pause() : player.play()
+                    }
+                }
+            }
         }
     }
 
@@ -232,9 +329,21 @@ Rectangle {
             required property int index
             width: grid.cellWidth
             height: grid.cellHeight
+            Rectangle {
+                anchors { fill: parent; margins: 2 }
+                visible: win.isVideo(cell.filePath)
+                color: Theme.panel
+                Text {
+                    anchors.centerIn: parent
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 32 }
+                    text: "󰐊"
+                }
+            }
             Image {
                 anchors { fill: parent; margins: 2 }
-                source: "file://" + cell.filePath
+                visible: !win.isVideo(cell.filePath)
+                source: visible ? "file://" + cell.filePath : ""
                 sourceSize: Qt.size(grid.cellWidth * 2, grid.cellHeight * 2)
                 fillMode: Image.PreserveAspectCrop
                 autoTransform: true

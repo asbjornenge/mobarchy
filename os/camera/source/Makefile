@@ -1,5 +1,5 @@
 # mobarchy-camera-source (ADR 0018). Build: make; install: make install DESTDIR=...
-PKGS = libpipewire-0.3 gio-2.0 gio-unix-2.0
+PKGS = libpipewire-0.3 gio-2.0 gio-unix-2.0 gstreamer-1.0
 CFLAGS ?= -O2
 CFLAGS += -Wall -Wextra -Wno-unused-parameter -Wno-missing-field-initializers $(shell pkg-config --cflags $(PKGS))
 LDLIBS += $(shell pkg-config --libs $(PKGS))

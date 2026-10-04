@@ -33,7 +33,9 @@ class CameraSource : public QObject
     // How far the device is turned, clockwise from its natural orientation (degrees): the
     // photos' own orientation follows it (DeviceOrientation.degrees).
     Q_PROPERTY(int deviceRotation MEMBER m_deviceRotation NOTIFY deviceRotationChanged)
-    Q_PROPERTY(QString lastPhoto READ lastPhoto NOTIFY lastPhotoChanged)
+    Q_PROPERTY(QString lastPhoto READ lastPhoto NOTIFY lastPhotoChanged)  // (or video)
+    // A video is being recorded (startRecording .. stopRecording).
+    Q_PROPERTY(bool recording READ recording NOTIFY recordingChanged)
 
 public:
     explicit CameraSource(QObject *parent = nullptr);
@@ -52,6 +54,9 @@ public:
     QString lastPhoto() const { return m_lastPhoto; }
 
     Q_INVOKABLE void takePhoto();
+    Q_INVOKABLE void startRecording();
+    Q_INVOKABLE void stopRecording();
+    bool recording() const { return m_recording; }
     Q_INVOKABLE void switchCamera();        // to the next camera
     Q_INVOKABLE void refresh();             // ask for the cameras again
     // Moves a photo (one of the camera's, in its folder) to the trash; false if it couldn't.
@@ -66,6 +71,8 @@ signals:
     void deviceRotationChanged();
     void lastPhotoChanged();
     void photoTaken(const QString &path);
+    void recordingChanged();
+    void videoRecorded(const QString &path);
     void failed(const QString &message);
 
 private:
@@ -81,6 +88,7 @@ private:
     QPointer<QVideoSink> m_sink;
     bool m_active = false;
     bool m_busy = false;
+    bool m_recording = false;
     int m_deviceRotation = 0;
     QString m_lastPhoto;
 

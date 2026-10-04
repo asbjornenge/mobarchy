@@ -11,11 +11,14 @@
 #include <camera/NdkCameraDevice.h>
 #include <camera/NdkCameraManager.h>
 #include <media/NdkImageReader.h>
+#include <media/NdkMediaCodec.h>
+#include <media/NdkMediaMuxer.h>
 
 #include <android/binder_ibinder.h>
 #include <android/log.h>
 #include <dlfcn.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
 #include <signal.h>
@@ -38,6 +41,15 @@
 #define LIST_WAIT 30            /* seconds a LIST waits for the HAL's cameras */
 #define STILL_W 1920            /* a still's default size (and the stream's JPEG output) */
 #define STILL_H 1080
+#define VIDEO_W 1920            /* a video's default size */
+#define VIDEO_H 1080
+#define VIDEO_BITRATE 16000000  /* bits/s, H.264 */
+#define VIDEO_FPS 30
+/* Android's software H.264 encoder: the hardware's (c2.exynos.h264.encoder, Samsung's MFC)
+ * can't queue its buffers with the kernel's MFC driver yet (ADR 0018) */
+#define VIDEO_ENCODER "c2.android.avc.encoder"
+#define VIDEO_FILE "/data/mobarchy/recording.mp4"   /* (unlinked once open: the client gets the fd) */
+#define COLOR_FORMAT_SURFACE 0x7F000789             /* MediaCodecInfo.CodecCapabilities */
 
 static ACameraManager *manager;
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -75,6 +87,24 @@ static struct {
     int jpeg_fd;
     uint32_t jpeg_size;
 } cam = { .jpeg_fd = -1 };
+
+/* a video being recorded: the camera's frames go to the encoder's input surface (another
+ * output of the session), its output into an MP4 */
+static struct {
+    AMediaCodec *codec;
+    AMediaMuxer *muxer;
+    ANativeWindow *window;
+    ACameraOutputTarget *target;
+    ACaptureSessionOutput *output;
+    int fd;
+    ssize_t track;
+    int muxing;
+    int ended;                  /* the encoder's last buffer (end of stream) is out */
+    int stopping, idle_polls;
+    pthread_t drainer;
+    int draining;
+    int64_t first_us, last_us;
+} rec = { .fd = -1, .track = -1, .first_us = -1 };
 
 /* --- messages ------------------------------------------------------------------------- */
 
@@ -341,6 +371,12 @@ close_session(int all)
         ACaptureSessionOutput_free(cam.jpeg_output);
         cam.jpeg = NULL;
     }
+    if (rec.output) {
+        ACameraOutputTarget_free(rec.target);
+        ACaptureSessionOutput_free(rec.output);
+        rec.target = NULL;
+        rec.output = NULL;
+    }
     pthread_mutex_lock(&lock);
     cam.streaming = 0;
     free_buffers();
@@ -352,7 +388,8 @@ close_session(int all)
     }
 }
 
-/* A session on camera id with a YUV stream (w x h) and, if jw, a JPEG output (jw x jh). */
+/* A session on camera id with a YUV stream (w x h) and, if jw, a JPEG output (jw x jh); while
+ * a video is being recorded, its encoder's surface too. */
 static int
 open_session(const char *id, int w, int h, int jw, int jh)
 {
@@ -397,6 +434,11 @@ open_session(const char *id, int w, int h, int jw, int jh)
     ACaptureSessionOutputContainer_add(cam.outputs, cam.yuv_output);
     if (cam.jpeg)
         ACaptureSessionOutputContainer_add(cam.outputs, cam.jpeg_output);
+    if (rec.window) {
+        ACameraOutputTarget_create(rec.window, &rec.target);
+        ACaptureSessionOutput_create(rec.window, &rec.output);
+        ACaptureSessionOutputContainer_add(cam.outputs, rec.output);
+    }
     ACameraCaptureSession_stateCallbacks scb = { .onClosed = on_closed, .onReady = on_ready,
                                                  .onActive = session_noop };
     st = ACameraDevice_createCaptureSession(cam.device, cam.outputs, &scb, &cam.session);
@@ -405,14 +447,17 @@ open_session(const char *id, int w, int h, int jw, int jh)
         cam.session = NULL;
         return st;
     }
-    ACameraDevice_createCaptureRequest(cam.device, TEMPLATE_PREVIEW, &cam.repeating);
+    ACameraDevice_createCaptureRequest(cam.device, rec.window ? TEMPLATE_RECORD : TEMPLATE_PREVIEW,
+                                       &cam.repeating);
     ACaptureRequest_addTarget(cam.repeating, cam.yuv_target);
+    if (rec.target)
+        ACaptureRequest_addTarget(cam.repeating, rec.target);
     no_faces(cam.repeating);
     cam.frames = 0;
     st = ACameraCaptureSession_setRepeatingRequest(cam.session, NULL, 1, &cam.repeating, NULL);
     if (st != ACAMERA_OK)
         ERR("setRepeatingRequest: %d", st);
-    LOG("camera %s: session %dx%d, stills %dx%d", id, w, h, jw, jh);
+    LOG("camera %s: session %dx%d, stills %dx%d%s", id, w, h, jw, jh, rec.window ? ", recording" : "");
     return st;
 }
 
@@ -619,6 +664,194 @@ recover(void)
     restore(1, wanted.camera, wanted.width, wanted.height);
 }
 
+/* --- videos ---------------------------------------------------------------------------- */
+
+/* The encoder's output into the MP4, on a thread of its own until the end of the stream
+ * (synchronous: MediaCodec's callbacks can deadlock against the calls that stop it). */
+static void *
+drain(void *unused)
+{
+    for (;;) {
+        AMediaCodecBufferInfo info;
+        ssize_t index = AMediaCodec_dequeueOutputBuffer(rec.codec, &info, 100000);
+        if (index == AMEDIACODEC_INFO_OUTPUT_FORMAT_CHANGED) {
+            AMediaFormat *format = AMediaCodec_getOutputFormat(rec.codec);
+            rec.track = AMediaMuxer_addTrack(rec.muxer, format);
+            AMediaFormat_delete(format);
+            pthread_mutex_lock(&lock);
+            rec.muxing = rec.track >= 0 && AMediaMuxer_start(rec.muxer) == AMEDIA_OK;
+            pthread_mutex_unlock(&lock);
+            if (!rec.muxing)
+                ERR("can't start the MP4");
+            continue;
+        }
+        if (index < 0) {
+            pthread_mutex_lock(&lock);
+            int stop = rec.stopping && ++rec.idle_polls > 30;   /* 3 s after the end was asked */
+            pthread_mutex_unlock(&lock);
+            if (stop)
+                break;
+            continue;
+        }
+        size_t size;
+        uint8_t *buf = AMediaCodec_getOutputBuffer(rec.codec, index, &size);
+        if (buf && info.size > 0 && rec.muxing && !(info.flags & AMEDIACODEC_BUFFER_FLAG_CODEC_CONFIG)) {
+            AMediaMuxer_writeSampleData(rec.muxer, rec.track, buf, &info);
+            if (rec.first_us < 0)
+                rec.first_us = info.presentationTimeUs;
+            rec.last_us = info.presentationTimeUs;
+        }
+        AMediaCodec_releaseOutputBuffer(rec.codec, index, false);
+        if (info.flags & AMEDIACODEC_BUFFER_FLAG_END_OF_STREAM)
+            break;
+    }
+    pthread_mutex_lock(&lock);
+    rec.ended = 1;
+    pthread_cond_broadcast(&cond);
+    pthread_mutex_unlock(&lock);
+    return NULL;
+}
+
+/* the encoder and the MP4, or nothing (and an error) */
+static void
+recording_free(void)
+{
+    if (rec.draining) {
+        pthread_mutex_lock(&lock);
+        rec.stopping = 1;
+        pthread_mutex_unlock(&lock);
+        pthread_join(rec.drainer, NULL);
+        rec.draining = 0;
+    }
+    if (rec.codec) {
+        AMediaCodec_stop(rec.codec);
+        AMediaCodec_delete(rec.codec);
+    }
+    if (rec.window)
+        ANativeWindow_release(rec.window);
+    if (rec.muxer)
+        AMediaMuxer_delete(rec.muxer);
+    if (rec.fd >= 0)
+        close(rec.fd);
+    rec.codec = NULL, rec.window = NULL, rec.muxer = NULL;
+    rec.fd = -1, rec.track = -1, rec.muxing = 0, rec.ended = 0, rec.stopping = 0, rec.idle_polls = 0;
+    rec.first_us = -1, rec.last_us = 0;
+}
+
+static media_status_t
+recording_new(int w, int h, int rotation)
+{
+    media_status_t st;
+
+    rec.fd = open(VIDEO_FILE, O_RDWR | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+    if (rec.fd < 0)
+        return AMEDIA_ERROR_IO;
+    unlink(VIDEO_FILE);
+    rec.muxer = AMediaMuxer_new(rec.fd, AMEDIAMUXER_OUTPUT_FORMAT_MPEG_4);
+    const char *encoder = getenv("CAMERAD_ENCODER");     /* (to try another, e.g. the hardware's) */
+    rec.codec = AMediaCodec_createCodecByName(encoder ? encoder : VIDEO_ENCODER);
+    if (!rec.muxer || !rec.codec)
+        return AMEDIA_ERROR_UNSUPPORTED;
+    AMediaMuxer_setOrientationHint(rec.muxer, rotation);
+    AMediaFormat *f = AMediaFormat_new();
+    AMediaFormat_setString(f, AMEDIAFORMAT_KEY_MIME, "video/avc");
+    AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_WIDTH, w);
+    AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_HEIGHT, h);
+    AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_BIT_RATE, VIDEO_BITRATE);
+    AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_FRAME_RATE, VIDEO_FPS);
+    AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_I_FRAME_INTERVAL, 1);
+    AMediaFormat_setInt32(f, AMEDIAFORMAT_KEY_COLOR_FORMAT, COLOR_FORMAT_SURFACE);
+    st = AMediaCodec_configure(rec.codec, f, NULL, NULL, AMEDIACODEC_CONFIGURE_FLAG_ENCODE);
+    AMediaFormat_delete(f);
+    if (st == AMEDIA_OK)
+        st = AMediaCodec_createInputSurface(rec.codec, &rec.window);
+    if (st == AMEDIA_OK)
+        st = AMediaCodec_start(rec.codec);
+    if (st == AMEDIA_OK)
+        rec.draining = pthread_create(&rec.drainer, NULL, drain, NULL) == 0;
+    return st;
+}
+
+/* RECORD: the stream goes on (or a small hidden one runs, without a stream), and the
+ * camera's frames go to the encoder as well */
+static void
+do_record(const struct camera_message *req)
+{
+    int w = req->width ? req->width : VIDEO_W, h = req->height ? req->height : VIDEO_H;
+    int sw = wanted.camera[0] ? wanted.width : PREVIEW_W;
+    int sh = wanted.camera[0] ? wanted.height : PREVIEW_H;
+
+    if (rec.codec) {
+        send_error(-EBUSY);
+        return;
+    }
+    media_status_t st = recording_new(w, h, jpeg_orientation(req->camera, req->orientation));
+    if (st != AMEDIA_OK) {
+        ERR("can't record: %d", st);
+        recording_free();
+        send_error(-EIO);
+        return;
+    }
+    if (open_session(req->camera, sw, sh, 0, 0) != 0) {
+        recording_free();
+        send_error(-EIO);
+        restore(wanted.camera[0] != 0, wanted.camera, wanted.width, wanted.height);
+        return;
+    }
+    if (wanted.camera[0])
+        share_buffers();
+    struct camera_message m = { .type = MSG_RECORDING, .width = w, .height = h };
+    snprintf(m.camera, sizeof m.camera, "%s", req->camera);
+    send_msg(&m, NULL, 0);
+    LOG("recording %dx%d", w, h);
+}
+
+/* RECORD_STOP: the encoder gets to the end, the MP4 is closed and goes to the client */
+static void
+do_record_stop(void)
+{
+    if (!rec.codec) {
+        send_error(-EINVAL);
+        return;
+    }
+    AMediaCodec_signalEndOfInputStream(rec.codec);
+    pthread_mutex_lock(&lock);
+    rec.stopping = 1;
+    if (!wait_flag(&rec.ended, 5))
+        ERR("the encoder didn't finish in 5 s");
+    pthread_mutex_unlock(&lock);
+    if (rec.draining) {
+        pthread_join(rec.drainer, NULL);
+        rec.draining = 0;
+    }
+    pthread_mutex_lock(&lock);
+    int muxing = rec.muxing;
+    int64_t length_us = rec.first_us >= 0 ? rec.last_us - rec.first_us : 0;
+    rec.muxing = 0;
+    pthread_mutex_unlock(&lock);
+    if (muxing)
+        AMediaMuxer_stop(rec.muxer);
+    AMediaMuxer_delete(rec.muxer);
+    rec.muxer = NULL;
+    /* the session goes back to the stream (and stills) without the encoder */
+    AMediaCodec_stop(rec.codec);
+    AMediaCodec_delete(rec.codec);
+    rec.codec = NULL;
+    ANativeWindow_release(rec.window);
+    rec.window = NULL;
+    if (muxing) {
+        struct camera_message m = { .type = MSG_VIDEO, .size = (uint32_t)lseek(rec.fd, 0, SEEK_END),
+                                    .timestamp = (uint64_t)length_us * 1000 };
+        lseek(rec.fd, 0, SEEK_SET);
+        send_msg(&m, &rec.fd, 1);
+        LOG("video: %u bytes, %lld ms", m.size, (long long)length_us / 1000);
+    } else {
+        send_error(-EIO);
+    }
+    recording_free();
+    restore(wanted.camera[0] != 0, wanted.camera, wanted.width, wanted.height);
+}
+
 static void
 serve(void)
 {
@@ -661,6 +894,12 @@ serve(void)
             break;
         case MSG_TORCH:
             do_torch(&req);
+            break;
+        case MSG_RECORD:
+            do_record(&req);
+            break;
+        case MSG_RECORD_STOP:
+            do_record_stop();
             break;
         }
     }
@@ -926,6 +1165,10 @@ main(void)
         pthread_mutex_unlock(&lock);
         LOG("client connected");
         serve();
+        if (rec.codec) {
+            close_session(0);
+            recording_free();
+        }
         wanted.camera[0] = 0;
         close_session(1);
         pthread_mutex_lock(&lock);

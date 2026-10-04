@@ -152,6 +152,53 @@ void CameraSource::takePhoto()
     });
 }
 
+void CameraSource::startRecording()
+{
+    if (m_recording || m_busy || m_current.isEmpty())
+        return;
+    m_busy = true;
+    emit busyChanged();
+    auto msg = QDBusMessage::createMethodCall(Service, Path, Interface, QStringLiteral("StartRecording"));
+    msg << m_current << uint((m_deviceRotation % 360 + 360) % 360);
+    auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg, 30000), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
+        m_busy = false;
+        emit busyChanged();
+        if (w->isError()) {
+            emit failed(w->error().message());
+            return;
+        }
+        m_recording = true;
+        emit recordingChanged();
+    });
+}
+
+void CameraSource::stopRecording()
+{
+    if (!m_recording || m_busy)
+        return;
+    m_busy = true;
+    emit busyChanged();
+    auto msg = QDBusMessage::createMethodCall(Service, Path, Interface, QStringLiteral("StopRecording"));
+    auto *watcher = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg, 60000), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
+        QDBusPendingReply<QString> reply = *w;
+        m_busy = false;
+        emit busyChanged();
+        m_recording = false;
+        emit recordingChanged();
+        if (reply.isError()) {
+            emit failed(reply.error().message());
+            return;
+        }
+        m_lastPhoto = reply.value();
+        emit lastPhotoChanged();
+        emit videoRecorded(m_lastPhoto);
+    });
+}
+
 bool CameraSource::deletePhoto(const QString &path)
 {
     // only the camera's own photos (~/Pictures/Camera), whatever the caller asks

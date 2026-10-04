@@ -11,6 +11,9 @@
  *   client: STOP                      server: stops streaming
  *   client: DEVICE_STATE state        (the device's state, for the cameras it picks: sent on
  *                                     connecting and on every change; a stream goes on)
+ *   client: RECORD camera w h rotation server: RECORDING (video from the camera, encoded in
+ *                                     hardware, while the stream goes on), or ERROR
+ *   client: RECORD_STOP               server: VIDEO (fd: the MP4, video only), or ERROR
  *   client: TORCH camera on           server: TORCH_STATE on (the torch's state now: as asked, or
  *                                     not if it couldn't); also unasked, when a camera
  *                                     session takes the flash
@@ -32,6 +35,9 @@ enum camera_msg {
     MSG_STOP,           /* client */
     MSG_DEVICE_STATE,   /* client: code (enum device_state flags) */
     MSG_TORCH,          /* client: camera ("": the first with a flash), code (1: on, 0: off) */
+    MSG_RECORD,         /* client: camera, width, height (0: 1920x1080), orientation (the
+                         * device's, as STILL) */
+    MSG_RECORD_STOP,    /* client */
 
     MSG_CAMERA = 100,   /* server: one camera */
     MSG_END,            /* server: end of the list */
@@ -40,6 +46,8 @@ enum camera_msg {
     MSG_JPEG,           /* server: size bytes (fd) */
     MSG_ERROR,          /* server: code (negative errno or camera_status_t) */
     MSG_TORCH_STATE,    /* server: camera, code (1: on, 0: off) */
+    MSG_RECORDING,      /* server: camera, width, height */
+    MSG_VIDEO,          /* server: size bytes (fd), timestamp: its length in ns */
 };
 
 /* the device's state (as Android's ICameraService.DEVICE_STATE_*): flags */

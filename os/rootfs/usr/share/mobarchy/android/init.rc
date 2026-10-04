@@ -89,6 +89,25 @@ on property:init.svc.cameraserver=running
 on property:init.svc.cameraserver=stopped
     stop mobarchy-camerad
 
+# Android's media service (mediaserver): MediaCodec's clients (the camera bridge's video
+# encoder) need its resource manager. As Android's mediaserver.rc, with a seclabel;
+# devices whose init starts their codecs start this too.
+service media /system/bin/mediaserver
+    user media
+    group audio camera inet net_bt net_bt_admin net_bw_acct drmrpc mediadrm
+    ioprio rt 4
+    seclabel u:r:mediaserver:s0
+
+# The codec list mediaserver hands out (cameraserver asks it, for HEIC): started on demand,
+# as Android's media.codeclist.generator.rc, with a seclabel.
+service media.codeclist.generator /system/bin/mediacodeclist_generator
+    user media
+    group media
+    interface aidl media.codeclist.generator
+    oneshot
+    disabled
+    seclabel u:r:mediaserver:s0
+
 # Android's sensor service, in front of the device's sensor HAL (devices whose init starts
 # their sensor HAL start this too), and mobarchy-sensormanager, which offers it to HALs as
 # ISensorManager (the camera HAL's gyro). On Android both live in system_server.

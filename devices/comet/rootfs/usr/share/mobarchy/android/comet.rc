@@ -226,6 +226,7 @@ on mobarchy-start
     start android-hardware-media-c2-hal-2-0-google
     start vendor-dolby-media-c2-hal
     start media.swcodec
+    start media
     start vendor.camera-provider-2-7-google
     start cameraserver
 

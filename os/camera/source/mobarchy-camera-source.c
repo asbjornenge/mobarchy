@@ -19,6 +19,7 @@
 #include <glob.h>
 #include <linux/input.h>
 #include <gio/gio.h>
+#include <gst/gst.h>
 #include <glib-unix.h>
 #include <pipewire/pipewire.h>
 #include <spa/param/video/format-utils.h>
@@ -63,6 +64,16 @@ static const char introspection[] =
     "      <arg type='b' name='on' direction='in'/>"
     "      <arg type='b' name='on' direction='out'/>"
     "    </method>"
+    "    <!-- videos: from the camera (and the microphone) until StopRecording, which"
+    "         returns the MP4's path (in the photos' folder) -->"
+    "    <method name='StartRecording'>"
+    "      <arg type='s' name='camera' direction='in'/>"
+    "      <arg type='u' name='rotation' direction='in'/>"
+    "    </method>"
+    "    <method name='StopRecording'>"
+    "      <arg type='s' name='path' direction='out'/>"
+    "    </method>"
+    "    <property name='Recording' type='b' access='read'/>"
     "    <property name='Torch' type='b' access='read'/>"
     "  </interface>"
     "</node>";
@@ -97,10 +108,18 @@ static struct {
     char photo_camera[CAMERA_ID_SIZE];
     GDBusConnection *bus;
     gboolean torch;
+    /* a video: the bridge records the camera, this the microphone; muxed at the end */
+    gboolean recording;
+    GDBusMethodInvocation *record_start, *record_stop;
+    gboolean stopping;              /* asked to stop (StopRecording, or its client went) */
+    guint recorder_watch;           /* the client recording: a video stops when it goes */
+    GstElement *audio, *mux;
+    char *audio_path, *video_path;
+    int video_fd;
     GQueue torch_calls;             /* SetTorch calls waiting for the bridge */
     int lid;                        /* the lid switch (SW_LID) device, or -1 */
     int folded;
-} app = { .bridge = -1, .pending = -1, .lid = -1 };
+} app = { .bridge = -1, .pending = -1, .lid = -1, .video_fd = -1 };
 
 /* --- the bridge ----------------------------------------------------------------------- */
 
@@ -129,6 +148,8 @@ unmap_buffers(void)
 
 static void photo_failed(const char *why);
 static void torch_changed(gboolean on);
+static gboolean audio_stop(void);
+static void record_finished(const char *error);
 static void streams_create(void);
 static gboolean bridge_connect(gpointer unused);
 
@@ -146,6 +167,15 @@ bridge_lost(void)
     torch_changed(FALSE);               /* (cameraserver turns it off when the bridge goes) */
     if (app.photo)
         photo_failed("the camera bridge went away");
+    if (app.record_start) {
+        g_dbus_method_invocation_return_error(app.record_start, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                              "Can't record: the camera bridge went away");
+        app.record_start = NULL;
+    }
+    if (app.recording && !app.mux) {
+        audio_stop();
+        record_finished("the camera bridge went away");
+    }
     g_timeout_add_seconds(RETRY_SECONDS, bridge_connect, NULL);
 }
 
@@ -181,6 +211,147 @@ photo_failed(const char *why)
 }
 
 static void
+emit_changed(const char *name, GVariant *value)
+{
+    GVariantBuilder changed;
+
+    if (!app.bus) {
+        g_variant_unref(g_variant_ref_sink(value));
+        return;
+    }
+    g_variant_builder_init(&changed, G_VARIANT_TYPE_VARDICT);
+    g_variant_builder_add(&changed, "{sv}", name, value);
+    g_dbus_connection_emit_signal(app.bus, NULL, BUS_PATH, "org.freedesktop.DBus.Properties",
+                                  "PropertiesChanged",
+                                  g_variant_new("(sa{sv}as)", BUS_NAME, &changed, NULL), NULL);
+}
+
+/* --- videos --------------------------------------------------------------------------- */
+
+static void
+set_recording(gboolean on)
+{
+    if (on != app.recording) {
+        app.recording = on;
+        emit_changed("Recording", g_variant_new_boolean(on));
+    }
+}
+
+/* the microphone, into Opus (Matroska: timestamps the muxer can use) while recording */
+static void
+audio_start(void)
+{
+    g_autoptr(GError) error = NULL;
+    g_autofree char *pipeline = NULL;
+
+    g_free(app.audio_path);
+    app.audio_path = g_build_filename(g_get_user_runtime_dir(), "mobarchy-camera-audio.mka", NULL);
+    pipeline = g_strdup_printf("pipewiresrc ! audioconvert ! audioresample ! opusenc bitrate=128000 "
+                               "! matroskamux ! filesink location=\"%s\"", app.audio_path);
+    app.audio = gst_parse_launch(pipeline, &error);
+    if (!app.audio || gst_element_set_state(app.audio, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+        g_warning("no sound for the video: %s", error ? error->message : "the pipeline won't start");
+        g_clear_object(&app.audio);
+    }
+}
+
+static gboolean
+audio_stop(void)
+{
+    if (!app.audio)
+        return FALSE;
+    /* the end of the stream, so the file is complete */
+    gst_element_send_event(app.audio, gst_event_new_eos());
+    g_autoptr(GstBus) bus = gst_element_get_bus(app.audio);
+    g_autoptr(GstMessage) msg = gst_bus_timed_pop_filtered(bus, 2 * GST_SECOND,
+                                                           GST_MESSAGE_EOS | GST_MESSAGE_ERROR);
+    gst_element_set_state(app.audio, GST_STATE_NULL);
+    g_clear_object(&app.audio);
+    return msg && GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS;
+}
+
+static void
+record_finished(const char *error)
+{
+    if (app.mux) {
+        gst_element_set_state(app.mux, GST_STATE_NULL);
+        g_clear_object(&app.mux);
+    }
+    if (app.video_fd >= 0)
+        close(app.video_fd);
+    app.video_fd = -1;
+    if (app.audio_path)
+        unlink(app.audio_path);
+    if (app.record_stop) {
+        if (error)
+            g_dbus_method_invocation_return_error(app.record_stop, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                                  "No video: %s", error);
+        else
+            g_dbus_method_invocation_return_value(app.record_stop, g_variant_new("(s)", app.video_path));
+        app.record_stop = NULL;
+    }
+    if (!error)
+        g_message("video: %s", app.video_path);
+    else
+        g_warning("no video: %s", error);
+    app.stopping = FALSE;
+    if (app.recorder_watch) {
+        g_bus_unwatch_name(app.recorder_watch);
+        app.recorder_watch = 0;
+    }
+    set_recording(FALSE);
+}
+
+static gboolean
+on_mux_bus(GstBus *bus, GstMessage *msg, gpointer unused)
+{
+    if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_EOS) {
+        record_finished(NULL);
+        return G_SOURCE_REMOVE;
+    }
+    if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
+        g_autoptr(GError) error = NULL;
+        gst_message_parse_error(msg, &error, NULL);
+        unlink(app.video_path);
+        record_finished(error->message);
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+/* VIDEO: the camera's MP4 (video only) and the sound, into one MP4 in the photos' folder */
+static void
+video_done(int fd, gboolean with_audio)
+{
+    const char *pictures = g_get_user_special_dir(G_USER_DIRECTORY_PICTURES);
+    g_autofree char *fallback = g_build_filename(g_get_home_dir(), "Pictures", NULL);
+    g_autofree char *dir = g_build_filename(pictures ?: fallback, "Camera", NULL);
+    g_autoptr(GDateTime) now = g_date_time_new_now_local();
+    g_autofree char *name = g_date_time_format(now, "VID_%Y%m%d_%H%M%S.mp4");
+    g_autoptr(GError) error = NULL;
+    g_autofree char *pipeline = NULL;
+
+    g_mkdir_with_parents(dir, 0755);
+    g_free(app.video_path);
+    app.video_path = g_build_filename(dir, name, NULL);
+    app.video_fd = fd;
+    /* (qtdemux reads the camera's orientation, and mp4mux writes it again) */
+    pipeline = g_strdup_printf(
+        "fdsrc fd=%d ! qtdemux ! h264parse ! mp4mux name=m faststart=true "
+        "! filesink location=\"%s\" %s%s%s", fd, app.video_path,
+        with_audio ? "filesrc location=\"" : "", with_audio ? app.audio_path : "",
+        with_audio ? "\" ! matroskademux ! queue ! m." : "");
+    app.mux = gst_parse_launch(pipeline, &error);
+    if (!app.mux) {
+        record_finished(error ? error->message : "can't put it together");
+        return;
+    }
+    g_autoptr(GstBus) bus = gst_element_get_bus(app.mux);
+    gst_bus_add_watch(bus, on_mux_bus, NULL);
+    gst_element_set_state(app.mux, GST_STATE_PLAYING);
+}
+
+static void
 torch_changed(gboolean on)
 {
     GDBusMethodInvocation *inv;
@@ -190,14 +361,7 @@ torch_changed(gboolean on)
     if (on == app.torch)
         return;
     app.torch = on;
-    if (app.bus) {
-        GVariantBuilder changed;
-        g_variant_builder_init(&changed, G_VARIANT_TYPE_VARDICT);
-        g_variant_builder_add(&changed, "{sv}", "Torch", g_variant_new_boolean(on));
-        g_dbus_connection_emit_signal(app.bus, NULL, BUS_PATH, "org.freedesktop.DBus.Properties",
-                                      "PropertiesChanged",
-                                      g_variant_new("(sa{sv}as)", BUS_NAME, &changed, NULL), NULL);
-    }
+    emit_changed("Torch", g_variant_new_boolean(on));
 }
 
 static gboolean
@@ -257,11 +421,33 @@ on_bridge(gint fd, GIOCondition cond, gpointer unused)
     case MSG_TORCH_STATE:
         torch_changed(m.code != 0);
         break;
+    case MSG_RECORDING:
+        if (app.record_start) {
+            audio_start();
+            set_recording(TRUE);
+            g_dbus_method_invocation_return_value(app.record_start, NULL);
+            app.record_start = NULL;
+        }
+        break;
+    case MSG_VIDEO:
+        if (app.stopping && nfds) {
+            gboolean with_audio = audio_stop();
+            video_done(dup(fds[0]), with_audio);
+        }
+        break;
     case MSG_ERROR:
         g_warning("camera bridge: error %d", m.code);
         app.asked_width = app.asked_height = 0;     /* (a new STREAM, even of the same, retries) */
-        if (app.photo)
+        if (app.record_start) {
+            g_dbus_method_invocation_return_error(app.record_start, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                                  "Can't record: the camera refused");
+            app.record_start = NULL;
+        } else if (app.stopping) {
+            audio_stop();
+            record_finished("the camera refused");
+        } else if (app.photo) {
             photo_failed("the camera refused");
+        }
         break;
     }
 out:
@@ -464,6 +650,17 @@ on_pipewire(gint fd, GIOCondition cond, gpointer loop)
 
 /* --- D-Bus ---------------------------------------------------------------------------- */
 
+/* the app that records went away (closed, crashed): the video is saved anyway */
+static void
+on_recorder_gone(GDBusConnection *bus, const char *name, gpointer unused)
+{
+    if (app.recording && !app.stopping) {
+        g_message("the recording app went away: saving the video");
+        app.stopping = TRUE;
+        bridge_send(MSG_RECORD_STOP, NULL, 0, 0, 0);
+    }
+}
+
 static void
 on_method(GDBusConnection *bus, const char *sender, const char *path, const char *iface,
           const char *method, GVariant *args, GDBusMethodInvocation *inv, gpointer unused)
@@ -487,6 +684,33 @@ on_method(GDBusConnection *bus, const char *sender, const char *path, const char
                                                   "The camera isn't up (the Android container)");
         else
             g_queue_push_tail(&app.torch_calls, inv);
+    } else if (!g_strcmp0(method, "StartRecording")) {
+        const char *camera;
+        guint32 rotation;
+        g_variant_get(args, "(&su)", &camera, &rotation);
+        if (app.recording || app.record_start || app.record_stop) {
+            g_dbus_method_invocation_return_error(inv, G_IO_ERROR, G_IO_ERROR_BUSY,
+                                                  "A video is being recorded");
+        } else if (app.bridge < 0) {
+            g_dbus_method_invocation_return_error(inv, G_IO_ERROR, G_IO_ERROR_NOT_CONNECTED,
+                                                  "The camera isn't up (the Android container)");
+        } else {
+            struct camera_message m = { .type = MSG_RECORD, .orientation = rotation % 360 };
+            g_strlcpy(m.camera, camera, sizeof m.camera);
+            app.record_start = inv;
+            send(app.bridge, &m, sizeof m, MSG_NOSIGNAL);
+            app.recorder_watch = g_bus_watch_name_on_connection(bus, sender,
+                G_BUS_NAME_WATCHER_FLAGS_NONE, NULL, on_recorder_gone, NULL, NULL);
+        }
+    } else if (!g_strcmp0(method, "StopRecording")) {
+        if (!app.recording || app.stopping) {
+            g_dbus_method_invocation_return_error(inv, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                                  "No video is being recorded");
+        } else {
+            app.record_stop = inv;
+            app.stopping = TRUE;
+            bridge_send(MSG_RECORD_STOP, NULL, 0, 0, 0);
+        }
     } else if (!g_strcmp0(method, "TakePhoto")) {
         const char *camera;
         guint32 w, h, rotation;
@@ -512,7 +736,7 @@ static GVariant *
 on_get_property(GDBusConnection *bus, const char *sender, const char *path, const char *iface,
                 const char *name, GError **error, gpointer unused)
 {
-    return g_variant_new_boolean(app.torch);        /* (the only one: Torch) */
+    return g_variant_new_boolean(!g_strcmp0(name, "Recording") ? app.recording : app.torch);
 }
 
 static const GDBusInterfaceVTable vtable = { .method_call = on_method,
@@ -588,6 +812,7 @@ int
 main(int argc, char **argv)
 {
     pw_init(&argc, &argv);
+    gst_init(&argc, &argv);
     app.main = g_main_loop_new(NULL, FALSE);
     app.loop = pw_loop_new(NULL);
     app.context = pw_context_new(app.loop, NULL, 0);

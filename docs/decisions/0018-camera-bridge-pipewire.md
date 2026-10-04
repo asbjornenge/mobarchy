@@ -56,6 +56,17 @@ wants frames.
   as system_server does on Android (notifyDeviceStateChange). The HAL picks the physical
   camera by it: on comet the front camera is the outer one when folded and the inner one
   when open.
+- **Videos**: the bridge records the camera into H.264 in an MP4, through MediaCodec in the
+  container: the encoder's input surface is another output of the session, so the
+  preview goes on. The Linux side records the microphone (PipeWire, Opus) meanwhile, and
+  muxes both into one MP4 in the photos' folder when the video stops (GStreamer).
+  - The camera HAL's codec2 service needs Android's mediaserver (its resource manager)
+    and the codec list generator; both run in the container.
+  - For now the encoder is Android's software one (c2.android.avc.encoder): the
+    hardware encoder (c2.exynos.h264.encoder, Samsung's MFC) fails to queue buffers
+    (VIDIOC_QBUF: EINVAL) with the kernel's MFC driver. Software encoding of 1080p30
+    takes about two cores and warms the CPU (45 to 58 °C in 30 s); the hardware
+    encoder is the next step.
 - Each new capture session reconfigures the HAL's whole pipeline, which is slow. So a
   stream's session also carries a JPEG output (a photo while streaming is one request),
   and a stream PipeWire pauses briefly keeps its session.
