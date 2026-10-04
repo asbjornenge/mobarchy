@@ -10,9 +10,12 @@ LayerWindow {
 
     required property Drawer drawer
     required property Keyboard keyboard
+    // The strip below it that the panel's bezel hides (device.toml bottom_inset): the edge
+    // reaches over it, so a swipe can start there, but shows its bar above it.
+    property int inset: 0
     signal home()
 
-    height: 32
+    height: 32 + inset
     color: Theme.bgDark
     LayerShell.Window.scope: "mobarchy-edge"
     // The bottom layer is arranged first, so the edge keeps the very bottom of the screen
@@ -24,7 +27,7 @@ LayerWindow {
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     Rectangle {
-        anchors.centerIn: parent
+        anchors { horizontalCenter: parent.horizontalCenter; verticalCenter: parent.top; verticalCenterOffset: 16 }
         width: 140; height: 5; radius: 2.5
         color: gesture.pressed ? Theme.accent : Theme.muted
     }
@@ -40,7 +43,8 @@ LayerWindow {
     }
 
     MouseArea {
-        anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+        anchors { right: parent.right; top: parent.top }
+        height: 32
         width: 72
         onClicked: edge.keyboard.toggle()
         Text {

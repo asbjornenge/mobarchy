@@ -196,13 +196,11 @@ QtObject {
         edge: "right"
         inset: shell.device.inset(shell.inUse, "right", shell.rotation.turns)
     }
-    readonly property SideInset bottomInset: SideInset {
-        edge: "bottom"
-        inset: shell.device.inset(shell.inUse, "bottom", shell.rotation.turns)
-    }
+    // (the bottom inset belongs to the edge: a swipe can start on it)
     readonly property Edge edge: Edge {
         drawer: shell.drawer
         keyboard: shell.keyboard
+        inset: shell.device.inset(shell.inUse, "bottom", shell.rotation.turns)
         onHome: shell.goHome()
     }
 }
