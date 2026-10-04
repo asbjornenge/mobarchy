@@ -1,0 +1,4 @@
+{
+    global: clIcdGetPlatformIDsKHR; clGetExtensionFunctionAddress; clGetPlatformInfo;
+    local: *;
+};

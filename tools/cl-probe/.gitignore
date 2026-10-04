@@ -1,0 +1,6 @@
+# built (see Makefile)
+gen.c
+gen-layer.c
+libclprobe.so
+libcltrace.so
+clbuild
