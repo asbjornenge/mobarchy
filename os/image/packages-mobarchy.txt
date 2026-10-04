@@ -16,3 +16,5 @@ mobarchy-store-catalog
 # over binder; they bring libgbinder, libgbinder-radio, libglibutil and libmce-glib
 ofono-sailfish
 ofono-binder-plugin
+# Stand-ins for Android services the container's vendor HALs wait for (os/android-services)
+mobarchy-android-services

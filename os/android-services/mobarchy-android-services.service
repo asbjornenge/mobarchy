@@ -1,0 +1,20 @@
+[Unit]
+Description=Android container: stand-ins for the services its vendor HALs wait for (IStats, IPower, ISensorManager, and system_server's for cameraserver)
+# the container's binder devices are new each time it starts
+BindsTo=mobarchy-android.service
+After=mobarchy-android.service
+
+[Service]
+ExecStart=/usr/lib/mobarchy/mobarchy-android-services
+Restart=on-failure
+RestartSec=5
+# not DynamicUser: see mobarchy-android-services.sysusers
+User=mobarchy-android-services
+ProtectSystem=strict
+ProtectHome=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=mobarchy-android.service

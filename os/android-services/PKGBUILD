@@ -1,0 +1,23 @@
+# Stand-ins for Android services the container's vendor HALs wait for (IStats, IPower, ISensorManager, system_server's;
+# ADRs 0014, 0017), built from this directory:
+#   tools/pkg-build os/android-services --out <dir>
+pkgname=mobarchy-android-services
+pkgver=0.1
+pkgrel=1
+pkgdesc="Stand-ins for Android services (IStats, IPower, ISensorManager, and system_server's for cameraserver) for the vendor HALs in Mobarchy's Android container"
+arch=(aarch64 x86_64)
+depends=(libgbinder libglibutil glib2)
+makedepends=(pkgconf)
+options=(!debug)
+
+prepare() {
+    cp "$startdir"/{Makefile,mobarchy-android-services.c,mobarchy-android-services.service,mobarchy-android-services.sysusers} "$srcdir"
+}
+
+build() {
+    make -C "$srcdir"
+}
+
+package() {
+    make -C "$srcdir" DESTDIR="$pkgdir" install
+}

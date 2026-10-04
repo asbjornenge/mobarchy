@@ -1,0 +1,3 @@
+# mobarchy-android-services: a system user (uid < 10000), since Android's service manager
+# lets no app uid (10000 and up, as systemd's DynamicUser ones are) register a service.
+u mobarchy-android-services - "Android container service stand-ins"
