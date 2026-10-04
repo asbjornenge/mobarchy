@@ -21,7 +21,15 @@ Rectangle {
     signal closeRequested()
 
     property string error: ""
-    property bool viewing: false        // the photos, instead of the viewfinder
+    // what shows: the viewfinder, the photos in a grid, or one photo (swipe for the others)
+    property string view: "finder"      // finder, grid, photo
+    readonly property bool viewing: view !== "finder"
+
+    function showPhoto(index) {
+        gallery.positionViewAtIndex(index, ListView.Beginning)
+        gallery.currentIndex = index
+        view = "photo"
+    }
 
     DeviceOrientation {
         id: orientation
@@ -108,7 +116,7 @@ Rectangle {
             }
             TapHandler {
                 enabled: photos.count > 0
-                onTapped: { gallery.currentIndex = 0; win.viewing = true }
+                onTapped: win.showPhoto(0)
             }
         }
 
@@ -183,10 +191,11 @@ Rectangle {
         showDirs: false
     }
 
+    // one photo at a time, newest first; swipe for the others
     ListView {
         id: gallery
         anchors.fill: parent
-        visible: win.viewing
+        visible: win.view === "photo"
         orientation: ListView.Horizontal
         snapMode: ListView.SnapOneItem
         highlightRangeMode: ListView.StrictlyEnforceRange
@@ -204,6 +213,106 @@ Rectangle {
         }
     }
 
+    // all of them, as a grid of thumbnails
+    GridView {
+        id: grid
+        anchors { fill: parent; topMargin: 96; bottomMargin: 120; leftMargin: 4; rightMargin: 4 }
+        visible: win.view === "grid"
+        clip: true
+        readonly property int columns: Math.max(3, Math.floor(width / 130))
+        cellWidth: width / columns
+        cellHeight: cellWidth
+        model: photos
+        boundsBehavior: Flickable.StopAtBounds
+        maximumFlickVelocity: Theme.flickVelocity
+        flickDeceleration: Theme.flickDeceleration
+        delegate: Item {
+            id: cell
+            required property string filePath
+            required property int index
+            width: grid.cellWidth
+            height: grid.cellHeight
+            Image {
+                anchors { fill: parent; margins: 2 }
+                source: "file://" + cell.filePath
+                sourceSize: Qt.size(grid.cellWidth * 2, grid.cellHeight * 2)
+                fillMode: Image.PreserveAspectCrop
+                autoTransform: true
+                asynchronous: true
+                clip: true
+            }
+            TapHandler { onTapped: win.showPhoto(cell.index) }
+        }
+    }
+    Text {
+        anchors.centerIn: parent
+        visible: win.view === "grid" && photos.count === 0
+        color: Theme.muted
+        font { family: Theme.font; pixelSize: 16 }
+        text: qsTr("No photos yet")
+    }
+
+    // the photos' bar: back to the camera, the grid or the photo, delete
+    Row {
+        visible: win.viewing
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 36 }
+        spacing: 28
+        Repeater {
+            model: [
+                {icon: "󰄀", act: "camera", show: true},
+                {icon: win.view === "grid" ? "󰋩" : "󰕰", act: "toggle", show: photos.count > 0},
+                {icon: "󰩹", act: "delete", show: win.view === "photo" && photos.count > 0},
+            ]
+            delegate: Rectangle {
+                id: action
+                required property var modelData
+                visible: action.modelData.show
+                width: 60; height: 60; radius: 30
+                color: confirmDelete && action.modelData.act === "delete" ? Theme.red
+                     : actionTap.pressed ? Theme.line : "#55ffffff"
+                readonly property bool confirmDelete: win.confirmingDelete
+                Text {
+                    anchors.centerIn: parent
+                    color: "white"
+                    font { family: Theme.font; pixelSize: 26 }
+                    text: action.modelData.icon
+                }
+                TapHandler {
+                    id: actionTap
+                    onTapped: win.act(action.modelData.act)
+                }
+            }
+        }
+    }
+
+    // delete takes a second tap within a few seconds (the photo goes to the trash)
+    property bool confirmingDelete: false
+    Timer { id: confirmTimeout; interval: 3000; onTriggered: win.confirmingDelete = false }
+    function act(what) {
+        if (what === "camera") {
+            view = "finder"
+        } else if (what === "toggle") {
+            if (view === "grid")
+                showPhoto(Math.max(0, gallery.currentIndex))
+            else {
+                grid.positionViewAtIndex(gallery.currentIndex, GridView.Contain)
+                view = "grid"
+            }
+        } else if (what === "delete") {
+            if (!confirmingDelete) {
+                confirmingDelete = true
+                confirmTimeout.restart()
+                return
+            }
+            confirmingDelete = false
+            const path = photos.get(gallery.currentIndex, "filePath")
+            if (path && camera.deletePhoto(path))
+                taken = taken.filter(p => p !== path)
+            if (photos.count <= 1)          // that was the last one
+                view = "finder"
+        }
+    }
+
     // locked: back to the lock screen
     Rectangle {
         visible: win.locked && !win.viewing
@@ -217,20 +326,5 @@ Rectangle {
             text: "󰅖"
         }
         TapHandler { id: lockTap; onTapped: win.closeRequested() }
-    }
-
-    // back to the viewfinder
-    Rectangle {
-        visible: win.viewing
-        anchors { left: parent.left; bottom: parent.bottom; margins: 36 }
-        width: 60; height: 60; radius: 30
-        color: backTap.pressed ? Theme.line : "#55ffffff"
-        Text {
-            anchors.centerIn: parent
-            color: "white"
-            font { family: Theme.font; pixelSize: 26 }
-            text: "󰄀"
-        }
-        TapHandler { id: backTap; onTapped: win.viewing = false }
     }
 }

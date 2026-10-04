@@ -5,6 +5,9 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusArgument>
+#include <QFile>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <QVideoFrame>
 #include <QVideoFrameFormat>
 
@@ -147,6 +150,24 @@ void CameraSource::takePhoto()
         emit photoTaken(m_lastPhoto);
         restartStream();        // the photo may have taken the camera from the preview
     });
+}
+
+bool CameraSource::deletePhoto(const QString &path)
+{
+    // only the camera's own photos (~/Pictures/Camera), whatever the caller asks
+    const QString folder = QStandardPaths::writableLocation(QStandardPaths::PicturesLocation)
+                           + QStringLiteral("/Camera");
+    if (QFileInfo(path).absolutePath() != QFileInfo(folder).absoluteFilePath())
+        return false;
+    if (!QFile::moveToTrash(path)) {
+        emit failed(tr("Couldn't delete the photo"));
+        return false;
+    }
+    if (path == m_lastPhoto) {
+        m_lastPhoto.clear();
+        emit lastPhotoChanged();
+    }
+    return true;
 }
 
 // --- the PipeWire stream --------------------------------------------------------------------

@@ -54,6 +54,8 @@ public:
     Q_INVOKABLE void takePhoto();
     Q_INVOKABLE void switchCamera();        // to the next camera
     Q_INVOKABLE void refresh();             // ask for the cameras again
+    // Moves a photo (one of the camera's, in its folder) to the trash; false if it couldn't.
+    Q_INVOKABLE bool deletePhoto(const QString &path);
 
 signals:
     void camerasChanged();
