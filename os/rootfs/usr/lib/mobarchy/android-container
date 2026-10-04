@@ -48,12 +48,18 @@ BINDERFS = RUN / "binderfs"     # the container's binder devices, shared with th
 APEX = ROOT / "mnt/apex"
 NAME = "android"
 LXC_PATH = RUN / "lxc"
+# Mobarchy's own libraries for the Android side (e.g. Mesa: GLES and OpenCL for the vendor's
+# HALs), from packages: the container's /odm/lib64
+ODM_LIBS = LIB / "android/odm/lib64"
 
 # Android's init directories (init reads every .rc in them, unless told not to)
 INIT_DIRS = ["system/etc/init", "system_ext/etc/init", "product/etc/init", "vendor/etc/init"]
 
 # Android's ids (system/core/libcutils/include/private/android_filesystem_config.h)
-AID = {"root": 0, "system": 1000, "radio": 1001, "shell": 2000, "log": 1007, "inet": 3003}
+AID = {"root": 0, "system": 1000, "radio": 1001, "graphics": 1003, "audio": 1005, "camera": 1006,
+       "log": 1007, "media": 1013, "drmrpc": 1026, "mediadrm": 1031, "mediacodec": 1046,
+       "cameraserver": 1047,
+       "shell": 2000, "inet": 3003}
 
 
 def run(*cmd, check=True, **kw):
@@ -180,11 +186,13 @@ def mount_apexes():
             mount(loop, versioned, "ro", "nodev")
             mount(versioned, APEX / name, "bind")
             in_root = "/" + str(Path(shipped).relative_to(ROOT))
-            infos.append((name, in_root, version))
+            infos.append((name, in_root, version, part))
+    # the partition tells linkerconfig which APEXes are vendor ones (their libraries see
+    # the vendor's, e.g. the camera HAL's)
     xml = ['<?xml version="1.0" encoding="utf-8"?>', "<apex-info-list>"]
-    for name, path, version in infos:
+    for name, path, version, part in infos:
         xml.append(f'    <apex-info moduleName="{name}" modulePath="{path}" preinstalledModulePath="{path}" '
-                   f'versionCode="{version}" isFactory="true" isActive="true"/>')
+                   f'partition="{part.upper()}" versionCode="{version}" isFactory="true" isActive="true"/>')
     xml.append("</apex-info-list>")
     (APEX / "apex-info-list.xml").write_text("\n".join(xml) + "\n")
     return len(infos)
@@ -313,14 +321,26 @@ def prepare(conf):
             run("mount", "--bind", "-o", "ro", f, target)
 
     # Our properties, as an odm build.prop (the comet has no odm partition; init reads
-    # /odm/etc/build.prop after vendor's). ro.cold_boot_done: ueventd would set it once
-    # it had created /dev; here android-container does that.
+    # /odm/etc/build.prop after vendor's, and its values win). ro.cold_boot_done: ueventd
+    # would set it once it had created /dev; here android-container does that. The
+    # device's own ([android] properties) come after.
     odm = ROOT / "odm"
     mount("tmpfs", odm, "mode=0755", "nosuid", "nodev", "noexec", fstype="tmpfs")
     (odm / "etc").mkdir()
-    (odm / "etc/build.prop").write_text("# Mobarchy's Android container (android-container)\n"
-                                        "ro.cold_boot_done=true\n")
+    props = {"ro.cold_boot_done": "true", **conf.get("properties", {})}
+    (odm / "etc/build.prop").write_text("# Mobarchy's Android container (android-container)\n" +
+                                        "".join(f"{k}={v}\n" for k, v in props.items()))
+    # Mobarchy's libraries: the vendor's processes find /odm/lib64 as they find /vendor/lib64
+    if ODM_LIBS.is_dir():
+        (odm / "lib64").mkdir()
+        mount(ODM_LIBS, odm / "lib64", "bind", "ro")
     run("mount", "-o", "remount,ro", odm)
+    # GLES drivers (Mesa's, as lib{EGL,GLESv2}_<name>.so): Android's EGL loader only looks
+    # in /vendor/lib64/egl, so they are merged into it (read-only overlayfs, the vendor's
+    # own files stay). ro.hardware.egl (a device property) chooses the driver.
+    vendor_egl = ROOT / "vendor/lib64/egl"
+    if (ODM_LIBS / "egl").is_dir() and vendor_egl.is_dir():
+        mount("overlay", vendor_egl, f"lowerdir={ODM_LIBS / 'egl'}:{vendor_egl}", fstype="overlay")
 
     # boot configuration: the bootloader's, plus init_rc so that init parses nothing else
     # The boot mode is the container's own: a phone booted by plugging in its charger has
@@ -333,10 +353,15 @@ def prepare(conf):
     write_lxc_config(conf, extra_nodes)
 
 
+# Nodes every Android needs, as its own ueventd.rc has them: shared memory (ashmem, for
+# binder's shared buffers and fast message queues)
+ANDROID_DEVICES = {"/dev/ashmem*": ["0666", "root", "root"]}
+
+
 def device_nodes(conf):
     """[(path in container, type, major, minor, mode, uid, gid)] for the device's nodes."""
     nodes = []
-    for pattern, (mode, owner, group) in conf.get("devices", {}).items():
+    for pattern, (mode, owner, group) in {**ANDROID_DEVICES, **conf.get("devices", {})}.items():
         for host in sorted(glob.glob(pattern)):
             st = os.stat(host)
             kind = "c" if stat.S_ISCHR(st.st_mode) else "b"

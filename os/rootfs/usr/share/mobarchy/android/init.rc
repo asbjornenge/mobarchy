@@ -58,6 +58,24 @@ service system_suspend /system/bin/hw/android.system.suspend-service
     stdio_to_kmsg
     seclabel u:r:system_suspend:s0
 
+# Android's metrics service: HALs report to it (android.frameworks.stats.IStats), and some
+# (the Pixel camera HAL) wait for it before they register.
+service statsd /apex/com.android.os.statsd/bin/statsd
+    socket statsdw dgram+passcred 0222 statsd statsd
+    user statsd
+    group statsd log
+    seclabel u:r:statsd:s0
+
+# Crash dumps (tombstones) and debuggerd's backtraces of live processes (debuggerd -b).
+# As Android's tombstoned.rc, with a seclabel.
+service tombstoned /system/bin/tombstoned
+    user tombstoned
+    group system
+    socket tombstoned_crash seqpacket 0666 system system
+    socket tombstoned_intercept seqpacket 0666 system system
+    socket tombstoned_java_trace seqpacket 0666 system system
+    seclabel u:r:tombstoned:s0
+
 service vndservicemanager /vendor/bin/vndservicemanager /dev/vndbinder
     class core
     user system
@@ -68,8 +86,15 @@ service vndservicemanager /vendor/bin/vndservicemanager /dev/vndbinder
     shutdown critical
 
 on early-init
+    # Open files: the container starts with Linux's 1024; Android's processes hold many more
+    # (every graphics and camera buffer is a dma-buf fd), and their services inherit init's.
+    setrlimit nofile 32768 32768
     # The APEXes, mounted by android-container (instead of apexd).
     mount none /mnt/apex /apex bind rec
+    # libcutils opens ashmem as /dev/ashmem<boot id>, which Android's ueventd links; the
+    # container's boot id is its own (LXC's), so the link is made in here (backquotes: init
+    # takes "$" for its properties)
+    exec u:r:shell:s0 root root -- /system/bin/sh -c "ln -sf ashmem /dev/ashmem`cat /proc/sys/kernel/random/boot_id`"
 
     # The linker configuration for the mounted APEXes (apexd has linkerconfig write it).
     exec_start mobarchy-linkerconfig
@@ -81,6 +106,8 @@ on init
     start hwservicemanager
     start vndservicemanager
     start system_suspend
+    start statsd
+    start tombstoned
 
 on late-init
     trigger post-fs-data
@@ -91,4 +118,6 @@ on post-fs-data
     mkdir /data/vendor 0771 root system
     mkdir /data/misc 01771 system misc
     mkdir /data/local/tmp 0771 shell shell
+    mkdir /data/tombstones 0771 system system
+    mkdir /data/anr 0775 system system
     load_persist_props
