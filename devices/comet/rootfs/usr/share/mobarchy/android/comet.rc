@@ -34,6 +34,7 @@ on mobarchy-start
     start RFS-daemon
     start init.shared_modem_platform
     start vendor.modem_ml_svc_sit
+    start vendor.google.radioext@1.0
     start cpboot-daemon
 
 # The modem's other AP-side services. The modem talks to them on oem_ipc1/3 (shared modem
@@ -50,10 +51,18 @@ service vendor.modem_ml_svc_sit /vendor/bin/modem_ml_svc_sit -s
     group system
     seclabel u:r:modem_ml_svc_sit:s0
 
+# Google's radio extension (vendor.google.radioext): the modem's state for other HALs (the
+# camera HAL asks it). As the vendor's vendor.google.radioext@1.0-service.rc, with a seclabel.
+service vendor.google.radioext@1.0 /vendor/bin/hw/vendor.google.radioext@1.0-service
+    user radio
+    group radio system
+    seclabel u:r:hal_radioext_default:s0
+
 on post-fs-data
     rm /data/vendor/radio/shared_modem_platform_pid
     mkdir /data/vendor/radio/modem_temp_file 0775 radio system
     mkdir /data/vendor/modem_ml 0770 radio system
+    mkdir /data/vendor/radio/freq 0775 radio system
 
 on property:vendor.modem.crash_detected=1
     stop init.shared_modem_platform
@@ -121,3 +130,117 @@ on property:vendor.thermal.link_ready=1
     chown system system /dev/thermal/cdev-by-name/thermal-uclamp-4/cur_state
     chown system system /dev/thermal/cdev-by-name/thermal-uclamp-7/cur_state
     restart vendor.thermal-hal
+
+# The cameras: Pixel's camera HAL (the com.google.pixel.camera.hal APEX), the graphics
+# allocator it gets buffers from, and cameraserver (Android's camera service, for native
+# clients). As the vendor's and system's rc files, with seclabels.
+service vendor.graphics.allocator-default /vendor/bin/hw/android.hardware.graphics.allocator-V2-service
+    user system
+    group graphics drmrpc
+    capabilities SYS_NICE
+    stdio_to_kmsg
+    seclabel u:r:hal_graphics_allocator_default:s0
+
+service vendor.camera-provider-2-7-google /apex/com.google.pixel.camera.hal/bin/hw/android.hardware.camera.provider@2.7-service-google
+    user system
+    group system
+    capabilities SYS_NICE
+    rlimit rtprio 10 10
+    rlimit memlock 268435456 268435456
+    # OpenCL on the CPU (Mesa's llvmpipe) until panfrost serves it (ADR 0017)
+    setenv RUSTICL_ENABLE llvmpipe
+    stdio_to_kmsg
+    seclabel u:r:hal_camera_default:s0
+
+service cameraserver /system/bin/cameraserver
+    user cameraserver
+    group audio camera input drmrpc
+    capabilities SYS_NICE
+    rlimit rtprio 10 10
+    stdio_to_kmsg
+    seclabel u:r:cameraserver:s0
+
+# The codecs (Codec 2.0 HALs: Samsung's MFC and Google's BigWave hardware, Dolby's), which
+# cameraserver and the camera HAL use for video and JPEG; cameraserver waits for each one
+# the vendor declares. As the vendor's rc files, with seclabels.
+service android-hardware-media-c2-hal-1-2 /vendor/bin/hw/samsung.hardware.media.c2@1.2-service
+    user mediacodec
+    group camera mediadrm drmrpc
+    ioprio rt 4
+    seclabel u:r:mediacodec_samsung:s0
+
+service android-hardware-media-c2-hal-2-0-google /vendor/bin/hw/google.hardware.media.c2@2.0-service
+    user mediacodec
+    group camera mediadrm drmrpc
+    ioprio rt 4
+    capabilities SYS_NICE
+    seclabel u:r:mediacodec_google:s0
+
+# Android's software codecs (the media.swcodec APEX), the "software" Codec 2.0 store
+service media.swcodec /apex/com.android.media.swcodec/bin/mediaswcodec
+    user mediacodec
+    group camera drmrpc mediadrm
+    ioprio rt 4
+    seclabel u:r:mediaswcodec:s0
+
+service vendor-dolby-media-c2-hal /vendor/bin/hw/vendor.dolby.media.c2-default-service
+    user mediacodec
+    group camera mediadrm drmrpc
+    ioprio rt 4
+    seclabel u:r:mediacodec:s0
+
+# The TPU's vendor service, which the camera HAL's TPU stages ask for; started on demand
+# (lazy), as the vendor's rc files have them, with seclabels.
+service edgetpu_vendor_service /vendor/bin/hw/vendor.google.edgetpu_vendor_service@1.0-service
+    interface aidl com.google.edgetpu.IEdgeTpuVendorService/default
+    disabled
+    oneshot
+    user system
+    group system
+    seclabel u:r:edgetpu_vendor_server:s0
+
+service edgetpu_tachyon_service /vendor/bin/hw/com.google.edgetpu.tachyon-service
+    interface aidl com.google.edgetpu.tachyon.IComputeService/default
+    oneshot
+    disabled
+    user system
+    group system
+    rlimit rtprio 99 99
+    capabilities SYS_NICE IPC_LOCK
+    seclabel u:r:edgetpu_tachyon_server:s0
+
+on post-fs-data
+    # (from the vendor's init.zumapro.board.rc)
+    mkdir /data/vendor/edgetpu 0770 system system
+    mkdir /data/vendor/edgetpu/cache 0770 system system
+    symlink /dev/edgetpu-soc /dev/edgetpu
+    mkdir /data/vendor/camera 0770 system camera
+    mkdir /data/vendor/camera/catpipe 0770 system camera
+    mkdir /data/vendor/camera/peripheral_probe_results 0770 system camera
+
+on mobarchy-start
+    start vendor.graphics.allocator-default
+    start vendor.sensors-hal-multihal
+    start android-hardware-media-c2-hal-1-2
+    start android-hardware-media-c2-hal-2-0-google
+    start vendor-dolby-media-c2-hal
+    start media.swcodec
+    # Not started yet: the camera HAL needs OpenCL on the GPU (HDRnet), which panthor
+    # doesn't give it, and aborts. Without it it restarts every few seconds.
+    #start vendor.camera-provider-2-7-google
+    #start cameraserver
+
+# The sensors (USF, on the AOC), through Android's sensor HAL: it loads the sensor registry
+# (the vendor's, and the factory calibration in persist), which the camera HAL waits for
+# (the gyro, for stabilisation). As the vendor's android.hardware.sensors-service-multihal.rc,
+# with a seclabel.
+import /vendor/etc/init/init.usf.rc
+
+service vendor.sensors-hal-multihal /vendor/bin/hw/android.hardware.sensors-service.multihal
+    user system
+    group system wakelock context_hub input uhid audio
+    task_profiles ServiceCapacityLow
+    capabilities BLOCK_SUSPEND
+    rlimit rtprio 10 10
+    stdio_to_kmsg
+    seclabel u:r:hal_sensors_default:s0

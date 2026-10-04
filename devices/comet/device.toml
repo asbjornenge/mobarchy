@@ -35,10 +35,15 @@ fold_sensor = true
 [android]
 partitions = ["system", "system_ext", "product", "vendor"]   # from super, read-only
 init = "/usr/share/mobarchy/android/comet.rc"
-# writes comet's adaptations of vendor files (the thermal HAL's configuration)
+# writes comet's adaptations of vendor files (thermal, display and OpenCL configuration)
 overlay_hook = "/usr/lib/mobarchy/android-overlay"
 # cpif's switch that crashes the modem on purpose: never writable from the container
 masked_sysfs = ["/sys/devices/platform/cpif/do_cp_crash"]
+
+# Android properties for the container (its odm build.prop)
+[android.properties]
+# GLES from Mesa (os/android-mesa), not Mali's driver, which needs Mali's kernel driver (ADR 0017)
+"ro.hardware.egl" = "mesa"
 
 # /var/lib/mobarchy/android/vendor/<name> -> /mnt/vendor/<name>. These hold the modem's
 # NV data (efs, efs_backup) and calibration (persist): for now copies, never the real
@@ -63,3 +68,19 @@ modem_img = "modem"
 "/dev/umts_dm0" = ["0660", "system", "system"]
 "/dev/oem_ipc*" = ["0660", "radio", "radio"]
 "/dev/oem_test" = ["0660", "radio", "radio"]
+
+# the cameras (LWIS: sensors, OIS, flash, the ISP blocks), and what the camera HAL works
+# with: the GXP and TPU, and the DMA-BUF heaps for buffers
+"/dev/lwis-*" = ["0660", "system", "system"]
+"/dev/gxp" = ["0666", "system", "camera"]
+"/dev/edgetpu-soc" = ["0660", "system", "system"]
+"/dev/edgetpu-limited" = ["0660", "system", "system"]
+"/dev/dma_heap/*" = ["0444", "system", "system"]
+# the hardware codecs (video, and JPEG for photos): Samsung's MFC and Google's BigWave
+"/dev/video[6-9]" = ["0660", "mediacodec", "mediadrm"]
+"/dev/video1[01]" = ["0660", "mediacodec", "mediadrm"]
+"/dev/video12" = ["0666", "system", "system"]
+"/dev/bigwave" = ["0660", "mediacodec", "mediadrm"]
+# the sensors (USF, on the AOC): the camera HAL reads the gyro (stabilisation) through them
+"/dev/acd-com.google.usf" = ["0660", "system", "system"]
+"/dev/acd-com.google.usf.non_wake_up" = ["0660", "system", "system"]
