@@ -1,0 +1,27 @@
+spirv: OpenCL program-scope const variables with initializers
+
+OpenCL C 2.0 puts program-scope const variables in __global (CrossWorkgroup), with an
+initializer and the Constant decoration; vtn failed on them ("Initializer for
+CrossWorkgroup variable not yet supported"). Nothing can write them, so they are made
+constant data, as UniformConstant variables are. Pixel's camera HAL has such programs.
+
+diff --git a/src/compiler/spirv/vtn_variables.c b/src/compiler/spirv/vtn_variables.c
+index d6ba3d18154..9a7d2ab10ef 100644
+--- a/src/compiler/spirv/vtn_variables.c
++++ b/src/compiler/spirv/vtn_variables.c
+@@ -2147,6 +2147,15 @@ vtn_create_variable(struct vtn_builder *b, struct vtn_value *val,
+    vtn_assert(ptr_type->base_type == vtn_base_type_pointer);
+    struct vtn_type *without_array = vtn_type_without_array(data_type);
+ 
++   /* OpenCL C 2.0 program-scope const variables are __global (CrossWorkgroup), with an
++    * initializer and the Constant decoration. Nothing can write them: they are constant
++    * data, as UniformConstant variables are.
++    */
++   if (storage_class == SpvStorageClassCrossWorkgroup && initializer &&
++       initializer->value_type == vtn_value_type_constant &&
++       vtn_has_decoration(b, val, SpvDecorationConstant))
++      storage_class = SpvStorageClassUniformConstant;
++
+    enum vtn_variable_mode mode;
+    nir_variable_mode nir_mode;
+    mode = vtn_storage_class_to_mode(b, storage_class, without_array, &nir_mode);

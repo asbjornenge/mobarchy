@@ -1,0 +1,40 @@
+rusticl: SVM on Android too
+
+Android is Linux: the SVM paths gated on target_os = "linux" apply to target_os = "android"
+as well (Mobarchy's Android container, os/android-mesa).
+
+diff --git a/src/gallium/frontends/rusticl/core/context.rs b/src/gallium/frontends/rusticl/core/context.rs
+index 408aea83c14..b8676769cac 100644
+--- a/src/gallium/frontends/rusticl/core/context.rs
++++ b/src/gallium/frontends/rusticl/core/context.rs
+@@ -318,7 +318,7 @@ impl Context {
+         };
+ 
+         let ptr: *mut c_void = if let Some(vma) = &vma {
+-            #[cfg(target_os = "linux")]
++            #[cfg(any(target_os = "linux", target_os = "android"))]
+             fn os_flags() -> u32 {
+                 // MAP_FIXED_NOREPLACE needs 4.17
+                 MAP_FIXED_NOREPLACE | MAP_NORESERVE
+@@ -329,7 +329,7 @@ impl Context {
+                 MAP_FIXED | MAP_EXCL
+             }
+ 
+-            #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
++            #[cfg(not(any(target_os = "linux", target_os = "android", target_os = "freebsd")))]
+             fn os_flags() -> u32 {
+                 unreachable!("SVM supported only on Linux")
+             }
+diff --git a/src/gallium/frontends/rusticl/core/device.rs b/src/gallium/frontends/rusticl/core/device.rs
+index ed4e768aace..132ce0b5df2 100644
+--- a/src/gallium/frontends/rusticl/core/device.rs
++++ b/src/gallium/frontends/rusticl/core/device.rs
+@@ -1317,7 +1317,7 @@ impl DeviceBase {
+     pub fn svm_supported(&self) -> bool {
+         if cfg!(any(
+             not(target_pointer_width = "64"),
+-            not(any(target_os = "linux", target_os = "freebsd"))
++            not(any(target_os = "linux", target_os = "android", target_os = "freebsd"))
+         )) {
+             return false;
+         }

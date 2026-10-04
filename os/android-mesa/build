@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# Build Mesa for the Android container (ADR 0014): EGL/GLES and OpenCL (rusticl) for the
+# vendor HALs, which need both (the camera HAL). Cross-built on the host with the Android
+# NDK, against LLVM/Clang and the SPIR-V tools, also built here for Android.
+#
+#   os/android-mesa/build [--work <dir>] [--jobs N] [stage...]
+#
+# Stages, in order (each is skipped once done; name one to redo it):
+#   llvm        LLVM + Clang libraries (AArch64), static
+#   spirv       SPIRV-Headers, SPIRV-Tools, SPIRV-LLVM-Translator
+#   libclc      OpenCL's built-in library, as SPIR-V (from Arch's package)
+#   compiler    Mesa's build-time compilers (mesa_clc, vtn_bindgen2, panfrost's), for here
+#   mesa        Mesa: gallium (llvmpipe), EGL/GLES for Android, rusticl
+#
+# Sources and builds live in the work directory (default ~/.cache/mobarchy/android-mesa):
+# src/{llvm-project-*,SPIRV-*,mesa}; the result is installed to <work>/out.
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+
+# Run in the build image (os/android-mesa/Dockerfile): Mesa's tools, Rust for Android. The
+# work directory and the NDK keep their paths inside, as the build records them.
+if [ -z "${IN_ANDROID_MESA_IMAGE:-}" ]; then
+    docker build -q -t mobarchy-android-mesa:latest "$here" >/dev/null
+    cache="$HOME/.cache/mobarchy"
+    exec docker run --rm --user "$(id -u):$(id -g)" -e IN_ANDROID_MESA_IMAGE=1 -e HOME="$HOME" \
+        -v "$cache:$cache" -v "$here:$here:ro" \
+        mobarchy-android-mesa:latest "$here/build" "$@"
+fi
+work="$HOME/.cache/mobarchy/android-mesa"
+jobs=8
+stages=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --work) work="$(realpath -m "$2")"; shift 2 ;;
+        --jobs) jobs="$2"; shift 2 ;;
+        llvm|spirv|libclc|compiler|mesa) stages+=("$1"); shift ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+NDK="${NDK:-$HOME/.cache/mobarchy/android-ndk-r30}"
+API=34          # the oldest Android these libraries load on (the container runs 16, API 36)
+src="$work/src" build="$work/build" prefix="$work/sysroot" out="$work/out"
+mkdir -p "$build" "$prefix" "$out"
+[ -x "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/clang" ] || {
+    echo "no NDK at $NDK (tools/android-ndk fetches it)" >&2; exit 1; }
+
+android_cmake=(-G Ninja -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"
+               -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-$API
+               -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$prefix"
+               -DCMAKE_FIND_ROOT_PATH="$prefix")
+
+done_stage() { [ -f "$build/$1.done" ] && [[ ! " ${stages[*]} " == *" $1 "* ]]; }
+mark() { touch "$build/$1.done"; }
+
+stage_llvm() {
+    local s; s=$(echo "$src"/llvm-project-*.src)
+    # (LLVM was first built for API 30; it stays so: changing it rebuilds everything)
+    cmake -S "$s/llvm" -B "$build/llvm" "${android_cmake[@]}" -DANDROID_PLATFORM=android-30 \
+        -DLLVM_ENABLE_PROJECTS=clang -DLLVM_TARGETS_TO_BUILD=AArch64 \
+        -DLLVM_HOST_TRIPLE=aarch64-linux-android -DLLVM_DEFAULT_TARGET_TRIPLE=aarch64-linux-android \
+        -DLLVM_BUILD_TOOLS=OFF -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF \
+        -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF -DLLVM_BUILD_UTILS=OFF \
+        -DLLVM_ENABLE_ZLIB=OFF -DLLVM_ENABLE_ZSTD=OFF -DLLVM_ENABLE_LIBXML2=OFF \
+        -DLLVM_ENABLE_TERMINFO=OFF -DLLVM_ENABLE_LIBEDIT=OFF -DLLVM_ENABLE_LIBPFM=OFF \
+        -DCLANG_BUILD_TOOLS=OFF -DCLANG_ENABLE_ARCMT=OFF -DCLANG_ENABLE_STATIC_ANALYZER=OFF \
+        -DCLANG_INCLUDE_TESTS=OFF -DCLANG_INCLUDE_DOCS=OFF -DCLANG_PLUGIN_SUPPORT=OFF
+    ninja -C "$build/llvm" -j"$jobs" install
+    llvm_config
+}
+
+# Mesa finds LLVM with llvm-config, which must run here but describe the Android build: the
+# native llvm-config that the cross build makes (same version, targets and libraries) does,
+# installed in the sysroot (it reports paths relative to itself), with the answers that
+# differ for Android corrected.
+llvm_config() {
+    # (the native sub-build has the same targets, projects and RTTI setting)
+    ninja -C "$build/llvm/NATIVE" llvm-config
+    install -Dm755 "$build/llvm/NATIVE/bin/llvm-config" "$prefix/bin/llvm-config.native"
+    cat > "$prefix/bin/llvm-config" <<'EOS'
+#!/bin/sh
+# llvm-config for the Android build of LLVM here (see os/android-mesa/build)
+native="$(dirname "$0")/llvm-config.native"
+case " $* " in
+    *" --host-target "*) echo "aarch64-unknown-linux-android" ;;
+    *" --shared-mode "*) echo "static" ;;
+    # bionic has no librt or libpthread (they are in libc); zstd and libxml2 are off here
+    *) "$native" "$@" | awk '{ out = ""; for (i = 1; i <= NF; i++)
+                                   if ($i !~ /^-l(rt|pthread|zstd|xml2)$/) out = out (out ? " " : "") $i
+                               print out }' ;;
+esac
+EOS
+    chmod 755 "$prefix/bin/llvm-config"
+}
+
+stage_spirv() {
+    cmake -S "$src/SPIRV-Headers" -B "$build/spirv-headers" "${android_cmake[@]}" \
+        -DSPIRV_HEADERS_ENABLE_TESTS=OFF -DSPIRV_HEADERS_ENABLE_INSTALL=ON
+    ninja -C "$build/spirv-headers" install
+    cmake -S "$src/SPIRV-Tools" -B "$build/spirv-tools" "${android_cmake[@]}" \
+        -DSPIRV-Headers_SOURCE_DIR="$src/SPIRV-Headers" -DSPIRV_SKIP_TESTS=ON \
+        -DSPIRV_SKIP_EXECUTABLES=ON -DSPIRV_WERROR=OFF -DBUILD_SHARED_LIBS=OFF \
+        -DSPIRV_TOOLS_BUILD_STATIC=ON
+    ninja -C "$build/spirv-tools" -j"$jobs" install
+    cmake -S "$src/SPIRV-LLVM-Translator" -B "$build/spirv-translator" "${android_cmake[@]}" \
+        -DLLVM_DIR="$prefix/lib/cmake/llvm" \
+        -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR="$src/SPIRV-Headers" \
+        -DLLVM_SPIRV_INCLUDE_TESTS=OFF -DBUILD_SHARED_LIBS=OFF
+    ninja -C "$build/spirv-translator" -j"$jobs" install
+}
+
+# libclc (OpenCL's built-ins, as SPIR-V, for rusticl): architecture independent, so Arch's
+# package in the build image provides it; it is built into Mesa.
+stage_libclc() {
+    mkdir -p "$work/libclc" "$prefix/lib/pkgconfig"
+    cp /usr/share/clc/spirv-mesa3d-.spv /usr/share/clc/spirv64-mesa3d-.spv "$work/libclc/"
+    cat > "$prefix/lib/pkgconfig/libclc.pc" <<EOS
+libexecdir=$work/libclc
+
+Name: libclc
+Description: Library requirements of the OpenCL C programming language
+Version: $(pacman -Q libclc | cut -d' ' -f2 | cut -d- -f1)
+Cflags:
+Libs:
+EOS
+}
+
+# Mesa's build-time compilers, for this machine: mesa_clc and vtn_bindgen2 (OpenCL C to
+# SPIR-V and into C, for drivers' internal shaders) and panfrost's precompiler. A cross
+# build can't build them itself.
+stage_compiler() {
+    apply_patches
+    meson setup --wipe "$build/compiler" "$src/mesa" --prefix="$work/compiler" \
+        -Dbuildtype=release -Dplatforms= -Dgallium-drivers= -Dvulkan-drivers= \
+        -Dmesa-clc=enabled -Dinstall-mesa-clc=true -Dtools=panfrost \
+        -Dinstall-precomp-compiler=true -Dbuild-tests=false -Dvalgrind=disabled
+    ninja -C "$build/compiler" -j"$jobs" install
+}
+
+# Mesa's own patches (os/android-mesa/patches), applied to the checkout once
+apply_patches() {
+    local p
+    for p in "$here"/patches/*.patch; do
+        if git -C "$src/mesa" apply --check -R "$p" 2>/dev/null; then
+            continue        # already applied
+        fi
+        git -C "$src/mesa" apply "$p"
+    done
+}
+
+stage_mesa() {
+    apply_patches
+    local bin="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" sysroot
+    sysroot="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
+    cat > "$build/android-aarch64.cross" <<EOS
+[binaries]
+c = '$bin/aarch64-linux-android$API-clang'
+cpp = ['$bin/aarch64-linux-android$API-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '--start-no-unused-arguments', '-static-libstdc++', '--end-no-unused-arguments']
+c_ld = 'lld'
+cpp_ld = 'lld'
+ar = '$bin/llvm-ar'
+strip = '$bin/llvm-strip'
+rust = ['rustc', '--target', 'aarch64-linux-android', '-C', 'linker=$bin/aarch64-linux-android$API-clang']
+llvm-config = '$prefix/bin/llvm-config'
+pkg-config = 'pkg-config'
+
+[properties]
+pkg_config_libdir = '$prefix/lib/pkgconfig:$prefix/share/pkgconfig'
+# (meson adds the Rust target, which has no API level, after these: the level is defined)
+bindgen_clang_arguments = ['--sysroot', '$sysroot', '-D__ANDROID_MIN_SDK_VERSION__=$API', '-D__ANDROID_API__=$API']
+
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'armv8'
+endian = 'little'
+EOS
+    export PATH="$work/compiler/bin:$PATH"
+    [ -f "$build/mesa/build.ninja" ] || meson setup "$build/mesa" "$src/mesa" \
+        --cross-file "$build/android-aarch64.cross" --prefix=/odm --libdir=lib64 \
+        -Dbuildtype=release -Db_ndebug=true -Dstrip=true -Dcpp_rtti=false \
+        -Degl-lib-suffix=_mesa -Dgles-lib-suffix=_mesa \
+        -Dplatforms=android -Dplatform-sdk-version=$API -Dandroid-stub=true \
+        -Dandroid-libbacktrace=disabled -Dallow-fallback-for=libdrm \
+        -Dgallium-drivers=llvmpipe -Dvulkan-drivers= -Dgallium-rusticl=true \
+        -Dstatic-libclc=all -Dllvm=enabled -Dshared-llvm=disabled \
+        -Degl=enabled -Dgles1=disabled -Dgles2=enabled -Dopengl=true -Dgbm=disabled \
+        -Dglx=disabled -Dxmlconfig=disabled -Dzstd=disabled -Dvalgrind=disabled \
+        -Dlibunwind=disabled -Dbuild-tests=false -Dvideo-codecs= -Dtools= \
+        -Dmesa-clc=system -Dprecomp-compiler=system
+    ninja -C "$build/mesa" -j"$jobs"
+    rm -rf "$out" && DESTDIR="$out" ninja -C "$build/mesa" install
+
+    # What the container gets (android-container: /odm/lib64): the libraries, with Android's
+    # EGL loader's names in egl/ (it loads lib{EGL,GLESv2}_<ro.hardware.egl>.so from there).
+    # libdrm is the vendor's (Mesa's own copy would shadow it for the vendor's processes);
+    # the rest of Mesa's install (headers, pkgconfig) is for builds.
+    local lib="$out/odm/lib64" dest="$work/odm/lib64"
+    rm -rf "$work/odm" && mkdir -p "$dest/egl"
+    cp -a "$lib/libgallium_dri.so" "$lib/libRusticlOpenCL.so" "$dest/"
+    cp -a "$lib/libEGL_mesa.so" "$lib/libGLESv2_mesa.so" "$dest/egl/"
+}
+
+for s in llvm spirv libclc compiler mesa; do
+    if done_stage $s; then echo "== $s: done"; continue; fi
+    echo "== $s"
+    "stage_$s"
+    mark $s
+done

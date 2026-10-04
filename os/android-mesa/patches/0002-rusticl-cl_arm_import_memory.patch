@@ -1,0 +1,293 @@
+rusticl: cl_arm_import_memory (dma-buf and host)
+
+clImportMemoryARM, as Arm's driver has it, which Android camera HALs use to hand their
+buffers (dma-bufs) to OpenCL. A driver that imports dma-bufs (DRM_PRIME_CAP_IMPORT) gets the
+dma-buf itself; for the others (llvmpipe) it is mapped and used as host memory, unmapped
+when the buffer is destroyed.
+
+diff --git a/src/gallium/frontends/rusticl/api/icd.rs b/src/gallium/frontends/rusticl/api/icd.rs
+index bb88e1abf5f..79295ddfb10 100644
+--- a/src/gallium/frontends/rusticl/api/icd.rs
++++ b/src/gallium/frontends/rusticl/api/icd.rs
+@@ -535,6 +535,9 @@ pub extern "C" fn clGetExtensionFunctionAddress(
+         return ptr::null_mut();
+     }
+     match unsafe { CStr::from_ptr(function_name) }.to_str().unwrap() {
++        // cl_arm_import_memory
++        "clImportMemoryARM" => cl_ext_func!(clImportMemoryARM: clImportMemoryARM_fn),
++
+         // cl_khr_create_command_queue
+         "clCreateCommandQueueWithPropertiesKHR" => cl_ext_func!(clCreateCommandQueueWithProperties: clCreateCommandQueueWithPropertiesKHR_fn),
+ 
+diff --git a/src/gallium/frontends/rusticl/api/memory.rs b/src/gallium/frontends/rusticl/api/memory.rs
+index 0e2eaa3f597..d90fafba598 100644
+--- a/src/gallium/frontends/rusticl/api/memory.rs
++++ b/src/gallium/frontends/rusticl/api/memory.rs
+@@ -25,8 +25,11 @@ use rusticl_opencl_gen::*;
+ use rusticl_proc_macros::cl_entrypoint;
+ use rusticl_proc_macros::cl_info_entrypoint;
+ 
++use libc_rust_gen::{lseek, mmap, munmap, MAP_SHARED, PROT_READ, PROT_WRITE, SEEK_END};
++
+ use std::cmp;
+ use std::cmp::Ordering;
++use std::ffi::c_int;
+ use std::num::NonZeroU64;
+ use std::os::raw::c_void;
+ use std::ptr;
+@@ -418,6 +421,102 @@ fn create_buffer(
+     create_buffer_with_properties(context, ptr::null(), flags, size, host_ptr)
+ }
+ 
++/// The CPU mapping of an imported dma-buf, unmapped when its buffer is destroyed.
++unsafe extern "C" fn unmap_imported(_mem: cl_mem, user_data: *mut c_void) {
++    // SAFETY: user_data is the Box import_dma_buf leaked for this buffer, given back once.
++    let (ptr, size) = *unsafe { Box::from_raw(user_data.cast::<(usize, usize)>()) };
++    unsafe { munmap(ptr as *mut c_void, size) };
++}
++
++/// cl_arm_import_memory_dma_buf: a buffer on a dma-buf. Drivers that can import dma-bufs use it
++/// directly; for the others (llvmpipe) it is mapped and used as host memory.
++fn import_dma_buf(c: Arc<Context>, flags: cl_mem_flags, fd: c_int, size: usize) -> CLResult<cl_mem> {
++    // CL_IMPORT_MEMORY_WHOLE_ALLOCATION_ARM (SIZE_MAX, which bindgen doesn't see)
++    let size = if size == usize::MAX {
++        // SAFETY: lseek only reads the fd's size; an invalid fd fails.
++        let end = unsafe { lseek(fd, 0, SEEK_END as c_int) };
++        usize::try_from(end).map_err(|_| CL_INVALID_VALUE)?
++    } else {
++        size
++    };
++    // CL_INVALID_BUFFER_SIZE if size is 0
++    if size == 0 {
++        return Err(CL_INVALID_BUFFER_SIZE);
++    }
++
++    let host = if c.devs.iter().all(|dev| dev.dma_buf_import_supported()) {
++        ptr::null_mut()
++    } else {
++        // SAFETY: a new shared mapping of the dma-buf; nothing else refers to its address.
++        let p = unsafe {
++            mmap(ptr::null_mut(), size, (PROT_READ | PROT_WRITE) as c_int, MAP_SHARED as c_int, fd, 0)
++        };
++        if p as isize == -1 {
++            return Err(CL_INVALID_VALUE);
++        }
++        p
++    };
++
++    let buffer = match MemBase::new_imported_buffer(c, flags, size, fd, host) {
++        Ok(buffer) => buffer,
++        Err(err) => {
++            if !host.is_null() {
++                // SAFETY: mapped above and not used by anything.
++                unsafe { munmap(host, size) };
++            }
++            return Err(err);
++        }
++    };
++    if !host.is_null() {
++        let data = Box::into_raw(Box::new((host as usize, size))).cast();
++        // SAFETY: unmap_imported is thread safe, and data is the Box it expects.
++        let cb = unsafe { MemCB::new(Some(unmap_imported), data)? };
++        buffer.cbs.lock().unwrap().push(cb);
++    }
++    Ok(buffer.into_cl())
++}
++
++#[cl_entrypoint(clImportMemoryARM)]
++fn import_memory_arm(
++    context: cl_context,
++    flags: cl_mem_flags,
++    properties: *const cl_import_properties_arm,
++    memory: *mut c_void,
++    size: usize,
++) -> CLResult<cl_mem> {
++    let c = Context::arc_from_raw(context)?;
++
++    // CL_INVALID_VALUE if memory is NULL, or if flags are not valid (the host pointer ones
++    // don't apply)
++    if memory.is_null() {
++        return Err(CL_INVALID_VALUE);
++    }
++    validate_mem_flags_create(flags, MemFlagValidationType::Plain)?;
++    if bit_check(flags, CL_MEM_USE_HOST_PTR | CL_MEM_ALLOC_HOST_PTR | CL_MEM_COPY_HOST_PTR) {
++        return Err(CL_INVALID_VALUE);
++    }
++
++    // CL_INVALID_PROPERTY if a property is not supported (the import type is the only one)
++    let props = unsafe { Properties::new(properties) }.ok_or(CL_INVALID_PROPERTY)?;
++    let mut import_type = CL_IMPORT_TYPE_HOST_ARM;
++    for (&key, &value) in props.iter() {
++        match key as u32 {
++            CL_IMPORT_TYPE_ARM => import_type = value as u32,
++            _ => return Err(CL_INVALID_PROPERTY),
++        }
++    }
++
++    match import_type {
++        // SAFETY: for a dma-buf, memory points to its fd (an int)
++        CL_IMPORT_TYPE_DMA_BUF_ARM => import_dma_buf(c, flags, unsafe { *memory.cast::<c_int>() }, size),
++        CL_IMPORT_TYPE_HOST_ARM => {
++            Ok(MemBase::new_buffer(c, flags | cl_mem_flags::from(CL_MEM_USE_HOST_PTR), size, memory, Properties::default())?
++                .into_cl())
++        }
++        _ => Err(CL_INVALID_PROPERTY),
++    }
++}
++
+ #[cl_entrypoint(clCreateSubBuffer)]
+ fn create_sub_buffer(
+     buffer: cl_mem,
+diff --git a/src/gallium/frontends/rusticl/core/context.rs b/src/gallium/frontends/rusticl/core/context.rs
+index 408aea83c14..52501d41017 100644
+--- a/src/gallium/frontends/rusticl/core/context.rs
++++ b/src/gallium/frontends/rusticl/core/context.rs
+@@ -632,6 +632,44 @@ impl Context {
+         }
+     }
+ 
++    /// Imports a dma-buf as a buffer (cl_arm_import_memory_dma_buf). A device whose driver
++    /// imports dma-bufs gets the dma-buf itself; for the others (llvmpipe), `host` is a CPU
++    /// mapping of it, used as host memory.
++    pub fn import_dmabuf_buffer(
++        &self,
++        fd: c_int,
++        size: usize,
++        host: *mut c_void,
++    ) -> CLResult<HashMap<&'static Device, PipeResourceOwned>> {
++        let adj_size: u32 = size.try_into_with_err(CL_INVALID_BUFFER_SIZE)?;
++        let mut res = HashMap::new();
++        for &dev in &self.devs {
++            let resource = dev
++                .screen()
++                .resource_import_dmabuf(
++                    fd as u32,
++                    0x00ff_ffff_ffff_ffff, // DRM_FORMAT_MOD_INVALID: a buffer has none
++                    pipe_texture_target::PIPE_BUFFER,
++                    pipe_format::PIPE_FORMAT_NONE,
++                    0,
++                    adj_size,
++                    1,
++                    1,
++                    1,
++                    false,
++                )
++                .or_else(|| {
++                    (!host.is_null()).then(|| {
++                        dev.screen()
++                            .resource_create_buffer_from_user(adj_size, host, PIPE_BIND_GLOBAL, 0)
++                    })?
++                })
++                .ok_or(CL_INVALID_OPERATION)?;
++            res.insert(dev, resource);
++        }
++        Ok(res)
++    }
++
+     pub fn import_gl_buffer(
+         &self,
+         handle: u32,
+diff --git a/src/gallium/frontends/rusticl/core/device.rs b/src/gallium/frontends/rusticl/core/device.rs
+index ed4e768aace..92a8c3c145e 100644
+--- a/src/gallium/frontends/rusticl/core/device.rs
++++ b/src/gallium/frontends/rusticl/core/device.rs
+@@ -822,6 +822,13 @@ impl DeviceBase {
+             add_ext(1, 0, 0, "cl_arm_shared_virtual_memory");
+         }
+ 
++        // dma-bufs: imported by the driver, or mapped and used as host memory
++        if self.dma_buf_import_supported() || self.screen().has_resource_from_user() {
++            add_ext(1, 0, 0, "cl_arm_import_memory");
++            add_ext(1, 0, 0, "cl_arm_import_memory_dma_buf");
++            add_ext(1, 0, 0, "cl_arm_import_memory_host");
++        }
++
+         if self.bda_supported() {
+             add_ext(1, 0, 2, "cl_ext_buffer_device_address");
+         }
+@@ -1314,6 +1321,11 @@ impl DeviceBase {
+         self.screen.caps().system_svm
+     }
+ 
++    /// Whether the driver imports dma-bufs itself (DRM_PRIME_CAP_IMPORT).
++    pub fn dma_buf_import_supported(&self) -> bool {
++        self.screen().caps().dmabuf & 0x1 != 0
++    }
++
+     pub fn svm_supported(&self) -> bool {
+         if cfg!(any(
+             not(target_pointer_width = "64"),
+diff --git a/src/gallium/frontends/rusticl/core/memory.rs b/src/gallium/frontends/rusticl/core/memory.rs
+index c777be4a341..574b46b7d91 100644
+--- a/src/gallium/frontends/rusticl/core/memory.rs
++++ b/src/gallium/frontends/rusticl/core/memory.rs
+@@ -33,6 +33,7 @@ use std::cmp;
+ use std::collections::btree_map::Entry;
+ use std::collections::HashMap;
+ use std::convert::TryInto;
++use std::ffi::c_int;
+ use std::fmt::Debug;
+ use std::hash::Hash;
+ use std::mem;
+@@ -913,6 +914,34 @@ impl MemBase {
+         Ok(buffer)
+     }
+ 
++    /// A buffer on imported memory (cl_arm_import_memory): a dma-buf, or `host` (the dma-buf
++    /// mapped, for devices that can't import it; the caller keeps it mapped as long as the
++    /// buffer lives).
++    pub fn new_imported_buffer(
++        context: Arc<Context>,
++        flags: cl_mem_flags,
++        size: usize,
++        fd: c_int,
++        host: *mut c_void,
++    ) -> CLResult<Arc<Buffer>> {
++        let res = context.import_dmabuf_buffer(fd, size, host)?;
++        Ok(Arc::new(Buffer {
++            base: Self {
++                base: CLObjectBase::new(RusticlTypes::Buffer),
++                context: context,
++                mem_type: CL_MEM_OBJECT_BUFFER,
++                flags: flags,
++                size: size,
++                props: Properties::default(),
++                gl_obj: None,
++                cbs: Mutex::new(Vec::new()),
++                alloc: Allocation::new(res, 0, host),
++            },
++            address: None,
++            maps: Mutex::new(TrackedPointers::new()),
++        }))
++    }
++
+     pub fn new_sub_buffer(
+         parent: Arc<Buffer>,
+         flags: cl_mem_flags,
+diff --git a/src/gallium/frontends/rusticl/meson.build b/src/gallium/frontends/rusticl/meson.build
+index 467c457e13b..84eb38972a7 100644
+--- a/src/gallium/frontends/rusticl/meson.build
++++ b/src/gallium/frontends/rusticl/meson.build
+@@ -237,6 +237,13 @@ rusticl_libc_bindings_rs = rust.bindgen(
+     '--allowlist-function',     'dlsym',
+     '--allowlist-function',     'free',
+     '--allowlist-function',     'malloc',
++    '--allowlist-function',     'mmap',
++    '--allowlist-function',     'munmap',
++    '--allowlist-function',     'lseek',
++    '--allowlist-var',          'PROT_READ',
++    '--allowlist-var',          'PROT_WRITE',
++    '--allowlist-var',          'MAP_SHARED',
++    '--allowlist-var',          'SEEK_END',
+   ]
+ )
+ 
+diff --git a/src/gallium/frontends/rusticl/rusticl_libc_bindings.h b/src/gallium/frontends/rusticl/rusticl_libc_bindings.h
+index f02ccb0db6c..ac50d32327f 100644
+--- a/src/gallium/frontends/rusticl/rusticl_libc_bindings.h
++++ b/src/gallium/frontends/rusticl/rusticl_libc_bindings.h
+@@ -7,3 +7,4 @@
+ #include <dlfcn.h>
+ #include <unistd.h>
+ #include <stdlib.h>
++#include <sys/mman.h>
