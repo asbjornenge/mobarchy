@@ -48,9 +48,13 @@ class ScreenPower : public QObject
     QML_ELEMENT
     Q_PROPERTY(bool on READ on WRITE setOn NOTIFY onChanged)
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
+    // The screen in use (its connector, e.g. "DSI-1"): the first one, as a foldable has one
+    // on at a time.
+    Q_PROPERTY(QString inUse READ inUse NOTIFY inUseChanged)
 
 public:
     explicit ScreenPower(QObject *parent = nullptr);
+    QString inUse() const;
     bool on() const { return m_on; }
     void setOn(bool on);
     bool supported() const { return m_manager->isActive(); }
@@ -60,6 +64,7 @@ signals:
     void supportedChanged();
     // A screen was added (e.g. the other panel after a fold).
     void screensChanged();
+    void inUseChanged();
 
 private:
     void attach();

@@ -102,11 +102,19 @@ service mobarchy-sensormanager /system/bin/mobarchy-sensormanager
     group system
     seclabel u:r:system_server:s0
 
+# The sensor bridge (ADR 0020): the sensors for the Linux side, on /data/mobarchy/sensord.
+service mobarchy-sensord /system/bin/mobarchy-sensord
+    user system
+    group system
+    seclabel u:r:system_server:s0
+
 on property:init.svc.sensorservice=running
     start mobarchy-sensormanager
+    start mobarchy-sensord
 
 on property:init.svc.sensorservice=stopped
     stop mobarchy-sensormanager
+    stop mobarchy-sensord
 
 service vndservicemanager /vendor/bin/vndservicemanager /dev/vndbinder
     class core
@@ -153,4 +161,5 @@ on post-fs-data
     mkdir /data/tombstones 0771 system system
     mkdir /data/anr 0775 system system
     mkdir /data/mobarchy 0755 cameraserver camera
+    mkdir /data/mobarchy/sensord 0755 system system
     load_persist_props

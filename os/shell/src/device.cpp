@@ -1,6 +1,7 @@
 #include "device.h"
 
 #include <QFile>
+#include <QProcess>
 
 Device::Device(QObject *parent)
     : QObject(parent)
@@ -20,4 +21,24 @@ int Device::topInset(const QString &connector) const
 int Device::sideInset(const QString &connector) const
 {
     return deviceinfo::sideInset(m_device, connector);
+}
+
+bool Device::canRotate() const
+{
+    return !m_device.tables.value(QStringLiteral("rotation")).toMap().value(QStringLiteral("hook")).toString().isEmpty();
+}
+
+bool Device::rotationLockedByDefault(const QString &connector) const
+{
+    return deviceinfo::display(m_device, connector).value(QStringLiteral("rotation_locked")).toBool();
+}
+
+void Device::rotate(const QString &orientation) const
+{
+    QStringList args = QProcess::splitCommand(
+        m_device.tables.value(QStringLiteral("rotation")).toMap().value(QStringLiteral("hook")).toString());
+    if (args.isEmpty())
+        return;
+    const QString program = args.takeFirst();
+    QProcess::startDetached(program, args << orientation);
 }

@@ -41,6 +41,10 @@ side_inset = 0        # optional: the same at the left and right edges (panel un
 [input]
 touch = "..."
 
+[rotation]            # optional: the screen follows how the device is held (ADR 0020)
+hook = "..."          # turns the screen in use: called with normal, left-up, bottom-up or
+                      # right-up; [[display]] rotation_locked = true: locked by default
+
 [haptics]             # optional: the click the shell plays on buttons, as a force-feedback
 click_bank = 0        # custom effect (the actuator's own waveform: bank, index); without
 click_index = 2       # it, a short buzz

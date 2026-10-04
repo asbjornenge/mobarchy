@@ -22,6 +22,7 @@ Sheet {
     required property Volume volume
     required property AppModel apps
     required property Torch torch
+    required property Rotation rotation
     required property Haptics haptics
 
     // A secured network without a saved passphrase was picked.
@@ -391,6 +392,14 @@ Sheet {
                         detail: quick.keyboard.visible ? qsTr("Shown") : qsTr("Hidden")
                         active: quick.keyboard.visible
                         onClicked: quick.keyboard.toggle()
+                    }
+                    Tile {
+                        visible: quick.rotation.supported
+                        icon: quick.rotation.locked ? "󰑙" : "󰑵"
+                        label: qsTr("Rotation")
+                        detail: quick.rotation.locked ? qsTr("Locked") : qsTr("Automatic")
+                        active: !quick.rotation.locked
+                        onClicked: quick.rotation.setLocked(!quick.rotation.locked)
                     }
                     Tile {
                         icon: "󰒢"

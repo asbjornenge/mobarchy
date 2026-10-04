@@ -36,6 +36,7 @@ qt_add_qml_module(mobarchy-shell
         src/bluetooth.cpp src/bluetooth.h
         src/camera.cpp src/camera.h
         src/haptics.cpp src/haptics.h
+        src/orientation.cpp src/orientation.h
         src/torch.cpp src/torch.h
         src/iconprovider.h
         src/inhibit.cpp src/inhibit.h
@@ -78,6 +79,7 @@ qt_add_qml_module(mobarchy-shell
         qml/CopyBar.qml
         qml/CameraApp.qml
         qml/CameraView.qml
+        qml/Rotation.qml
     RESOURCES
         data/emoji.json
 )

@@ -31,7 +31,7 @@ class CameraSource : public QObject
     Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)          // taking a photo
     // How far the device is turned, clockwise from its natural orientation (degrees): the
-    // photos' own orientation follows it. (0, upright, until the shell follows rotation.)
+    // photos' own orientation follows it (DeviceOrientation.degrees).
     Q_PROPERTY(int deviceRotation MEMBER m_deviceRotation NOTIFY deviceRotationChanged)
     Q_PROPERTY(QString lastPhoto READ lastPhoto NOTIFY lastPhotoChanged)
 

@@ -4,6 +4,9 @@
     fold auto       apply the current hinge state (at session start)
     fold folded     outer panel on, inner off
     fold unfolded   inner panel on, outer off
+    fold rotate O   turn the panel in use (and its touch) for the device held as O: normal,
+                    left-up, bottom-up or right-up (iio-sensor-proxy's names; mobarchy-shell
+                    calls this, ADR 0020). A fold goes back to normal.
 
 Hyprland calls this from switch binds (see /etc/mobarchy/hyprland-device.conf). The
 monitor rules are written to /run/mobarchy/fold.conf, which that file sources.
@@ -24,13 +27,19 @@ import time
 #   mobarchy-shell's status bar covers it.
 # - The inner panel scans out 2152x2076 but is mounted rotated: upright it is 2076x2152,
 #   which is also the frame its touch controller reports in (goodix,panel-max-x/y).
-#   transform 3 (confirmed on the device 2026-10-01); touch gets no transform of its own
-#   (see hyprland-device.conf).
+#   transform 3 (confirmed on the device 2026-10-01). Its touch controller reports upright
+#   already, so its touch is only turned with a rotation (the rules below; the outer
+#   panel's touch follows its transform).
 # - Positions keep the panels apart, so Hyprland never sees overlapping monitors.
 INNER = ("DSI-1", "2152x2076@120", "2", 3, "0x0")
 OUTER = ("DSI-2", "1080x2424@120", "2.4", 0, "1100x0")
 # Sourced by /etc/mobarchy/hyprland-device.conf; created empty at boot (tmpfiles.d).
 RULES = "/run/mobarchy/fold.conf"
+# The rotation in use (fold rotate), as quarter turns of the content (Hyprland's transform,
+# counter-clockwise) for each way the device is held.
+ROTATION = "/run/mobarchy/rotation"
+TURNS = {"normal": 0, "left-up": 1, "bottom-up": 2, "right-up": 3}
+INNER_TOUCH = "goodix_ts0-1"
 HALL_NAME = "hall effect sensor"
 SW_LID = 0x00
 EVIOCGSW = lambda length: (2 << 30) | (length << 16) | (ord("E") << 8) | 0x1B  # _IOC_READ
@@ -68,20 +77,42 @@ def gather_workspaces(monitor: str, show: int | None) -> None:
         hyprctl("dispatch", "workspace", str(ids[0]))
 
 
+def write_rules(folded: bool, turns: int) -> None:
+    """Monitor rules go through a config file and a reload, not `hyprctl keyword monitor`:
+    rules set by keyword pile up, and after a while (or a reload) Hyprland stops applying
+    them. A reload switches both panels in one step."""
+    on, off = (OUTER, INNER) if folded else (INNER, OUTER)
+    with open(RULES, "w") as f:
+        f.write(f"# Written by {sys.argv[0]}: {'folded' if folded else 'unfolded'}, "
+                f"turned {turns}\n"
+                f"monitor = {on[0]}, {on[1]}, {on[4]}, {on[2]}, transform, {(on[3] + turns) % 4}\n"
+                f"monitor = {off[0]}, disable\n"
+                f"device {{\n    name = {INNER_TOUCH}\n    output = {INNER[0]}\n"
+                f"    transform = {turns if not folded else 0}\n}}\n")
+    with open(ROTATION, "w") as f:
+        f.write(f"{turns}\n")
+    hyprctl("reload")
+
+
+def rotate(orientation: str) -> None:
+    turns = TURNS.get(orientation)
+    if turns is None:
+        sys.exit(f"fold rotate: not an orientation: {orientation}")
+    try:
+        if int(open(ROTATION).read()) == turns:
+            return
+    except (OSError, ValueError):
+        pass
+    write_rules(lid_closed(), turns)
+
+
 def apply(folded: bool) -> None:
     on, off = (OUTER, INNER) if folded else (INNER, OUTER)
     # The workspace in use now (on the panel being switched away from) stays in view.
     current = (subprocess.run(["hyprctl", "-j", "activeworkspace"], capture_output=True,
                               text=True).stdout or "{}")
     show = json.loads(current).get("id")
-    # Monitor rules go through a config file and a reload, not `hyprctl keyword monitor`:
-    # rules set by keyword pile up, and after a while (or a reload) Hyprland stops
-    # applying them. A reload switches both panels in one step.
-    with open(RULES, "w") as f:
-        f.write(f"# Written by {sys.argv[0]}: {'folded' if folded else 'unfolded'}\n"
-                f"monitor = {on[0]}, {on[1]}, {on[4]}, {on[2]}, transform, {on[3]}\n"
-                f"monitor = {off[0]}, disable\n")
-    hyprctl("reload")
+    write_rules(folded, 0)
     # The reload is applied asynchronously, and Hyprland reshuffles workspaces itself
     # when a monitor goes away: wait for the new layout before gathering them.
     for _ in range(50):
@@ -95,6 +126,9 @@ def apply(folded: bool) -> None:
 
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "auto"
+    if mode == "rotate":
+        rotate(sys.argv[2] if len(sys.argv) > 2 else "")
+        sys.exit(0)
     if mode == "auto":
         time.sleep(1.5)  # at session start, let Hyprland finish bringing up its outputs first
     apply(lid_closed() if mode == "auto" else mode == "folded")

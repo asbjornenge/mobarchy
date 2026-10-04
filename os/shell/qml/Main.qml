@@ -24,6 +24,10 @@ QtObject {
     readonly property MediaPlayers media: MediaPlayers {}
     readonly property Torch torch: Torch {}
     readonly property Haptics haptics: Haptics {}
+    readonly property Rotation rotation: Rotation {
+        device: shell.device
+        screen: shell.screen
+    }
     readonly property PinLock pinLock: PinLock {}
     // The agent may not use the screen of a phone locked with a PIN (mobarchy-mcp checks).
     readonly property bool lockedWithPin: lockScreen.shown && pinLock.hasPin
@@ -161,6 +165,7 @@ QtObject {
         notifications: shell.notifications
         volume: shell.volume
         apps: shell.apps
+        rotation: shell.rotation
         torch: shell.torch
         haptics: shell.haptics
         onPassphraseNeeded: (ssid) => {

@@ -18,6 +18,7 @@ connector = "DSI-2"
 width = 1080
 height = 2424
 top_inset = 32      # camera cutout
+rotation_locked = true  # the outer panel stays upright until the owner unlocks it (ADR 0020)
 
 [[display]]
 id = "inner"
@@ -34,6 +35,10 @@ fold_sensor = true
 # Haptics (the cs40l26 actuator, a force-feedback input device): the click the shell plays
 # on buttons, a custom effect from the firmware's wavetable: bank (0: RAM) and index (2: the
 # click, as Pixel's vibrator HAL plays it)
+# Rotation (ADR 0020): the fold script turns the panel in use, and its touch
+[rotation]
+hook = "/usr/lib/mobarchy/fold rotate"
+
 [haptics]
 click_bank = 0
 click_index = 2

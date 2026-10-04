@@ -26,11 +26,19 @@ ScreenPower::ScreenPower(QObject *parent)
     connect(qGuiApp, &QGuiApplication::screenAdded, this, [this] {
         attach();
         emit screensChanged();
+        emit inUseChanged();
     });
     connect(qGuiApp, &QGuiApplication::screenRemoved, this, [this](QScreen *s) {
         delete m_outputs.take(s);
+        emit inUseChanged();
     });
     m_manager->bind();
+}
+
+QString ScreenPower::inUse() const
+{
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    return screens.isEmpty() ? QString() : screens.first()->name();
 }
 
 void ScreenPower::attach()

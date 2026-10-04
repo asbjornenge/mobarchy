@@ -1,0 +1,2 @@
+# mobarchy-sensor-proxy: owns net.hadess.SensorProxy on the system bus (see its D-Bus policy)
+u mobarchy-sensors - "Sensor proxy (Android container's sensors)"

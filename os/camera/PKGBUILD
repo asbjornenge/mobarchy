@@ -3,7 +3,7 @@
 #   tools/repo-build --repo <dir> os/camera
 pkgname=mobarchy-camera
 pkgver=0.1
-pkgrel=1
+pkgrel=2
 pkgdesc="The cameras of Mobarchy's Android container on the Linux side: a bridge from cameraserver, PipeWire sources and photos (org.mobarchy.Camera)"
 arch=(aarch64)
 depends=(pipewire glib2)

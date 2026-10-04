@@ -1,5 +1,5 @@
 [Unit]
-Description=Android container: stand-ins for the services its vendor HALs wait for (IStats, IPower, ISensorManager, and system_server's for cameraserver)
+Description=Android container: stand-ins for the services its vendor HALs wait for (IStats, IPower, Pixel's audio extension, and system_server's)
 # the container's binder devices are new each time it starts
 BindsTo=mobarchy-android.service
 After=mobarchy-android.service

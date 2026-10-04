@@ -1,0 +1,21 @@
+[Unit]
+Description=The sensors on the Linux side, as iio-sensor-proxy offers them (net.hadess.SensorProxy), from the Android container's
+Documentation=file:///usr/share/doc/mobarchy/decisions/0020-sensors-and-rotation.md
+After=mobarchy-android.service
+Conflicts=iio-sensor-proxy.service
+
+[Service]
+Type=dbus
+BusName=net.hadess.SensorProxy
+ExecStart=/usr/lib/mobarchy/mobarchy-sensor-proxy
+Restart=on-failure
+RestartSec=5
+User=mobarchy-sensors
+ProtectSystem=strict
+ProtectHome=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

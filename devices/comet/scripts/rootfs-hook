@@ -57,3 +57,5 @@ systemctl enable mobarchy-android.service ofono.service >/dev/null
 # The cameras on the Linux side (ADR 0018), through the container's camera HAL: the user
 # session's PipeWire sources.
 systemctl --global enable mobarchy-camera-source.service >/dev/null
+# The sensors on the Linux side (ADR 0020): net.hadess.SensorProxy, from the container's.
+systemctl enable mobarchy-sensor-proxy.service >/dev/null

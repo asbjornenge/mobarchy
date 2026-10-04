@@ -1,18 +1,31 @@
-# Android's sensor service for the HALs in Mobarchy's Android container: the ISensorManager
-# host (built with the NDK beforehand: make ndk); sensorservice itself is Android's.
+# The sensors of Mobarchy's Android container: ISensorManager for its HALs, the sensor bridge
+# (both built with the NDK beforehand: make ndk) and its Linux side, mobarchy-sensor-proxy
+# (net.hadess.SensorProxy; ADR 0020).
 #   tools/repo-build --repo <dir> os/android-sensors
 pkgname=mobarchy-android-sensors
-pkgver=0.1
+pkgver=0.2
 pkgrel=1
-pkgdesc="ISensorManager for the vendor HALs in Mobarchy's Android container, in front of Android's sensorservice"
+pkgdesc="The sensors of Mobarchy's Android container: for its HALs, and for Linux as iio-sensor-proxy offers them"
 arch=(aarch64)
+depends=(glib2 dbus)
+makedepends=(pkgconf)
+provides=(iio-sensor-proxy)
+conflicts=(iio-sensor-proxy)
 options=(!debug !strip)
 
 prepare() {
-    [ -x "$startdir/mobarchy-sensormanager" ] || {
-        echo "no mobarchy-sensormanager: build it with the NDK first (make ndk)" >&2; return 1; }
+    for f in mobarchy-sensormanager mobarchy-sensord; do
+        [ -x "$startdir/$f" ] || { echo "no $f: build it with the NDK first (make ndk)" >&2; return 1; }
+    done
+    rm -rf "$srcdir/sensors" && mkdir -p "$srcdir/sensors"
+    cp -r "$startdir"/{Makefile,protocol.h,proxy,mobarchy-sensormanager,mobarchy-sensord} "$srcdir/sensors"
+    make -C "$srcdir/sensors/proxy" clean
+}
+
+build() {
+    make -C "$srcdir/sensors" proxy
 }
 
 package() {
-    make -C "$startdir" DESTDIR="$pkgdir" install
+    make -C "$srcdir/sensors" DESTDIR="$pkgdir" install
 }

@@ -23,11 +23,18 @@ Rectangle {
     property string error: ""
     property bool viewing: false        // the photos, instead of the viewfinder
 
+    DeviceOrientation {
+        id: orientation
+        active: camera.active
+    }
+
     CameraSource {
         id: camera
         videoSink: viewfinder.videoSink
         // frames only while the viewfinder shows
         active: win.active && win.visible && !win.viewing
+        // photos stand as the device is held, whether the screen turns or not
+        deviceRotation: orientation.degrees
         onFailed: (message) => { win.error = message; errorTimer.restart() }
         onPhotoTaken: (path) => { win.error = ""; win.taken = [path].concat(win.taken) }
     }
