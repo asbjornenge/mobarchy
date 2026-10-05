@@ -252,11 +252,13 @@ audio_start(void)
 
     g_free(app.audio_path);
     app.audio_path = g_build_filename(g_get_user_runtime_dir(), "mobarchy-camera-audio.mka", NULL);
-    /* The built-in microphones come in quiet (raw: Android's camcorder path has the AoC's
-     * processing): +18 dB, with the loudest parts compressed (5:1 above -6 dBFS) rather than
-     * clipped, so speech is clear and singing to a guitar isn't distorted. */
+    /* Speech from the microphone is about -30 dBFS: +10 dB, with the loudest parts
+     * compressed (5:1 above -6 dBFS) rather than clipped, so speech is clear and singing
+     * to a guitar isn't distorted. Below 60 Hz goes: handling noise and fingers on the
+     * microphone ports, not voices or a guitar (its low E is 82 Hz). */
     pipeline = g_strdup_printf("pipewiresrc ! audioconvert ! audio/x-raw,format=F32LE "
-                               "! volume volume=7.94 "
+                               "! audiocheblimit mode=high-pass cutoff=60 poles=4 "
+                               "! volume volume=3.16 "
                                "! audiodynamic characteristics=soft-knee mode=compressor "
                                "threshold=0.5 ratio=0.2 "
                                "! audioconvert ! audioresample ! opusenc bitrate=160000 "

@@ -178,6 +178,12 @@ def main() -> None:
     # Speakers on EP2 (primary playback); built-in microphones on EP1 (primary capture).
     apply_paths(ET.parse(MIXER_PATHS), ["speaker", "adapted-speaker", "primary-playback -> speaker",
                                         "microphones", "microphones -> primary-capture-0"])
+    # The microphones' gain in the AoC's PDM front end (+24 dB, its most), not the 22 dB
+    # soft gain after it that the vendor's "microphones" path sets: speech at about
+    # -30 dBFS, so every app gets a usable level without boosting it again (and the noise
+    # with it).
+    cset("MIC HW Gain At High Power Mode (cB)", "240")
+    cset("MIC Record Soft Gain (dB)", "0")
 
     # speaker.cal: per amp six little-endian u32, the first four R, status, checksum
     # (R + status) and ambient temperature.
