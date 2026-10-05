@@ -119,6 +119,8 @@ PinLock::PinLock(QObject *parent)
             m_tick.stop();
     });
     loadState();
+    // (the runtime directory goes with the session: a restart starts without)
+    m_givenSinceBoot = QFile::exists(runtimeDir() + QStringLiteral("/pin-given"));
     QDBusReply<QDBusObjectPath> user = QDBusConnection::systemBus().call(
         QDBusMessage::createMethodCall(Accounts, QStringLiteral("/org/freedesktop/Accounts"), Accounts,
                                        QStringLiteral("FindUserById"))
@@ -205,8 +207,26 @@ void PinLock::verify(const QString &pin)
     }
     check(pin, [this](bool ok) {
         counted(ok);
+        if (ok)
+            setGiven();
         emit verified(ok);
     });
+}
+
+QString PinLock::runtimeDir()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation) + QStringLiteral("/mobarchy");
+}
+
+void PinLock::setGiven()
+{
+    if (m_givenSinceBoot)
+        return;
+    QDir().mkpath(runtimeDir());
+    QFile f(runtimeDir() + QStringLiteral("/pin-given"));
+    f.open(QIODevice::WriteOnly);
+    m_givenSinceBoot = true;
+    emit givenSinceBootChanged();
 }
 
 void PinLock::change(const QString &oldPin, const QString &newPin)
@@ -225,6 +245,7 @@ void PinLock::change(const QString &oldPin, const QString &newPin)
             return;
         }
         refresh();
+        setGiven();
         emit changed(true, {});
     };
     if (!m_hasPin) {
@@ -339,7 +360,7 @@ bool PinLock::rekey(const QString &oldPin, const QString &newPin, QString *error
 
 void PinLock::setLocked(bool locked)
 {
-    const QString dir = QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation) + QStringLiteral("/mobarchy");
+    const QString dir = runtimeDir();
     const QString marker = dir + QStringLiteral("/locked");
     if (locked && m_hasPin) {
         QDir().mkpath(dir);

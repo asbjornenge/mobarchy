@@ -19,6 +19,9 @@ class PinLock : public QObject
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     // Seconds until the next attempt is allowed (0: now).
     Q_PROPERTY(int wait READ wait NOTIFY waitChanged)
+    // The PIN has been given since the phone started (the keyring is open): until then, only
+    // the PIN unlocks (not a finger), as on Android.
+    Q_PROPERTY(bool givenSinceBoot READ givenSinceBoot NOTIFY givenSinceBootChanged)
 
 public:
     explicit PinLock(QObject *parent = nullptr);
@@ -26,6 +29,7 @@ public:
     bool hasPin() const { return m_hasPin; }
     bool busy() const { return m_busy; }
     int wait() const;
+    bool givenSinceBoot() const { return m_givenSinceBoot; }
 
     Q_INVOKABLE void verify(const QString &pin);
     // Set or change the PIN (oldPin: the current one, empty if there is none).
@@ -43,6 +47,7 @@ signals:
     void hasPinChanged();
     void busyChanged();
     void waitChanged();
+    void givenSinceBootChanged();
     void verified(bool ok);
     void changed(bool ok, const QString &error);
 
@@ -54,11 +59,14 @@ private:
     bool setPassword(const QString &newPin, QString *error);
     bool rekey(const QString &oldPin, const QString &newPin, QString *error);
     void loadState();
+    void setGiven();
+    static QString runtimeDir();
     void saveState();
 
     QString m_userPath;  // AccountsService's object for the owner
     bool m_hasPin = false;
     bool m_busy = false;
+    bool m_givenSinceBoot = false;
     int m_failures = 0;
     QDateTime m_waitUntil;
     QTimer m_tick;

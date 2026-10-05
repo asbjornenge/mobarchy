@@ -61,8 +61,10 @@ LayerWindow {
             unlocked()
         }
     }
-    // With a PIN, an enrolled finger on the sensor unlocks too, as long as the lock screen is up.
-    readonly property bool fingerReady: shown && pinLock.hasPin && fingerprint.fingers.length > 0
+    // With a PIN, an enrolled finger on the sensor unlocks too, as long as the lock screen is up;
+    // after a restart only once the PIN has been given (it opens the keyring).
+    readonly property bool fingerReady: shown && pinLock.hasPin && pinLock.givenSinceBoot
+                                        && fingerprint.fingers.length > 0
     onFingerReadyChanged: fingerReady ? fingerprint.verify() : fingerprint.stop()
     Connections {
         target: lock.fingerprint
