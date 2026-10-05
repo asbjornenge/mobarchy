@@ -4,7 +4,8 @@
 #
 #   tools/repo-build --repo <dir> [--builder container|device] [--add <pkg file>]... [what...]
 #
-#   what       os/shell, agent, os/store, os/android-services, os/android-sensors, os/camera,
+#   what       os/shell, agent, os/store, os/android-services, os/android-sensors,
+#              os/android-fingerprint, os/camera,
 #              or a name in os/packages (default: all of them)
 #   --builder  container: the Arch Linux ARM container under qemu-user (tools/pkg-build);
 #              slow for big C/C++ builds.
@@ -31,7 +32,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 [ -n "$repo" ] || { echo "usage: $0 --repo <dir> [--builder container|device] [--add <pkg>]... [what...]" >&2; exit 2; }
-[ ${#what[@]} -gt 0 ] || what=(os/shell agent os/store os/android-services os/android-sensors os/camera
+[ ${#what[@]} -gt 0 ] || what=(os/shell agent os/store os/android-services os/android-sensors os/android-fingerprint os/camera
                                $(cd "$repo_root/os/packages" && ls))
 mkdir -p "$repo"
 

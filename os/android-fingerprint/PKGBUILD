@@ -1,0 +1,31 @@
+# The fingerprint sensor of Mobarchy's Android container (ADR 0021): KeyMint's HMAC key
+# negotiation and the fingerprint bridge (both built with the NDK beforehand: make ndk), and
+# their Linux side, mobarchy-fingerprint (net.reactivated.Fprint, as fprintd offers it).
+#   tools/repo-build --repo <dir> os/android-fingerprint
+pkgname=mobarchy-android-fingerprint
+pkgver=0.1
+pkgrel=1
+pkgdesc="The fingerprint sensor of Mobarchy's Android container, for Linux as fprintd offers it"
+arch=(aarch64)
+depends=(glib2 dbus polkit)
+makedepends=(pkgconf)
+provides=(fprintd)
+conflicts=(fprintd)
+options=(!debug !strip)
+
+prepare() {
+    for f in mobarchy-sharedsecret mobarchy-fingerprintd; do
+        [ -x "$startdir/$f" ] || { echo "no $f: build it with the NDK first (make ndk)" >&2; return 1; }
+    done
+    rm -rf "$srcdir/fingerprint" && mkdir -p "$srcdir/fingerprint"
+    cp -r "$startdir"/{Makefile,protocol.h,fprint,mobarchy-sharedsecret,mobarchy-fingerprintd} "$srcdir/fingerprint"
+    make -C "$srcdir/fingerprint/fprint" clean
+}
+
+build() {
+    make -C "$srcdir/fingerprint/fprint"
+}
+
+package() {
+    make -C "$srcdir/fingerprint" DESTDIR="$pkgdir" install
+}

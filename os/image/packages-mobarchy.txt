@@ -22,5 +22,7 @@ mobarchy-android-services
 # them (EGL/GLES, OpenCL: the camera HAL; os/android-mesa)
 mobarchy-android-sensors
 mobarchy-android-mesa
+# The fingerprint sensor (ADR 0021): the bridge, and fprintd's interface on the Linux side
+mobarchy-android-fingerprint
 # The cameras on the Linux side (ADR 0018): the bridge, PipeWire sources, photos (os/camera)
 mobarchy-camera

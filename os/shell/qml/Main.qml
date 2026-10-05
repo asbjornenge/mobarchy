@@ -25,6 +25,7 @@ QtObject {
     readonly property MediaPlayers media: MediaPlayers {}
     readonly property Torch torch: Torch {}
     readonly property Haptics haptics: Haptics {}
+    readonly property Fingerprint fingerprint: Fingerprint {}
     readonly property Rotation rotation: Rotation {
         device: shell.device
         screen: shell.screen
@@ -128,6 +129,7 @@ QtObject {
         pinLock: shell.pinLock
         torch: shell.torch
         haptics: shell.haptics
+        fingerprint: shell.fingerprint
         insetLeft: shell.leftInset.inset
         insetRight: shell.rightInset.inset
         insetBottom: shell.edge.inset
@@ -137,6 +139,8 @@ QtObject {
             shell.keyboard.visible = false
         }
         onTouched: shell.lockTimeout.restart()
+        // a finger unlocks a dark screen too: it comes on
+        onFingerUnlocked: shell.screen.on = true
     }
 
     readonly property StatusBar statusBar: StatusBar {
@@ -173,6 +177,7 @@ QtObject {
         rotation: shell.rotation
         torch: shell.torch
         haptics: shell.haptics
+        fingerprint: shell.fingerprint
         onPassphraseNeeded: (ssid) => {
             shell.quick.close()
             shell.wifiPassword.ask(ssid)

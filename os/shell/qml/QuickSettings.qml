@@ -24,6 +24,7 @@ Sheet {
     required property Torch torch
     required property Rotation rotation
     required property Haptics haptics
+    required property Fingerprint fingerprint
 
     // A secured network without a saved passphrase was picked.
     signal passphraseNeeded(string ssid)
@@ -36,7 +37,7 @@ Sheet {
     LayerShell.Window.exclusionZone: 0
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
-    property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth, 3: screen lock (PIN)
+    property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth, 3: screen lock (PIN, fingers)
     property string wifiError: ""
     property string bluetoothError: ""
 
@@ -90,6 +91,8 @@ Sheet {
         page = 3
     }
     function startPin(action) {
+        if (action === "finger")
+            fingerResult = ""
         pinAction = action
         pinOld = ""
         pinNew = ""
@@ -104,7 +107,9 @@ Sheet {
         lockPad.message = ""
         if (pinStep === "old") {
             pinOld = pin
-            if (pinAction === "remove")
+            if (pinAction === "finger")
+                pinLock.verify(pin)
+            else if (pinAction === "remove")
                 pinLock.remove(pin)
             else
                 pinStep = "new"
@@ -127,8 +132,44 @@ Sheet {
             pinLock.change(pinOld, pinNew)
         }
     }
+    // Adding a finger: the PIN first, then touch after touch on the sensor.
+    property string fingerResult: ""
+    // The next finger to enrol: thumbs first (the sensor is in the power key).
+    function nextFinger() {
+        const order = ["right-thumb", "left-thumb", "right-index-finger", "left-index-finger",
+                       "right-middle-finger", "left-middle-finger", "right-ring-finger",
+                       "left-ring-finger", "right-little-finger", "left-little-finger"]
+        for (const f of order)
+            if (fingerprint.fingers.indexOf(f) < 0)
+                return f
+        return ""
+    }
+    Connections {
+        target: quick.fingerprint
+        function onEnrolled(ok, error) {
+            quick.fingerResult = ok ? qsTr("Added. Your finger unlocks the phone now.") : error
+            if (ok)
+                quick.haptics.click()
+        }
+    }
+    onShownChanged: if (!shown && fingerprint.enrolling) fingerprint.stop()
     Connections {
         target: quick.pinLock
+        function onVerified(ok) {
+            if (quick.pinAction !== "finger")
+                return
+            if (!ok) {
+                lockPad.clear()
+                lockPad.shake()
+                lockPad.messageIsError = true
+                lockPad.message = quick.pinLock.wait > 0 ? qsTr("Too many tries: wait %1 s").arg(quick.pinLock.wait)
+                                                         : qsTr("Wrong PIN")
+                return
+            }
+            quick.pinStep = ""
+            quick.pinAction = ""
+            quick.fingerprint.enroll(quick.nextFinger())
+        }
         function onChanged(ok, error) {
             if (ok) {
                 quick.pinAction = ""
@@ -1044,7 +1085,11 @@ Sheet {
                         width: lockBackRow.implicitWidth + 16
                         height: 40
                         onClicked: {
-                            if (quick.pinStep !== "") {
+                            if (quick.fingerprint.enrolling) {
+                                quick.fingerprint.stop()
+                            } else if (quick.fingerResult !== "") {
+                                quick.fingerResult = ""
+                            } else if (quick.pinStep !== "") {
                                 quick.pinStep = ""
                                 quick.pinAction = ""
                             } else {
@@ -1064,7 +1109,7 @@ Sheet {
 
                     Text {
                         width: parent.width
-                        visible: quick.pinStep === ""
+                        visible: quick.pinStep === "" && !quick.fingerprint.enrolling && quick.fingerResult === ""
                         text: quick.pinLock.hasPin
                               ? qsTr("The phone asks for your PIN after the swipe. It also protects your saved logins (the keyring).")
                               : qsTr("Without a PIN, a swipe unlocks the phone. A PIN also protects your saved logins (the keyring).")
@@ -1073,7 +1118,7 @@ Sheet {
                         font { family: Theme.font; pixelSize: 13 }
                     }
                     Row {
-                        visible: quick.pinStep === ""
+                        visible: quick.pinStep === "" && !quick.fingerprint.enrolling && quick.fingerResult === ""
                         spacing: 10
                         RoundButton {
                             visible: !quick.pinLock.hasPin
@@ -1095,11 +1140,133 @@ Sheet {
                             onClicked: quick.startPin("remove")
                         }
                     }
+                    // --- fingers ---
+                    Column {
+                        width: parent.width
+                        spacing: 10
+                        visible: quick.fingerprint.available && quick.pinStep === ""
+                                 && !quick.fingerprint.enrolling && quick.fingerResult === ""
+                        Text {
+                            text: qsTr("Fingerprints"); color: Theme.fg
+                            font { family: Theme.font; pixelSize: 15; bold: true }
+                        }
+                        Text {
+                            width: parent.width
+                            text: quick.pinLock.hasPin
+                                  ? qsTr("A finger on the power key unlocks the phone. After a restart, it takes the PIN.")
+                                  : qsTr("Set a PIN first: a finger is a quicker way to give it.")
+                            wrapMode: Text.Wrap
+                            color: Theme.muted
+                            font { family: Theme.font; pixelSize: 13 }
+                        }
+                        Repeater {
+                            model: quick.fingerprint.fingers
+                            delegate: Rectangle {
+                                id: fingerRow
+                                required property string modelData
+                                width: parent.width; height: 48; radius: 12
+                                color: Theme.panel
+                                Text {
+                                    anchors { left: parent.left; leftMargin: 14; verticalCenter: parent.verticalCenter }
+                                    text: "󰈷   " + quick.fingerprint.label(fingerRow.modelData)
+                                    color: Theme.fg
+                                    font { family: Theme.font; pixelSize: 14 }
+                                }
+                                Text {
+                                    anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
+                                    text: "󰆴"; color: Theme.red
+                                    font { family: Theme.font; pixelSize: 18 }
+                                    MouseArea {
+                                        anchors { fill: parent; margins: -12 }
+                                        onClicked: quick.confirmOr("remove-" + fingerRow.modelData,
+                                                                   () => quick.fingerprint.remove(fingerRow.modelData))
+                                    }
+                                }
+                                Text {
+                                    visible: quick.confirming === "remove-" + fingerRow.modelData
+                                    anchors { right: parent.right; rightMargin: 48; verticalCenter: parent.verticalCenter }
+                                    text: qsTr("Tap again to remove"); color: Theme.red
+                                    font { family: Theme.font; pixelSize: 12 }
+                                }
+                            }
+                        }
+                        RoundButton {
+                            visible: quick.pinLock.hasPin && quick.nextFinger() !== ""
+                            icon: "󰈷"
+                            label: qsTr("Add a fingerprint")
+                            onClicked: quick.startPin("finger")
+                        }
+                    }
+
+                    // Enrolling: a ring that fills, touch by touch.
+                    Column {
+                        width: parent.width
+                        spacing: 16
+                        visible: quick.fingerprint.enrolling || quick.fingerResult !== ""
+                        Item {
+                            width: parent.width; height: 180
+                            Canvas {
+                                id: ring
+                                anchors.centerIn: parent
+                                width: 160; height: 160
+                                property real progress: quick.fingerprint.enrolling ? quick.fingerprint.progress
+                                                      : quick.fingerResult.startsWith(qsTr("Added")) ? 1 : 0
+                                Behavior on progress { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
+                                onProgressChanged: requestPaint()
+                                onPaint: {
+                                    const ctx = getContext("2d")
+                                    ctx.reset()
+                                    ctx.lineWidth = 8
+                                    ctx.lineCap = "round"
+                                    ctx.strokeStyle = Theme.line
+                                    ctx.beginPath()
+                                    ctx.arc(80, 80, 72, 0, 2 * Math.PI)
+                                    ctx.stroke()
+                                    if (progress > 0) {
+                                        ctx.strokeStyle = progress >= 1 ? Theme.green : Theme.accent
+                                        ctx.beginPath()
+                                        ctx.arc(80, 80, 72, -Math.PI / 2, -Math.PI / 2 + progress * 2 * Math.PI)
+                                        ctx.stroke()
+                                    }
+                                }
+                            }
+                            Text {
+                                anchors.centerIn: ring
+                                text: "󰈷"
+                                color: ring.progress >= 1 ? Theme.green : Theme.fg
+                                font { family: Theme.font; pixelSize: 72 }
+                            }
+                        }
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            wrapMode: Text.Wrap
+                            text: quick.fingerResult !== "" ? quick.fingerResult
+                                : quick.fingerprint.hint !== "" ? quick.fingerprint.hint
+                                : quick.fingerprint.progress === 0
+                                  ? qsTr("Rest your thumb on the power key, without pressing it. Lift, and again.")
+                                  : qsTr("Lift, and touch again, a little elsewhere each time (%1 %)")
+                                        .arg(Math.round(quick.fingerprint.progress * 100))
+                            color: quick.fingerprint.hint !== "" ? Theme.magenta : Theme.fg
+                            font { family: Theme.font; pixelSize: 14 }
+                        }
+                        RoundButton {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            label: quick.fingerprint.enrolling ? qsTr("Cancel") : qsTr("Done")
+                            onClicked: {
+                                if (quick.fingerprint.enrolling)
+                                    quick.fingerprint.stop()
+                                quick.fingerResult = ""
+                            }
+                        }
+                    }
+
                     PinPad {
                         id: lockPad
                         visible: quick.pinStep !== ""
                         width: parent.width
-                        title: quick.pinStep === "old" ? qsTr("Current PIN")
+                        title: quick.pinAction === "finger" ? qsTr("Your PIN, to add a finger")
+                             : quick.pinStep === "old" ? qsTr("Current PIN")
                              : quick.pinStep === "new" ? qsTr("New PIN") : qsTr("New PIN again")
                         enabled_: !quick.pinLock.busy && quick.pinLock.wait === 0
                         onEntered: (pin) => quick.pinEntered(pin)

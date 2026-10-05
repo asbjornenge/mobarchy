@@ -244,3 +244,108 @@ service vendor.sensors-hal-multihal /vendor/bin/hw/android.hardware.sensors-serv
     rlimit rtprio 10 10
     stdio_to_kmsg
     seclabel u:r:hal_sensors_default:s0
+
+# Trusty's secure storage: its storage proxy relays the TEE's writes to the RPMB and to the
+# trusty_userdata and trusty_persist partitions (the container's only writable ones). As
+# the vendor's init.zumapro.board.rc and init.persist.rc, with the container's paths and a
+# seclabel. The proxy sets ro.vendor.trusty.storage.fs_ready once it serves.
+service storageproxyd /vendor/bin/storageproxyd -d /dev/trusty-ipc-dev0 -r /dev/sg1 \
+        -p /data/vendor/ss -t ufs \
+        -f 0:/dev/block/by-name/trusty_userdata \
+        -f persist/0:/dev/block/by-name/trusty_persist \
+        -m /dev/block/by-name/trusty_userdata
+    user system
+    group system
+    stdio_to_kmsg
+    seclabel u:r:tee:s0
+
+on post-fs-data
+    mkdir /data/vendor/ss 0770 root system
+    mkdir /mnt/vendor/persist/ss 0770 root system
+    symlink /mnt/vendor/persist/ss /data/vendor/ss/persist
+    symlink /dev/block/by-name/trusty_persist /data/vendor/ss/persist/0
+
+# (not in safe mode: when the previous boot crashed soon after the container started, as a
+# TEE panic would; android-container's boot guard)
+on mobarchy-start && property:ro.mobarchy.safe_mode=0
+    start storageproxyd
+
+# The fingerprint sensor (FPC, in the power button). The matcher is a Trusty app, which
+# is loaded once the secure storage is up; then the HAL. As the vendor's
+# fingerprint-fpc42_fw49.rc, with seclabels.
+service fps_hal /vendor/bin/hw/android.hardware.biometrics.fingerprint-service.fpc42_fw49
+    user system
+    group system input uhid
+    disabled
+    stdio_to_kmsg
+    seclabel u:r:hal_fingerprint_capacitance:s0
+
+service vendor.fpc_apploader /vendor/bin/trusty_apploader /vendor/firmware/1540a.app
+    user system
+    group shell
+    oneshot
+    disabled
+    stdio_to_kmsg
+    seclabel u:r:trusty_apploader:s0
+
+on property:ro.vendor.trusty.storage.fs_ready=1
+    chown system system /sys/devices/platform/odm/odm:fp_fpc1020/clk_enable
+    chown system system /sys/devices/platform/odm/odm:fp_fpc1020/hw_reset
+    chown system system /sys/devices/platform/odm/odm:fp_fpc1020/irq
+    chown system system /sys/devices/platform/odm/odm:fp_fpc1020/wakeup_enable
+    start vendor.fpc_apploader
+
+# KeyMint in Trusty (the vendor's rc, with a seclabel), and the HMAC key negotiation keystore2
+# does at boot (mobarchy-sharedsecret, os/android-fingerprint): the key that signs and checks
+# hardware auth tokens, without which the fingerprint HAL can't start.
+service vendor.keymint.rust-trusty /vendor/bin/hw/android.hardware.security.keymint-service.rust.trusty \
+        --dev /dev/trusty-ipc-dev0
+    user nobody
+    group drmrpc
+    # (it may not restart: a crash needs a reboot)
+    oneshot
+    disabled
+    stdio_to_kmsg
+    seclabel u:r:hal_keymint_default:s0
+
+service mobarchy-sharedsecret /system/bin/mobarchy-sharedsecret
+    user system
+    group system
+    oneshot
+    disabled
+    seclabel u:r:system_server:s0
+
+on property:init.svc.vendor.fpc_apploader=stopped && property:ro.vendor.trusty.storage.fs_ready=1
+    start vendor.keymint.rust-trusty
+    start mobarchy-sharedsecret
+
+# Gatekeeper in Trusty (the vendor's rc, with a seclabel): the auth token enrolling a finger
+# needs. And the fingerprint bridge (ADR 0021; os/android-fingerprint), root's: Android's
+# system user is the owner's uid on the host.
+service vendor.gatekeeper_default /vendor/bin/hw/android.hardware.gatekeeper-service.trusty \
+        --dev /dev/trusty-ipc-dev0
+    user system
+    group system
+    disabled
+    stdio_to_kmsg
+    seclabel u:r:hal_gatekeeper_default:s0
+
+service mobarchy-fingerprintd /system/bin/mobarchy-fingerprintd
+    user root
+    group root
+    disabled
+    seclabel u:r:system_server:s0
+
+on property:init.svc.mobarchy-sharedsecret=stopped && property:init.svc.vendor.fpc_apploader=stopped
+    start fps_hal
+    start vendor.gatekeeper_default
+
+on property:init.svc.fps_hal=running
+    start mobarchy-fingerprintd
+
+on post-fs-data
+    mkdir /data/mobarchy/fingerprintd 0700 root root
+    # the HAL's own files for the owner's enrolments (Android's vold makes these at unlock)
+    mkdir /data/vendor_de 0771 root root
+    mkdir /data/vendor_de/0 0770 system system
+    mkdir /data/vendor_de/0/fpdata 0770 system system

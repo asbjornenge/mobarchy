@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- fprintd's actions (mobarchy-fingerprint offers its interface; ADR 0021) -->
+<policyconfig>
+  <vendor>Mobarchy</vendor>
+
+  <action id="net.reactivated.fprint.device.verify">
+    <description>Verify a fingerprint</description>
+    <message>Privileges are required to verify fingerprints.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <!-- the owner's PIN (the account password) before a finger is added or removed -->
+  <action id="net.reactivated.fprint.device.enroll">
+    <description>Enroll new fingerprints</description>
+    <message>Privileges are required to enroll new fingerprints.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self_keep</allow_active>
+    </defaults>
+  </action>
+
+  <action id="net.reactivated.fprint.device.setusername">
+    <description>Select a user to enroll</description>
+    <message>Privileges are required to verify or enroll fingerprints of another user.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

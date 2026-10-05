@@ -57,6 +57,8 @@ masked_sysfs = ["/sys/devices/platform/cpif/do_cp_crash"]
 [android.properties]
 # GLES from Mesa (os/android-mesa), not Mali's driver, which needs Mali's kernel driver (ADR 0017)
 "ro.hardware.egl" = "mesa"
+# the fingerprint sensor's HAL module (fingerprint.fpc.so), as the vendor's init.comet.rc sets it
+"ro.hardware.fingerprint" = "fpc"
 
 # /var/lib/mobarchy/android/vendor/<name> -> /mnt/vendor/<name>. These hold the modem's
 # NV data (efs, efs_backup) and calibration (persist): for now copies, never the real
@@ -100,3 +102,16 @@ modem_img = "modem"
 # the AOC itself: the sensor HAL maps direct channels' buffers (the gyro the camera HAL
 # reads at its own rate) into it
 "/dev/aoc" = ["0660", "system", "system"]
+# Trusty, the TEE: the fingerprint sensor's matcher is a Trusty app
+"/dev/trusty-ipc-dev0" = ["0660", "system", "drmrpc"]
+# the UFS RPMB well-known LU (0:0:0:49476), Trusty's replay-protected storage, through
+# its storage proxy (as the vendor's init.zumapro.board.rc has it)
+"/dev/sg1" = ["0660", "system", "system"]
+# the power key (gpio_keys): the fingerprint HAL tells a press from a touch on it
+"/dev/input/event0" = ["0660", "root", "input"]
+
+# Trusty's secure storage (its storage proxy): the only partitions the container may write,
+# as stock Android does on every boot. Backed up before first use (2026-10-05).
+[android.writable_partitions]
+trusty_userdata = ["0660", "system", "system"]
+trusty_persist = ["0660", "system", "system"]

@@ -14,12 +14,14 @@ LayerWindow {
     required property PinLock pinLock
     required property Torch torch
     required property Haptics haptics
+    required property Fingerprint fingerprint
     // The screen's insets (the panel under the bezel: Device.inset): the lock screen covers
     // the whole screen, its corner buttons keep clear of them.
     property int insetLeft: 0
     property int insetRight: 0
     property int insetBottom: 0
     signal unlocked()
+    signal fingerUnlocked()     // (then unlocked())
     signal touched()  // any interaction: keeps the screen on a little longer
 
     shown: false
@@ -59,9 +61,37 @@ LayerWindow {
             unlocked()
         }
     }
+    // With a PIN, an enrolled finger on the sensor unlocks too, as long as the lock screen is up.
+    readonly property bool fingerReady: shown && pinLock.hasPin && fingerprint.fingers.length > 0
+    onFingerReadyChanged: fingerReady ? fingerprint.verify() : fingerprint.stop()
+    Connections {
+        target: lock.fingerprint
+        function onMatched() {
+            if (!lock.fingerReady)
+                return
+            lock.haptics.click()
+            lock.fingerUnlocked()
+            lock.unlocked()
+        }
+        function onNoMatch() {
+            if (lock.askingPin) {
+                pad.messageIsError = true
+                pad.message = qsTr("Not recognised: try again, or the PIN")
+            }
+            lock.haptics.click()
+        }
+        // (a verify ends when another one, e.g. enrolling in settings, takes the sensor)
+        function onVerifyingChanged() {
+            if (lock.fingerReady && !lock.fingerprint.verifying && !lock.fingerprint.enrolling)
+                retryVerify.restart()
+        }
+    }
+    Timer { id: retryVerify; interval: 2000; onTriggered: if (lock.fingerReady && !lock.fingerprint.verifying) lock.fingerprint.verify() }
     Connections {
         target: lock.pinLock
         function onVerified(ok) {
+            if (!lock.askingPin)
+                return          // (the PIN asked elsewhere: settings)
             if (ok) {
                 lock.unlocked()
                 return

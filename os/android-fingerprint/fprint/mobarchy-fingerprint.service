@@ -1,0 +1,24 @@
+[Unit]
+Description=The fingerprint sensor on the Linux side, as fprintd offers it (net.reactivated.Fprint), from the Android container's
+Documentation=file:///usr/share/doc/mobarchy/decisions/0021-fingerprint.md
+After=mobarchy-android.service
+Conflicts=fprintd.service
+
+[Service]
+Type=dbus
+BusName=net.reactivated.Fprint
+ExecStart=/usr/lib/mobarchy/mobarchy-fingerprint
+Restart=on-failure
+RestartSec=5
+# root's: the bridge's socket is root's only (Android's system user is the owner's uid)
+StateDirectory=mobarchy/fingerprint
+StateDirectoryMode=0700
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mobarchy/android/data/mobarchy/fingerprintd
+ProtectHome=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

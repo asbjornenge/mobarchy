@@ -59,3 +59,6 @@ systemctl enable mobarchy-android.service ofono.service >/dev/null
 systemctl --global enable mobarchy-camera-source.service >/dev/null
 # The sensors on the Linux side (ADR 0020): net.hadess.SensorProxy, from the container's.
 systemctl enable mobarchy-sensor-proxy.service >/dev/null
+# The fingerprint sensor on the Linux side (ADR 0021): net.reactivated.Fprint, from the
+# container's.
+systemctl enable mobarchy-fingerprint.service >/dev/null

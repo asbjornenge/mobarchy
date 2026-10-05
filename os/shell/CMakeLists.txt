@@ -38,6 +38,7 @@ qt_add_qml_module(mobarchy-shell
         src/haptics.cpp src/haptics.h
         src/orientation.cpp src/orientation.h
         src/torch.cpp src/torch.h
+        src/fingerprint.cpp src/fingerprint.h
         src/iconprovider.h
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h
