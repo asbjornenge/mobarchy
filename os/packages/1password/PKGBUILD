@@ -1,0 +1,55 @@
+# The AUR's 1password PKGBUILD (maintainer: 1Password <support@1password.com>), for aarch64:
+# 1Password ships an official ARM64 build. Proprietary: the package is built from their
+# signed tarball. Build: tools/repo-build 1password
+
+pkgname=1password
+_tarver=8.12.40
+_tar="1password-${_tarver}.arm64.tar.gz"
+pkgver=${_tarver//-/_}
+pkgrel=1
+conflicts=('1password-beta' '1password-beta-bin')
+pkgdesc="Password manager and secure wallet"
+arch=('aarch64')
+url='https://1password.com'
+license=('LicenseRef-1Password-Proprietary')
+options=(!strip !debug)
+install="1password.install"
+source=(https://downloads.1password.com/linux/tar/stable/aarch64/${_tar}{,.sig})
+sha256sums=('7476c0fc8215338cd9f304b14822688010fd8ed54d5ea4367c0bbbf72845be1e'
+            '80412176560a3f76180f7c05ae7ebafe21fac764349cfeed71fe498ee25564ee')
+validpgpkeys=('3FEF9748469ADBE15DA7CA80AC2D62742012EA22')
+
+package() {
+    depends=('hicolor-icon-theme' 'libgtk-3.so=0' 'nss' 'xdg-utils')
+
+    cd "1password-${_tarver}.arm64"
+
+    resolutions=(32x32 64x64 256x256 512x512)
+    for resolution in "${resolutions[@]}"
+    do
+        install -Dm0644 "resources/icons/hicolor/${resolution}/apps/1password.png" \
+            "${pkgdir}/usr/share/icons/hicolor/${resolution}/apps/1password.png"
+    done
+    install -Dm0644 resources/com.onepassword.OnePassword.desktop -t "${pkgdir}"/usr/share/applications/
+
+    # The system unlock polkit policy, for the human users (uid 1000-9999) of the system
+    # the package is built on: on Mobarchy, the owner "mob".
+    export POLICY_OWNERS="unix-user:mob"
+    eval "cat <<EOF
+$(cat ./com.1password.1Password.policy.tpl)
+EOF" > ./com.1password.1Password.policy
+    install -Dm0644 com.1password.1Password.policy -t "${pkgdir}"/usr/share/polkit-1/actions/
+    install -Dm0644 resources/custom_allowed_browsers -t "${pkgdir}"/usr/share/doc/1password/examples/
+
+    cd "${srcdir}"
+    install -dm0755 "${pkgdir}"/opt
+    mv "1password-${_tarver}.arm64" "${pkgdir}/opt/1Password"
+    rm "${pkgdir}"/opt/1Password/com.1password.1Password.policy "${pkgdir}"/opt/1Password/com.1password.1Password.policy.tpl "${pkgdir}"/opt/1Password/install_biometrics_policy.sh
+    rm -r "${pkgdir}"/opt/1Password/resources/icons/
+    rm "${pkgdir}"/opt/1Password/resources/com.onepassword.OnePassword.desktop "${pkgdir}"/opt/1Password/resources/custom_allowed_browsers
+
+    install -dm0755 "${pkgdir}"/usr/bin
+    ln -s /opt/1Password/1password "${pkgdir}"/usr/bin/1password
+    # chrome-sandbox requires the setuid bit (electron/electron#17972)
+    chmod 4755 "${pkgdir}"/opt/1Password/chrome-sandbox
+}

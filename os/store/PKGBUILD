@@ -2,7 +2,7 @@
 # updates with the system. Build: tools/repo-build os/store
 pkgname=mobarchy-store-catalog
 pkgver=1
-pkgrel=1
+pkgrel=2
 pkgdesc='Apps known to work on Mobarchy: the catalog behind its store'
 arch=(any)
 depends=(packagekit archlinux-appstream-data libjxl)

@@ -53,6 +53,10 @@ docker run --rm --platform linux/arm64 --memory 20g --cpus 8 -e MAKEFLAGS=-j6 -e
     [ -z "$deps" ] || pacman -S --noconfirm --needed --disable-sandbox $deps >/dev/null
     useradd -m builder
     cp -r /pkg /tmp/build && chown -R builder /tmp/build
+    # signing keys a PKGBUILD verifies its sources with (keys/pgp/<fingerprint>.asc, as in the AUR)
+    if ls /tmp/build/keys/pgp/*.asc >/dev/null 2>&1; then
+        su builder -c "gpg --batch --import /tmp/build/keys/pgp/*.asc" >/dev/null 2>&1
+    fi
     su builder -c "cd /tmp/build && PKGDEST=/tmp/build/out BUILDDIR=/tmp/makepkg PKGEXT=.pkg.tar.zst makepkg --noconfirm" \
         > /tmp/makepkg.log 2>&1 || { cp /tmp/makepkg.log /out/makepkg-'"$name"'.log; tail -30 /tmp/makepkg.log >&2; exit 1; }
     cp /tmp/makepkg.log /out/makepkg-'"$name"'.log && cp /tmp/build/out/*.pkg.tar.zst /out/
