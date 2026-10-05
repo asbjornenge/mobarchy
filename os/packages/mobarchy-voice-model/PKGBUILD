@@ -1,0 +1,21 @@
+# The agent's speech model in the image (agent/mobarchy-agent voice.py): NB-Whisper small
+# (the National Library of Norway's Whisper, Norwegian and English), whisper.cpp's q5_0, so
+# speech to text works after a fresh install without a download. The agent prefers it over
+# one downloaded to ~/.local/share/mobarchy/models.
+# Build: tools/repo-build mobarchy-voice-model
+
+pkgname=mobarchy-voice-model
+_rev=e9bb5cb83cb74c96239fd506163aa97cff2fce4c
+pkgver=1
+pkgrel=1
+pkgdesc="NB-Whisper small (whisper.cpp q5_0), the speech model of Mobarchy's agent"
+arch=(any)
+url="https://huggingface.co/NbAiLab/nb-whisper-small"
+license=(Apache-2.0)
+source=("nb-whisper-small-q5_0.bin::https://huggingface.co/NbAiLab/nb-whisper-small/resolve/$_rev/ggml-model-q5_0.bin")
+sha256sums=('2a9025afb6e825fc4ae6a46671e0cb2f43e62f1dec87270deea6fe61b5285a20')
+noextract=(nb-whisper-small-q5_0.bin)
+
+package() {
+    install -Dm644 nb-whisper-small-q5_0.bin -t "$pkgdir/usr/share/mobarchy/models"
+}

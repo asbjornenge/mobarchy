@@ -15,7 +15,10 @@ import wave
 from pathlib import Path
 
 MODELS = Path.home() / ".local/share/mobarchy/models"
-MODEL_FILE = MODELS / "nb-whisper-small-q5_0.bin"
+MODEL_NAME = "nb-whisper-small-q5_0.bin"
+# the image's (the mobarchy-voice-model package), else one downloaded by `setup voice`
+SYSTEM_MODEL = Path("/usr/share/mobarchy/models") / MODEL_NAME
+USER_MODEL = MODELS / MODEL_NAME
 MODEL_URL = "https://huggingface.co/NbAiLab/nb-whisper-small/resolve/main/ggml-model-q5_0.bin"
 MODEL_BYTES = 175_209_680
 THREADS = 4  # the fast cores; more threads are slower here
@@ -29,8 +32,12 @@ def whisper_bin() -> str | None:
         (str(p) for p in (Path("/opt/mobarchy/whisper/bin/whisper-cli"),) if p.exists()), None)
 
 
+def model_file() -> Path:
+    return SYSTEM_MODEL if SYSTEM_MODEL.exists() else USER_MODEL
+
+
 def ready() -> bool:
-    return whisper_bin() is not None and MODEL_FILE.exists()
+    return whisper_bin() is not None and model_file().exists()
 
 
 def audio_ctx(seconds: float) -> int:
@@ -54,15 +61,16 @@ def transcribe(path: Path, language: str = "no") -> str:
     exe = whisper_bin()
     if not exe:
         raise RuntimeError("whisper.cpp (whisper-cli) is not installed")
-    if not MODEL_FILE.exists():
-        raise RuntimeError(f"the speech model is missing: run `mobarchy-agent setup voice`")
+    model = model_file()
+    if not model.exists():
+        raise RuntimeError("the speech model is missing: run `mobarchy-agent setup voice`")
     with wave.open(str(path)) as w:
         rate = w.getframerate()
         samples = array.array("h", w.readframes(w.getnframes())) if w.getsampwidth() == 2 else None
     seconds = len(samples) / rate if samples is not None else 0
     if seconds < 0.3 or loudest(samples, rate) < SPEECH_RMS:
         return ""
-    r = subprocess.run([exe, "-m", str(MODEL_FILE), "-f", str(path), "-l", language,
+    r = subprocess.run([exe, "-m", str(model), "-f", str(path), "-l", language,
                         "-t", str(THREADS), "-ac", str(audio_ctx(seconds)), "-nt", "-np"],
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
@@ -71,12 +79,12 @@ def transcribe(path: Path, language: str = "no") -> str:
 
 
 def setup() -> None:
-    """Download the model (175 MB) if it isn't there."""
-    if MODEL_FILE.exists():
+    """Download the model (175 MB) if neither the image nor a download has it."""
+    if model_file().exists():
         return
     MODELS.mkdir(parents=True, exist_ok=True)
-    part = MODEL_FILE.with_suffix(".part")
+    part = USER_MODEL.with_suffix(".part")
     subprocess.run(["curl", "-fsSL", "-C", "-", "-o", str(part), MODEL_URL], check=True)
     if part.stat().st_size != MODEL_BYTES:
         raise RuntimeError("the download is incomplete")
-    part.rename(MODEL_FILE)
+    part.rename(USER_MODEL)

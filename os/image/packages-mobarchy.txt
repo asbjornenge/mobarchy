@@ -7,6 +7,8 @@ hyprgraphics
 # The local agent's model server and speech to text (models are downloaded on the phone)
 mobarchy-llama-cpp
 mobarchy-whisper-cpp
+# its speech model (NB-Whisper small), so speech works without a download
+mobarchy-voice-model
 # Firefox's phone UI; DRM for the browsers (ADR 0011)
 mobile-config-firefox
 widevine-installer
