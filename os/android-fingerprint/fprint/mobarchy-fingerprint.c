@@ -245,6 +245,7 @@ acquired_result(int info, gboolean enroll)
     case 2:  return enroll ? "enroll-finger-not-centered" : "verify-finger-not-centered";
     case 4:  return enroll ? "enroll-remove-and-retry" : "verify-remove-and-retry";
     case 11: return enroll ? "enroll-remove-and-retry" : NULL;     /* immobile: move it */
+    case 7:  return enroll ? "enroll-remove-and-retry" : NULL;     /* (comet: now the edges) */
     case 3: case 5: case 6: case 13:
              return enroll ? "enroll-retry-scan" : "verify-retry-scan";
     }
@@ -286,6 +287,8 @@ on_bridge_event(const struct fp_message *m)
         break;
     case FP_DONE:
         if (app.action == ENROLL) {
+            /* (a finger enrolled again: its old enrolment is no one's now, and goes at
+             * the next list: remove_orphans) */
             g_autoptr(GHashTable) h = fingers_load(app.user);
             g_hash_table_insert(h, g_strdup(app.finger), GINT_TO_POINTER(m->value));
             fingers_save(app.user, h);
@@ -491,6 +494,35 @@ valid_finger(const char *f)
 /* the bridge's list of enrolments answers the oldest waiting call (or, NULL, fails it) */
 static void answer(struct pending *p, const struct fp_message *m);
 
+/* Enrolments no user names (left by a re-enrolled finger, or a lost state directory)
+ * only take the matcher's room: removed. */
+static void
+remove_orphans(const struct fp_message *m)
+{
+    int32_t orphans[FP_MAX_IDS];
+    int n = 0;
+    g_autoptr(GDir) dir = g_dir_open(STATE_DIR, 0, NULL);
+    g_autoptr(GHashTable) named = g_hash_table_new(g_direct_hash, g_direct_equal);
+    const char *user;
+
+    while (dir && (user = g_dir_read_name(dir))) {
+        g_autoptr(GHashTable) h = fingers_load(user);
+        GHashTableIter it;
+        gpointer k, v;
+        g_hash_table_iter_init(&it, h);
+        while (g_hash_table_iter_next(&it, &k, &v))
+            g_hash_table_add(named, v);
+    }
+    for (int i = 0; i < m->count; i++)
+        if (!g_hash_table_contains(named, GINT_TO_POINTER(m->ids[i])))
+            orphans[n++] = m->ids[i];
+    if (n && app.action == NONE) {
+        g_message("removing %d enrolment(s) no one names", n);
+        app.action = REMOVE;
+        bridge_send(FP_REMOVE, orphans, n);
+    }
+}
+
 static void
 pending_answer(const struct fp_message *m)
 {
@@ -504,6 +536,8 @@ pending_answer(const struct fp_message *m)
     g_free(p->user);
     g_free(p->finger);
     g_free(p);
+    if (m && g_queue_is_empty(&app.waiting))
+        remove_orphans(m);
 }
 
 static void

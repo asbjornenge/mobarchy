@@ -33,6 +33,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO, "fingerprintd", __VA_ARGS__)
@@ -47,6 +48,12 @@
 #define CALLBACK "android.hardware.biometrics.fingerprint.ISessionCallback"
 #define CANCELLATION "android.hardware.biometrics.common.ICancellationSignal"
 #define GATEKEEPER "android.hardware.gatekeeper.IGatekeeper"
+/* Google's side-FPS extension of IFingerprint (its binder extension): the HAL pauses an
+ * enrolment near its end, for the UI to switch to the finger's edges, until resumeEnroll()
+ * (oneway; transaction 2, from the vendor's NDK proxy) */
+#define FINGERPRINT_EXT "com.google.hardware.biometrics.sidefps.IFingerprintExt"
+#define TX_RESUME_ENROLL 2
+#define RESUME_AFTER_MS 1200
 /* the fingerprint AIDL the HAL serves: V3 (its .hash) */
 #define CALLBACK_VERSION 3
 #define CALLBACK_HASH "637371b53fb7faf9bd43aa51b72c23852d6e6d96"
@@ -61,12 +68,15 @@
 
 /* AcquiredInfo, Error (byte enums) */
 #define ERROR_CANCELED 5
+#define ACQUIRED_VENDOR 7           /* (comet: the enrolment paused for the edges) */
 
 static AIBinder *(*wait_for_service)(const char *);
 static void (*mark_vintf)(AIBinder *);
 static AIBinder_Class *session_class, *callback_class, *cancel_class, *gatekeeper_class,
                       *fingerprint_class;
 static AIBinder *session;
+static AIBinder *fingerprint_ext;   /* or NULL */
+static int64_t resume_at;           /* when to resume a paused enrolment (ms, 0: none) */
 static int events[2];           /* the HAL's callbacks (binder threads) -> the main loop */
 static int client = -1;
 
@@ -347,6 +357,20 @@ create_session(void)
         st = STATUS_BAD_VALUE;
     AParcel_delete(out);
     AIBinder_decStrong(cb);     /* (the HAL holds it) */
+    /* its extension, for resumeEnroll */
+    AIBinder *ext = NULL;
+    if (st == STATUS_OK && AIBinder_getExtension(fingerprint, &ext) == STATUS_OK && ext) {
+        static AIBinder_Class *ext_class;
+        if (!ext_class)
+            ext_class = AIBinder_Class_define(FINGERPRINT_EXT, on_create, on_destroy, no_transact);
+        if (AIBinder_associateClass(ext, ext_class)) {
+            if (fingerprint_ext)
+                AIBinder_decStrong(fingerprint_ext);
+            fingerprint_ext = ext;
+        } else {
+            AIBinder_decStrong(ext);
+        }
+    }
     AIBinder_decStrong(fingerprint);
     if (st == STATUS_OK)
         LOG("session for sensor %d", id);
@@ -503,6 +527,27 @@ out:
 
 /* --- requests and events ----------------------------------------------------------------- */
 
+static int64_t
+now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static void
+resume_enroll(void)
+{
+    AParcel *in = NULL, *out = NULL;
+    resume_at = 0;
+    if (op != OP_ENROLL || !fingerprint_ext)
+        return;
+    if (AIBinder_prepareTransaction(fingerprint_ext, &in) == STATUS_OK
+        && AIBinder_transact(fingerprint_ext, TX_RESUME_ENROLL, &in, &out, FLAG_ONEWAY) == STATUS_OK)
+        LOG("enrolment resumed (the edges)");
+    AParcel_delete(out);
+}
+
 static void
 fail(int error)
 {
@@ -598,6 +643,9 @@ on_event(const struct event *e)
         break;
     }
     case TX(3):     /* onAcquired */
+        /* an enrolment paused for the finger's edges: on, after the Linux side's hint */
+        if (op == OP_ENROLL && e->a == ACQUIRED_VENDOR && fingerprint_ext)
+            resume_at = now_ms() + RESUME_AFTER_MS;
         send_simple(FP_ACQUIRED, e->a, e->b, 0);
         break;
     case TX(4):     /* onError: the operation is over */
@@ -719,7 +767,12 @@ main(void)
             { .fd = events[0], .events = POLLIN },
             { .fd = client, .events = POLLIN },
         };
-        if (poll(fds, client >= 0 ? 3 : 2, -1) < 0)
+        int timeout = resume_at ? (int)(resume_at - now_ms()) : -1;
+        if (resume_at && timeout <= 0) {
+            resume_enroll();
+            continue;
+        }
+        if (poll(fds, client >= 0 ? 3 : 2, timeout) < 0)
             continue;
         if (fds[1].revents & POLLIN) {
             struct event e;

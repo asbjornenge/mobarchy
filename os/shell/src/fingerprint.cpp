@@ -277,7 +277,11 @@ void Fingerprint::enrollStatus(const QString &result, bool done)
         emit progressChanged();
         setHint(QString());
     } else if (!done) {
-        setHint(hintFor(result));
+        // Past halfway the matcher wants the finger's edges (on comet it pauses for that).
+        if (result.endsWith(QLatin1String("remove-and-retry")) && progress() >= 0.5)
+            setHint(tr("Now the edges: touch with the tip and the sides of your thumb"));
+        else
+            setHint(hintFor(result));
     }
     if (!done)
         return;
