@@ -37,6 +37,10 @@
  *   output stream (for preview streams paced by the display's vsync). The container has
  *   no display of its own (Mobarchy's compositor is on the Linux side), so it offers no
  *   display events, and cameraserver doesn't pace to them.
+ * - android.system.vold.IVold/default: vold's interface for vendor code. Trusty's storage
+ *   proxy asks it whether /data is in a checkpoint (an update not yet committed, during
+ *   which writes to the TEE's storage must wait). The container's /data is a directory
+ *   on the host, never checkpointed: complete.
  *
  * Runs on the Linux side, over the binder device the container shares (libgbinder,
  * /etc/gbinder.d), and registers again whenever the container's service manager restarts.
@@ -387,6 +391,25 @@ battery_stats(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, gu
     return reply_ok(obj);
 }
 
+/* IVold V1 (system/vold/aidl/android/system/vold): the checkpoint state, for Trusty's
+ * storage proxy */
+#define CHECKPOINTING_COMPLETE 1
+
+static GBinderLocalReply *
+vold(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code, int *status)
+{
+    switch (code) {
+    case TX(1): {   /* CheckpointingState registerCheckpointListener(IVoldCheckpointListener) */
+        GBinderLocalReply *reply = reply_ok(obj);
+        GINFO("IVold: no checkpoint (asked by Trusty's storage proxy)");
+        gbinder_local_reply_append_int32(reply, CHECKPOINTING_COMPLETE);
+        return reply;
+    }
+    }
+    *status = STATUS_UNKNOWN_TRANSACTION;
+    return NULL;
+}
+
 /* SurfaceFlingerAIDL (frameworks/native libs/gui ISurfaceComposer.aidl): nothing to offer */
 static GBinderLocalReply *
 surface_composer(Service *s, GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code,
@@ -463,6 +486,8 @@ static Service services[] = {
     { .name = "vendor.google.whitechapel.audio.extension.IAudioExtension/default",
       .iface = "vendor.google.whitechapel.audio.extension.IAudioExtension",
       .version = 5, .hash = AUDIO_EXTENSION_HASH, .handle = audio_extension },
+    { .name = "android.system.vold.IVold/default", .iface = "android.system.vold.IVold",
+      .version = 1, .hash = "354cd0fab35bc265a0ecc951ca7737604b164a0d", .handle = vold },
     /* (system interfaces: no version or hash, and the service manager refuses VINTF
      * stability for names the VINTF manifests don't declare) */
     { .name = "activity", .iface = "android.app.IActivityManager", .handle = activity,

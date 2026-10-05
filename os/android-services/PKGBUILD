@@ -3,7 +3,7 @@
 #   tools/pkg-build os/android-services --out <dir>
 pkgname=mobarchy-android-services
 pkgver=0.1
-pkgrel=2
+pkgrel=3
 pkgdesc="Stand-ins for Android services (IStats, IPower, Pixel's audio extension, and system_server's) for the vendor HALs in Mobarchy's Android container"
 arch=(aarch64 x86_64)
 depends=(libgbinder libglibutil glib2)

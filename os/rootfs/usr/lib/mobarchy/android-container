@@ -10,6 +10,7 @@ running only the vendor services telephony needs, under Android's own init in LX
   check   exit status: does this device have an Android container ([android])?
   shell   a shell inside the running container (Android's toybox sh)
   status
+  settled the container has run long enough: disarm the boot guard (systemd runs this)
 
 What the container sees is decided here and in the device's [android] section of
 /etc/mobarchy/device.toml:
@@ -17,7 +18,8 @@ What the container sees is decided here and in the device's [android] section of
     it; all of them read-only (dm "--readonly" mappings, ro mounts)
   - /dev is the container's own: binderfs, and only the device nodes the device lists,
     recreated with Android's owners; the device cgroup allows nothing else, so no block
-    device is reachable except the read-only modem image loop
+    device is reachable except the read-only modem image loop, and the partitions the
+    device names as writable (the TEE's storage) through their own loops
   - /data, and the vendor directories under /mnt/vendor, are directories on the host
   - init runs our init.rc only, never Android's: no fstab, no mount_all, no formatting.
     Android's init directories are hidden; only the rc files our init.rc imports are
@@ -61,7 +63,7 @@ INIT_DIRS = ["system/etc/init", "system_ext/etc/init", "product/etc/init", "vend
 
 # Android's ids (system/core/libcutils/include/private/android_filesystem_config.h)
 AID = {"root": 0, "system": 1000, "radio": 1001, "graphics": 1003, "audio": 1005, "camera": 1006,
-       "log": 1007, "media": 1013, "drmrpc": 1026, "mediadrm": 1031, "mediacodec": 1046,
+       "input": 1004, "log": 1007, "media": 1013, "drmrpc": 1026, "mediadrm": 1031, "mediacodec": 1046,
        "cameraserver": 1047,
        "shell": 2000, "inet": 3003}
 
@@ -97,6 +99,36 @@ def slot():
         if key.strip() == "androidboot.slot_suffix":
             return value.strip().strip('"')
     sys.exit("no androidboot.slot_suffix in /proc/bootconfig")
+
+
+# --- the boot guard ----------------------------------------------------------------------------
+
+# A vendor service can take the whole phone down: a TEE panic is a kernel panic. If one
+# did so at every start, the phone would never finish booting. So: if the previous boot
+# ended (not by a clean stop) within SETTLE_SECONDS of its container's start, this start
+# is in safe mode (ro.mobarchy.safe_mode=1), and the device's init.rc leaves out what could
+# have done it (on comet: the TEE's storage, for the fingerprint sensor).
+GUARD = STATE / "boot-guard"
+SETTLE_SECONDS = 180
+
+
+def boot_guard():
+    """Arm the guard for this start; True if the previous boot crashed while it was armed."""
+    boot = Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+    armed = GUARD.read_text().strip() if GUARD.exists() else ""
+    GUARD.parent.mkdir(parents=True, exist_ok=True)
+    GUARD.write_text(boot + "\n")
+    run("systemd-run", "--quiet", "--collect", "--unit=mobarchy-android-settled",
+        f"--on-active={SETTLE_SECONDS}", LIB / "android-container", "settled",
+        check=False, capture_output=True)
+    safe = bool(armed) and armed != boot
+    if safe:
+        print("the previous boot ended soon after the container started: safe mode", file=sys.stderr)
+    return safe
+
+
+def disarm():
+    GUARD.unlink(missing_ok=True)
 
 
 # --- APEXes ---------------------------------------------------------------------------------
@@ -288,6 +320,14 @@ def prepare(conf):
         for alias in (partition + s, partition):
             extra_nodes.append((f"block/by-name/{alias}", "b", os.major(rdev), os.minor(rdev),
                                 0o640, AID["root"], AID["radio"]))
+    for partition, (mode, owner, group) in conf.get("writable_partitions", {}).items():
+        # a partition the TEE keeps its storage on (through the vendor's storage proxy): the
+        # only writable block devices, each through its own loop device
+        dev = f"/dev/disk/by-partlabel/{partition}"
+        loop = run("losetup", "-f", "--show", dev, capture_output=True, text=True).stdout.strip()
+        rdev = os.stat(loop).st_rdev
+        extra_nodes.append((f"block/by-name/{partition}", "b", os.major(rdev), os.minor(rdev),
+                            int(mode, 8), AID[owner], AID[group], "rw"))
 
     # init.rc: ours (the generic part, then the device's), instead of Android's. Android's
     # init directories are replaced by ones holding only what our init.rc imports.
@@ -333,7 +373,8 @@ def prepare(conf):
     odm = ROOT / "odm"
     mount("tmpfs", odm, "mode=0755", "nosuid", "nodev", "noexec", fstype="tmpfs")
     (odm / "etc").mkdir()
-    props = {"ro.cold_boot_done": "true", **conf.get("properties", {})}
+    props = {"ro.cold_boot_done": "true", "ro.mobarchy.safe_mode": "1" if boot_guard() else "0",
+             **conf.get("properties", {})}
     (odm / "etc/build.prop").write_text("# Mobarchy's Android container (android-container)\n" +
                                         "".join(f"{k}={v}\n" for k, v in props.items()))
     # Mobarchy's libraries: the vendor's processes find /odm/lib64 as they find /vendor/lib64
@@ -384,7 +425,9 @@ def write_lxc_config(conf, extra_nodes):
     (RUN / "nodes").write_text("".join(" ".join(map(str, n)) + "\n" for n in nodes))
     allow = ["c 1:3 rwm", "c 1:5 rwm", "c 1:7 rwm", "c 1:8 rwm", "c 1:9 rwm", "c 1:11 rw",
              "c 5:0 rwm", "c 5:2 rwm", "c 136:* rwm", f"c {binder_major()}:* rwm"]
-    allow += sorted({f"{k} {ma}:{mi} {'r' if k == 'b' else 'rwm'}" for _, k, ma, mi, *_ in nodes})
+    # block devices read-only, except the writable partitions' (marked "rw")
+    allow += sorted({f"{k} {ma}:{mi} {'rwm' if k == 'c' else 'rw' if rest[3:] == ['rw'] else 'r'}"
+                     for _, k, ma, mi, *rest in nodes})
     lines = [
         f"lxc.uts.name = {NAME}",
         f"lxc.rootfs.path = dir:{ROOT}",
@@ -452,7 +495,7 @@ def autodev():
         os.symlink(f"binderfs/{b}", dev / b)
     os.mknod(dev / "kmsg", 0o620 | stat.S_IFCHR, os.makedev(1, 11))
     for line in (RUN / "nodes").read_text().splitlines():
-        path, kind, major, minor, mode, uid, gid = line.split()
+        path, kind, major, minor, mode, uid, gid, *_ = line.split()
         node = dev / path
         node.parent.mkdir(parents=True, exist_ok=True)
         os.mknod(node, int(mode) | (stat.S_IFCHR if kind == "c" else stat.S_IFBLK),
@@ -529,7 +572,7 @@ def mounted_device(dev):
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("command", choices=["prepare", "run", "start", "stop", "shell", "status", "check",
-                                       "autodev", "start-host"])
+                                       "autodev", "start-host", "settled"])
     a, _ = p.parse_known_args()     # hooks get LXC's arguments after ours
     os.environ["PATH"] = "/usr/local/sbin:/usr/local/bin:/usr/bin"
     if a.command == "autodev":
@@ -540,6 +583,8 @@ def main():
         sys.exit(0 if tomllib.loads(DEVICE_TOML.read_text()).get("android") else 1)
     if os.geteuid() != 0:
         sys.exit("needs root")
+    if a.command == "settled":
+        return disarm()
     if a.command in ("prepare", "start"):
         conf = device_config()
         if run("lxc-info", "-P", LXC_PATH, "-n", NAME, "-s", check=False, capture_output=True,
@@ -560,6 +605,7 @@ def main():
         print("started")
     elif a.command == "stop":
         stop()
+        disarm()            # (a clean stop: not a crash)
     elif a.command == "shell":
         os.execvp("lxc-attach", ["lxc-attach", "-P", str(LXC_PATH), "-n", NAME, "--clear-env",
                                  "-v", "PATH=/system/bin:/vendor/bin", "--", "/system/bin/sh"])
