@@ -20,8 +20,9 @@ namespace {
 const QString Service = QStringLiteral("org.mobarchy.Camera");
 const QString Path = QStringLiteral("/org/mobarchy/Camera");
 const QString Interface = QStringLiteral("org.mobarchy.Camera");
-constexpr int PreviewWidth = 1280;      // the source's sizes: 1920x1080, 1280x720, 640x480
-constexpr int PreviewHeight = 720;
+// the stream's size (the source's: 1920x1080, 1440x1080, 1280x720, 960x720, 640x480)
+constexpr QSize VideoPreview(1920, 1080);
+constexpr QSize PhotoPreview(1440, 1080);
 } // namespace
 
 CameraSource::CameraSource(QObject *parent)
@@ -114,6 +115,15 @@ void CameraSource::setVideoSink(QVideoSink *sink)
         return;
     m_sink = sink;
     emit videoSinkChanged();
+}
+
+void CameraSource::setVideoMode(bool video)
+{
+    if (video == m_videoMode)
+        return;
+    m_videoMode = video;
+    emit videoModeChanged();
+    restartStream();
 }
 
 void CameraSource::setActive(bool active)
@@ -289,8 +299,8 @@ void CameraSource::restartStream()
     const QByteArray target = "mobarchy-camera-" + m_current.toUtf8();
     uint8_t buf[1024];
     spa_pod_builder b = SPA_POD_BUILDER_INIT(buf, sizeof buf);
-    spa_rectangle size = SPA_RECTANGLE(PreviewWidth, PreviewHeight);
-    spa_rectangle min = SPA_RECTANGLE(1, 1), max = SPA_RECTANGLE(4096, 4096);
+    const QSize preview = m_videoMode ? VideoPreview : PhotoPreview;
+    spa_rectangle size = SPA_RECTANGLE(uint32_t(preview.width()), uint32_t(preview.height()));
     spa_fraction rate = SPA_FRACTION(30, 1);
     const spa_pod *params[1];
     params[0] = static_cast<const spa_pod *>(spa_pod_builder_add_object(&b,
@@ -298,7 +308,7 @@ void CameraSource::restartStream()
         SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video),
         SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
         SPA_FORMAT_VIDEO_format, SPA_POD_Id(SPA_VIDEO_FORMAT_I420),
-        SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_RANGE_Rectangle(&size, &min, &max),
+        SPA_FORMAT_VIDEO_size, SPA_POD_Rectangle(&size),       // (one of the source's)
         SPA_FORMAT_VIDEO_framerate, SPA_POD_Fraction(&rate)));
 
     m_listener = new spa_hook{};

@@ -34,6 +34,9 @@ class CameraSource : public QObject
     // photos' own orientation follows it (DeviceOrientation.degrees).
     Q_PROPERTY(int deviceRotation MEMBER m_deviceRotation NOTIFY deviceRotationChanged)
     Q_PROPERTY(QString lastPhoto READ lastPhoto NOTIFY lastPhotoChanged)  // (or video)
+    // The stream's shape: video (16:9, 1920x1080) or photos (4:3, the sensors' shape:
+    // 1440x1080), so the viewfinder shows what the camera takes.
+    Q_PROPERTY(bool videoMode READ videoMode WRITE setVideoMode NOTIFY videoModeChanged)
     // A video is being recorded (startRecording .. stopRecording).
     Q_PROPERTY(bool recording READ recording NOTIFY recordingChanged)
 
@@ -57,6 +60,8 @@ public:
     Q_INVOKABLE void startRecording();
     Q_INVOKABLE void stopRecording();
     bool recording() const { return m_recording; }
+    bool videoMode() const { return m_videoMode; }
+    void setVideoMode(bool video);
     Q_INVOKABLE void switchCamera();        // to the next camera
     Q_INVOKABLE void refresh();             // ask for the cameras again
     // Moves a photo (one of the camera's, in its folder) to the trash; false if it couldn't.
@@ -72,6 +77,7 @@ signals:
     void lastPhotoChanged();
     void photoTaken(const QString &path);
     void recordingChanged();
+    void videoModeChanged();
     void videoRecorded(const QString &path);
     void failed(const QString &message);
 
@@ -89,6 +95,7 @@ private:
     bool m_active = false;
     bool m_busy = false;
     bool m_recording = false;
+    bool m_videoMode = false;
     int m_deviceRotation = 0;
     QString m_lastPhoto;
 

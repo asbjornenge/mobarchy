@@ -39,8 +39,6 @@
 #define PREVIEW_H 480
 #define SETTLE_FRAMES 20        /* frames for exposure and focus to settle before a still */
 #define LIST_WAIT 30            /* seconds a LIST waits for the HAL's cameras */
-#define STILL_W 1920            /* a still's default size (and the stream's JPEG output) */
-#define STILL_H 1080
 #define VIDEO_W 1920            /* a video's default size */
 #define VIDEO_H 1080
 #define VIDEO_BITRATE 16000000  /* bits/s, H.264 */
@@ -269,6 +267,27 @@ no_faces(ACaptureRequest *req)
 {
     uint8_t off = ACAMERA_STATISTICS_FACE_DETECT_MODE_OFF;
     ACaptureRequest_setEntry_u8(req, ACAMERA_STATISTICS_FACE_DETECT_MODE, 1, &off);
+}
+
+/* A still's default size (and the stream's JPEG output): the camera's largest JPEG */
+static void
+still_size(const char *id, int *w, int *h)
+{
+    ACameraMetadata *md = NULL;
+    ACameraMetadata_const_entry e;
+
+    *w = 1920, *h = 1080;
+    if (ACameraManager_getCameraCharacteristics(manager, id, &md) != ACAMERA_OK)
+        return;
+    if (ACameraMetadata_getConstEntry(md, ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS, &e) == ACAMERA_OK)
+        for (uint32_t j = 0; j + 3 < e.count; j += 4)
+            if (e.data.i32[j + 3] == ACAMERA_SCALER_AVAILABLE_STREAM_CONFIGURATIONS_OUTPUT
+                && e.data.i32[j] == AIMAGE_FORMAT_JPEG
+                && e.data.i32[j + 1] * e.data.i32[j + 2] > *w * *h) {
+                *w = e.data.i32[j + 1];
+                *h = e.data.i32[j + 2];
+            }
+    ACameraMetadata_free(md);
 }
 
 /* The JPEG's orientation (EXIF): how far to turn it clockwise to upright, from the sensor's
@@ -562,7 +581,9 @@ do_stream(const struct camera_message *req)
      * session (each one is a slow reconfiguration of the HAL's whole pipeline) */
     snprintf(wanted.camera, sizeof wanted.camera, "%s", req->camera);
     wanted.width = req->width & ~1, wanted.height = req->height & ~1;
-    int st = open_session(req->camera, wanted.width, wanted.height, STILL_W, STILL_H);
+    int jw, jh;
+    still_size(req->camera, &jw, &jh);
+    int st = open_session(req->camera, wanted.width, wanted.height, jw, jh);
     if (st)
         send_error(st);
     else
@@ -577,7 +598,9 @@ restore(int was_streaming, const char *id, int w, int h)
         close_session(0);
         return;
     }
-    if (open_session(id, w, h, STILL_W, STILL_H) == 0)
+    int jw, jh;
+    still_size(id, &jw, &jh);
+    if (open_session(id, w, h, jw, jh) == 0)
         share_buffers();
 }
 
@@ -585,7 +608,9 @@ static void
 do_still(const struct camera_message *req)
 {
     int st = 0;
-    int w = req->width ? req->width : STILL_W, h = req->height ? req->height : STILL_H;
+    int w = req->width, h = req->height;
+    if (!w || !h)
+        still_size(req->camera, &w, &h);
     int ok;
 
     /* From the stream's session, if it has a JPEG output of that size. If not, a session of
@@ -620,6 +645,8 @@ do_still(const struct camera_message *req)
     no_faces(still);
     int32_t orientation = jpeg_orientation(req->camera, req->orientation);
     ACaptureRequest_setEntry_i32(still, ACAMERA_JPEG_ORIENTATION, 1, &orientation);
+    uint8_t quality = 95;
+    ACaptureRequest_setEntry_u8(still, ACAMERA_JPEG_QUALITY, 1, &quality);
     st = ACameraCaptureSession_capture(cam.session, NULL, 1, &still, NULL);
     ACaptureRequest_free(still);
     if (st != ACAMERA_OK) {

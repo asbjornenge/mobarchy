@@ -631,9 +631,11 @@ streams_create(void)
             SPA_FORMAT_mediaType, SPA_POD_Id(SPA_MEDIA_TYPE_video),
             SPA_FORMAT_mediaSubtype, SPA_POD_Id(SPA_MEDIA_SUBTYPE_raw),
             SPA_FORMAT_VIDEO_format, SPA_POD_Id(SPA_VIDEO_FORMAT_I420),
-            SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_ENUM_Rectangle(4,  /* the default, then the choices */
+            /* the default, then the choices: 16:9 (video), 4:3 (photos: the sensors' shape) */
+            SPA_FORMAT_VIDEO_size, SPA_POD_CHOICE_ENUM_Rectangle(6,
                 &SPA_RECTANGLE(1280, 720), &SPA_RECTANGLE(1920, 1080),
-                &SPA_RECTANGLE(1280, 720), &SPA_RECTANGLE(640, 480)),
+                &SPA_RECTANGLE(1440, 1080), &SPA_RECTANGLE(1280, 720), &SPA_RECTANGLE(960, 720),
+                &SPA_RECTANGLE(640, 480)),
             SPA_FORMAT_VIDEO_framerate, SPA_POD_Fraction(&SPA_FRACTION(30, 1)));
         pw_stream_connect(c->stream, PW_DIRECTION_OUTPUT, PW_ID_ANY,
                           PW_STREAM_FLAG_DRIVER | PW_STREAM_FLAG_MAP_BUFFERS, params, 1);

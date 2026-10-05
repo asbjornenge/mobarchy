@@ -31,7 +31,8 @@ enum camera_msg {
     MSG_LIST = 1,       /* client */
     MSG_STREAM,         /* client: camera, width, height */
     MSG_RELEASE,        /* client: index */
-    MSG_STILL,          /* client: camera, width, height, orientation (the device's) */
+    MSG_STILL,          /* client: camera, width, height (0: the largest), orientation (the
+                         * device's) */
     MSG_STOP,           /* client */
     MSG_DEVICE_STATE,   /* client: code (enum device_state flags) */
     MSG_TORCH,          /* client: camera ("": the first with a flash), code (1: on, 0: off) */

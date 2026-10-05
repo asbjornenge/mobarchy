@@ -44,6 +44,7 @@ Rectangle {
         videoSink: viewfinder.videoSink
         // frames only while the viewfinder shows
         active: win.active && win.visible && !win.viewing
+        videoMode: win.mode === "video"
         // photos stand as the device is held, whether the screen turns or not
         deviceRotation: orientation.degrees
         onFailed: (message) => { win.error = message; errorTimer.restart() }
@@ -66,7 +67,8 @@ Rectangle {
             readonly property bool sideways: camera.orientation % 180 !== 0
             width: sideways ? parent.height : parent.width
             height: sideways ? parent.width : parent.height
-            fillMode: VideoOutput.PreserveAspectCrop
+            // the whole of what the camera takes: photos 4:3, videos 16:9
+            fillMode: VideoOutput.PreserveAspectFit
             rotation: camera.orientation
             transform: Scale {
                 origin.x: viewfinder.width / 2
