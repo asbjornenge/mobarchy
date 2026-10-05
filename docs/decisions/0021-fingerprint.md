@@ -67,5 +67,7 @@ GNOME and KDE settings, polkit.
   finger doesn't unlock; the PIN does.
 - The shell asks for the PIN before it enrols a finger. With no polkit agent to ask again,
   a polkit rule lets the owner (wheel) enrol, as ADR 0013 does for the PIN itself.
-- Still to do: a PIN unlock should clear a fingerprint lockout (FP_RESET_LOCKOUT), and
-  pam_fprintd should be built for sudo and polkit.
+- After too many wrong fingers the matcher locks them out; a PIN unlock lets them in again
+  (org.mobarchy.Fingerprint.ResetLockout, Mobarchy's own call next to fprintd's; the
+  bridge's Gatekeeper token authorizes it in the TEE), as on Android.
+- After a restart the PIN unlocks first (it opens the keyring), then fingers do.

@@ -35,4 +35,16 @@
       <allow_active>auth_admin_keep</allow_active>
     </defaults>
   </action>
+
+  <!-- Mobarchy's own: fingers locked out after too many wrong ones work again, once the
+       owner has given the PIN (the lock screen asks it) -->
+  <action id="org.mobarchy.fingerprint.reset-lockout">
+    <description>Let fingers unlock again after too many wrong ones</description>
+    <message>Your password is needed to let fingers unlock again.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self_keep</allow_active>
+    </defaults>
+  </action>
 </policyconfig>

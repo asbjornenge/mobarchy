@@ -1,7 +1,9 @@
-// The owner (group wheel) adds and removes fingers from the shell without another prompt
-// (ADR 0021): the shell asks for the PIN first, and there is no polkit agent to ask again.
+// The owner (group wheel) adds and removes fingers, and lets them in again after a lockout,
+// from the shell without another prompt (ADR 0021): the shell asks for the PIN first, and
+// there is no polkit agent to ask again.
 polkit.addRule(function(action, subject) {
-    if (action.id == "net.reactivated.fprint.device.enroll" &&
+    if ((action.id == "net.reactivated.fprint.device.enroll" ||
+         action.id == "org.mobarchy.fingerprint.reset-lockout") &&
         subject.isInGroup("wheel") && subject.local && subject.active) {
         return polkit.Result.YES;
     }

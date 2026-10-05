@@ -121,6 +121,7 @@ PinLock::PinLock(QObject *parent)
     loadState();
     // (the runtime directory goes with the session: a restart starts without)
     m_givenSinceBoot = QFile::exists(runtimeDir() + QStringLiteral("/pin-given"));
+    m_wasLocked = QFile::exists(runtimeDir() + QStringLiteral("/locked"));
     QDBusReply<QDBusObjectPath> user = QDBusConnection::systemBus().call(
         QDBusMessage::createMethodCall(Accounts, QStringLiteral("/org/freedesktop/Accounts"), Accounts,
                                        QStringLiteral("FindUserById"))
@@ -244,8 +245,8 @@ void PinLock::change(const QString &oldPin, const QString &newPin)
             emit changed(false, error);
             return;
         }
+        setGiven();         // (before hasPin turns true: the shell locks at a PIN not yet given)
         refresh();
-        setGiven();
         emit changed(true, {});
     };
     if (!m_hasPin) {

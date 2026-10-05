@@ -178,6 +178,23 @@ void Fingerprint::readStages()
     });
 }
 
+void Fingerprint::resetLockout()
+{
+    if (!m_available || m_fingers.isEmpty())
+        return;
+    auto call = QDBusMessage::createMethodCall(Service, devicePath, QStringLiteral("org.mobarchy.Fingerprint"),
+                                               QStringLiteral("ResetLockout"));
+    auto *w = new QDBusPendingCallWatcher(bus().asyncCall(call), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
+        QDBusPendingReply<> reply = *w;
+        // (fprintd itself has no such call: nothing to reset there)
+        if (reply.isError() && reply.error().type() != QDBusError::UnknownInterface
+            && reply.error().type() != QDBusError::UnknownMethod)
+            qWarning() << "fingerprint: reset lockout:" << reply.error().message();
+    });
+}
+
 void Fingerprint::stop()
 {
     if (m_mode == None)

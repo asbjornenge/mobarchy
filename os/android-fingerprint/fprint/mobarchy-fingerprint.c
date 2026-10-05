@@ -11,6 +11,10 @@
  *
  * Who may do what is polkit's, with fprintd's actions: net.reactivated.fprint.device.verify
  * and .enroll for one's own fingers, .setusername for someone else's.
+ *
+ * And one of its own, org.mobarchy.Fingerprint.ResetLockout (org.mobarchy.fingerprint.
+ * reset-lockout): the matcher locks fingers out after too many wrong ones; the owner's PIN
+ * (the lock screen gives it) lets them in again, as on Android.
  */
 #include "../protocol.h"
 
@@ -63,6 +67,9 @@ static const char introspection[] =
     "    <property name='finger-present' type='b' access='read'/>"
     "    <property name='finger-needed' type='b' access='read'/>"
     "  </interface>"
+    "  <interface name='org.mobarchy.Fingerprint'>"
+    "    <method name='ResetLockout'/>"
+    "  </interface>"
     "</node>";
 
 static const char *const fingers[] = {
@@ -71,7 +78,7 @@ static const char *const fingers[] = {
     "right-ring-finger", "right-little-finger",
 };
 
-enum action { NONE, ENROLL, VERIFY, LIST, REMOVE };
+enum action { NONE, ENROLL, VERIFY, LIST, REMOVE, RESET };
 
 static struct {
     GDBusConnection *bus;
@@ -89,6 +96,7 @@ static struct {
     int remaining;                  /* touches the enrolment still needs (-1: not said yet) */
     gboolean finger_needed;
     GQueue waiting;                 /* calls waiting for the bridge's FP_ENROLLMENTS */
+    gboolean reset_wanted;          /* a lockout reset, once what runs is over */
 } app = { .bridge = -1, .stages = ENROLL_STAGES };
 
 /* a call that waits for the bridge's list of enrolments */
@@ -198,12 +206,26 @@ set_finger_needed(gboolean needed)
 }
 
 static void
+reset_lockout(void)
+{
+    if (app.action != NONE || app.bridge < 0) {
+        app.reset_wanted = TRUE;
+        return;
+    }
+    app.reset_wanted = FALSE;
+    app.action = RESET;
+    bridge_send(FP_RESET_LOCKOUT, NULL, 0);
+}
+
+static void
 action_end(void)
 {
     app.action = NONE;
     app.stopping = FALSE;
     g_clear_pointer(&app.finger, g_free);
     set_finger_needed(FALSE);
+    if (app.reset_wanted)
+        reset_lockout();
 }
 
 static void
@@ -289,6 +311,11 @@ on_bridge_event(const struct fp_message *m)
         }
         break;
     case FP_LOCKOUT:
+        if (app.action == RESET && m->value64 == 0) {
+            g_message("lockout reset");
+            action_end();
+            break;
+        }
         if (m->value64 != 0)
             g_message("locked out (%" G_GINT64_FORMAT " ms)", (gint64)m->value64);
         if (app.action == VERIFY && m->value64 != 0)
@@ -297,8 +324,10 @@ on_bridge_event(const struct fp_message *m)
     case FP_ERROR:
         if (m->value == FP_ERROR_BUSY) {
             pending_answer(NULL);           /* a list asked while enrolling or verifying */
-        } else if (app.action == REMOVE) {
-            app.action = NONE;
+        } else if (app.action == REMOVE || app.action == RESET) {
+            if (app.action == RESET)
+                g_warning("lockout reset: error %d", m->value);
+            action_end();
         } else if (app.action == ENROLL || app.action == VERIFY) {
             gboolean enroll = app.action == ENROLL;
             if (m->value == FP_ERROR_CANCELED && app.stopping)
@@ -564,6 +593,15 @@ on_method(GDBusConnection *bus, const char *sender, const char *path, const char
 {
     g_autoptr(GError) error = NULL;
 
+    if (!strcmp(iface, "org.mobarchy.Fingerprint")) {
+        if (!authorized(sender, "org.mobarchy.fingerprint.reset-lockout")) {
+            FAIL(inv, "PermissionDenied", "Not authorized");
+            return;
+        }
+        reset_lockout();
+        g_dbus_method_invocation_return_value(inv, NULL);
+        return;
+    }
     if (!strcmp(iface, "net.reactivated.Fprint.Manager")) {
         if (!strcmp(method, "GetDevices")) {
             const char *devices[] = { DEVICE_PATH };
@@ -696,6 +734,7 @@ on_bus(GDBusConnection *bus, const char *name, gpointer unused)
     app.bus = bus;
     g_dbus_connection_register_object(bus, MANAGER_PATH, node->interfaces[0], &vtable, NULL, NULL, NULL);
     g_dbus_connection_register_object(bus, DEVICE_PATH, node->interfaces[1], &vtable, NULL, NULL, NULL);
+    g_dbus_connection_register_object(bus, DEVICE_PATH, node->interfaces[2], &vtable, NULL, NULL, NULL);
 }
 
 static void

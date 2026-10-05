@@ -89,6 +89,18 @@ QtObject {
     }
     readonly property VolumeOsd volumeOsd: VolumeOsd { volume: shell.volume }
 
+    // A phone with a PIN starts locked: until the PIN is given since it started, and when the
+    // shell restarts on a locked phone (a restart in between on an open one keeps it open).
+    function lockAtStart() {
+        if (pinLock.hasPin && (!pinLock.givenSinceBoot || pinLock.wasLocked))
+            lock()
+    }
+    readonly property Connections hasPinKnown: Connections {
+        target: shell.pinLock
+        function onHasPinChanged() { shell.lockAtStart() }
+    }
+    Component.onCompleted: lockAtStart()
+
     function lock() {
         drawer.close()
         quick.close()

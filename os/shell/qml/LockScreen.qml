@@ -95,6 +95,7 @@ LayerWindow {
             if (!lock.askingPin)
                 return          // (the PIN asked elsewhere: settings)
             if (ok) {
+                lock.fingerprint.resetLockout()
                 lock.unlocked()
                 return
             }

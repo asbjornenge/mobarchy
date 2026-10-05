@@ -39,6 +39,8 @@ public:
     // Verifies any of the owner's fingers until a match (matched()) or stop().
     Q_INVOKABLE void verify();
     Q_INVOKABLE void stop();
+    // The PIN was given: fingers locked out after too many wrong ones work again.
+    Q_INVOKABLE void resetLockout();
     // A finger's name for people ("Right thumb").
     Q_INVOKABLE static QString label(const QString &finger);
 
