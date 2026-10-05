@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""pam_exec for sudo (ADR 0022): exit 0 if sudo runs in an ssh session, else 1.
+
+On the phone sudo takes the owner's finger or PIN. Over ssh it doesn't ask: ssh logs in with
+a key only (sshd: no passwords, no root), and that key already is the developer's access.
+The session is logind's for sudo's process (from its cgroup): an app on the phone can't
+claim one, as it could with environment variables."""
+import ctypes
+import os
+import sys
+
+
+def main():
+    sd = ctypes.CDLL("libsystemd.so.0")
+    session = ctypes.c_char_p()
+    # pam_exec runs this as a child of sudo
+    if sd.sd_pid_get_session(os.getppid(), ctypes.byref(session)) < 0 or not session.value:
+        return 1
+    service = ctypes.c_char_p()
+    remote = sd.sd_session_is_remote(session.value) > 0
+    ok = sd.sd_session_get_service(session.value, ctypes.byref(service)) >= 0
+    return 0 if remote and ok and service.value == b"sshd" else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

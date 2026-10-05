@@ -59,7 +59,7 @@ deps=$(bash -c 'source PKGBUILD; printf "%s\n" "${depends[@]}" "${makedepends[@]
 # Only what is missing: dependencies built here earlier (e.g. libglibutil for libgbinder)
 # are installed but not in any sync repository.
 missing=$(pacman -T $deps || true)
-[ -z "$missing" ] || sudo -n pacman -S --needed --noconfirm --disable-sandbox $missing >/dev/null
+[ -z "$missing" ] || sudo pacman -S --needed --noconfirm --disable-sandbox $missing >/dev/null
 # A phone has no thermal management yet: a few jobs, or it gets hot enough to shut down.
 export MAKEFLAGS=-j3 CMAKE_BUILD_PARALLEL_LEVEL=3
 BUILDDIR=$work/makepkg/$name PKGDEST=$work/out PKGEXT=.pkg.tar.zst makepkg -fC --noconfirm \

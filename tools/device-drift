@@ -36,7 +36,7 @@ echo "== files no package or overlay provides"
 { (cd "$repo/os/rootfs" && find . -type f -o -type l); \
   [ -d "$repo/devices/$device/rootfs" ] && (cd "$repo/devices/$device/rootfs" && find . -type f -o -type l); } \
     | sed 's|^\.||' | LC_ALL=C sort -u > "$tmp/overlay"
-on_device 'sudo -n find /etc /opt /usr/local /usr/lib -xdev \( -type f -o -type l \) 2>/dev/null' | LC_ALL=C sort > "$tmp/files"
+on_device 'sudo find /etc /opt /usr/local /usr/lib -xdev \( -type f -o -type l \) 2>/dev/null' | LC_ALL=C sort > "$tmp/files"
 on_device 'pacman -Qlq | grep -v "/$"' | LC_ALL=C sort -u > "$tmp/owned"
 LC_ALL=C comm -23 "$tmp/files" "$tmp/owned" | LC_ALL=C comm -23 - "$tmp/overlay" \
     | grep -vE '^/etc/(machine-id|hostname|localtime|adjtime|passwd|group|shadow|gshadow|subuid|subgid|.*-$|ld.so.cache|pacman.d/gnupg/|ssh/ssh_host_|systemd/system/.*\.wants/|systemd/user/.*\.wants/|systemd/system/[a-z.-]+\.service$|udev/hwdb.bin|ca-certificates/|ssl/certs/|fonts/conf.d/|xml/catalog|resolv.conf|.pwd.lock|sudoers.d/wheel|locale.conf|os-release|pacman.d/mirrorlist|wpa_supplicant/wpa_supplicant-wlan0.conf)' \
@@ -47,4 +47,4 @@ LC_ALL=C comm -23 "$tmp/files" "$tmp/owned" | LC_ALL=C comm -23 - "$tmp/overlay"
     | sed 's/^/  /'
 
 echo "== package files changed on the device"
-on_device 'sudo -n pacman -Qkk 2>/dev/null | grep -E "(Modification time|Size|SHA256|Permissions|UID|GID) mismatch|No such file" | grep -vE "/var/|/etc/(passwd|group|shadow|gshadow|locale.gen|pacman.conf|sudoers)"' | sed 's/^/  /' || true
+on_device 'sudo pacman -Qkk 2>/dev/null | grep -E "(Modification time|Size|SHA256|Permissions|UID|GID) mismatch|No such file" | grep -vE "/var/|/etc/(passwd|group|shadow|gshadow|locale.gen|pacman.conf|sudoers)"' | sed 's/^/  /' || true

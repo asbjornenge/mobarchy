@@ -1,7 +1,9 @@
 #%PAM-1.0
-# A finger on the sensor instead of the password (ADR 0021): pam_fprintd, against fprintd's
-# interface (mobarchy-fingerprint on comet). It steps aside without a sensor or an enrolled
-# finger, and over ssh (a remote session can't touch the phone): then the password.
+# sudo asks the owner (ADR 0022): over ssh (a key login: the developer's access) it doesn't;
+# on the phone, a finger on the sensor (pam_fprintd, against fprintd's interface:
+# mobarchy-fingerprint on comet; it steps aside without a sensor or an enrolled finger), or
+# the PIN (the owner's password).
+auth		sufficient	pam_exec.so quiet /usr/lib/mobarchy/sudo-remote
 auth		sufficient	pam_fprintd.so
 auth		include		system-auth
 account		include		system-auth

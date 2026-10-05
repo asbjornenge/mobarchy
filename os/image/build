@@ -75,7 +75,9 @@ EOP
     # Owner account: autologin on tty1 starts Hyprland (same as the simulator).
     userdel -r alarm 2>/dev/null || true
     useradd -m -G wheel,video,input,audio -s /bin/bash mob
-    echo "%wheel ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/wheel
+    # sudo asks the owner (ADR 0022): a finger or the PIN on the phone; over ssh (a key
+    # login) /etc/pam.d/sudo lets it through.
+    echo "%wheel ALL=(ALL:ALL) ALL" > /etc/sudoers.d/wheel && chmod 440 /etc/sudoers.d/wheel
     passwd -l root >/dev/null
     cat > /home/mob/.bash_profile <<EOP
 [ -f ~/.bashrc ] && . ~/.bashrc
