@@ -114,7 +114,7 @@ static struct {
     gboolean stopping;              /* asked to stop (StopRecording, or its client went) */
     guint recorder_watch;           /* the client recording: a video stops when it goes */
     GstElement *audio, *mux;
-    char *audio_path, *video_path;
+    char *audio_path, *video_path, *part_path;     /* (part: the MP4 while it is written) */
     int video_fd;
     /* the video's thumbnail: a frame from its start, turned upright */
     gboolean thumb_wanted;
@@ -295,6 +295,18 @@ record_finished(const char *error)
     app.video_fd = -1;
     if (app.audio_path)
         unlink(app.audio_path);
+    /* the finished MP4 appears under its name only now, complete (with its thumbnail
+     * already in place for whoever lists it) */
+    if (app.part_path) {
+        if (!error && rename(app.part_path, app.video_path) < 0)
+            error = g_strerror(errno);
+        if (error) {
+            unlink(app.part_path);
+            g_autofree char *thumb = thumbnail_for(app.video_path);
+            unlink(thumb);
+        }
+        g_clear_pointer(&app.part_path, g_free);
+    }
     if (app.record_stop) {
         if (error)
             g_dbus_method_invocation_return_error(app.record_stop, G_IO_ERROR, G_IO_ERROR_FAILED,
@@ -303,21 +315,10 @@ record_finished(const char *error)
             g_dbus_method_invocation_return_value(app.record_stop, g_variant_new("(s)", app.video_path));
         app.record_stop = NULL;
     }
-    if (!error) {
+    if (!error)
         g_message("video: %s", app.video_path);
-        if (app.thumb_path && g_file_test(app.thumb_path, G_FILE_TEST_EXISTS)) {
-            g_autofree char *thumb = thumbnail_for(app.video_path);
-            g_autofree char *dir = g_path_get_dirname(thumb);
-            g_mkdir_with_parents(dir, 0700);
-            g_autoptr(GFile) from = g_file_new_for_path(app.thumb_path);
-            g_autoptr(GFile) to = g_file_new_for_path(thumb);
-            g_autoptr(GError) moved = NULL;
-            if (!g_file_move(from, to, G_FILE_COPY_OVERWRITE, NULL, NULL, NULL, &moved))
-                g_warning("thumbnail: %s", moved->message);
-        }
-    } else {
+    else
         g_warning("no video: %s", error);
-    }
     app.thumb_wanted = FALSE;
     app.stopping = FALSE;
     if (app.recorder_watch) {
@@ -408,11 +409,24 @@ video_done(int fd, gboolean with_audio)
     g_mkdir_with_parents(dir, 0755);
     g_free(app.video_path);
     app.video_path = g_build_filename(dir, name, NULL);
+    g_autofree char *part = g_strconcat(".", name, ".part", NULL);
+    app.part_path = g_build_filename(dir, part, NULL);
     app.video_fd = fd;
+    /* the thumbnail first (made at the start; if it is still being made, it comes late) */
+    if (app.thumb_path && g_file_test(app.thumb_path, G_FILE_TEST_EXISTS)) {
+        g_autofree char *thumb = thumbnail_for(app.video_path);
+        g_autofree char *thumbs = g_path_get_dirname(thumb);
+        g_autoptr(GFile) from = g_file_new_for_path(app.thumb_path);
+        g_autoptr(GFile) to = g_file_new_for_path(thumb);
+        g_autoptr(GError) moved = NULL;
+        g_mkdir_with_parents(thumbs, 0700);
+        if (!g_file_move(from, to, G_FILE_COPY_OVERWRITE, NULL, NULL, NULL, &moved))
+            g_warning("thumbnail: %s", moved->message);
+    }
     /* (qtdemux reads the camera's orientation, and mp4mux writes it again) */
     pipeline = g_strdup_printf(
         "fdsrc fd=%d ! qtdemux ! h264parse ! mp4mux name=m faststart=true "
-        "! filesink location=\"%s\" %s%s%s", fd, app.video_path,
+        "! filesink location=\"%s\" %s%s%s", fd, app.part_path,
         with_audio ? "filesrc location=\"" : "", with_audio ? app.audio_path : "",
         with_audio ? "\" ! matroskademux ! queue ! m." : "");
     app.mux = gst_parse_launch(pipeline, &error);
