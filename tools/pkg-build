@@ -38,6 +38,14 @@ image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-
 docker run --rm --platform linux/arm64 --memory 20g --cpus 8 -e MAKEFLAGS=-j6 -e CMAKE_BUILD_PARALLEL_LEVEL=6 \
     -v "$pkgdir:/pkg:ro" -v "$out:/out" "$image" bash -euo pipefail -c '
     pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+    # Packages built earlier into --out (e.g. libmce-glib for oFono) can be dependencies:
+    # a throwaway repository of them, after Arch'"'"'s own.
+    if ls /out/*.pkg.tar.zst >/dev/null 2>&1; then
+        repo-add -q /tmp/built.db.tar.zst /out/*.pkg.tar.zst >/dev/null 2>&1 || true
+        mkdir -p /tmp/built && ln -sf /out/*.pkg.tar.zst /tmp/built/ && mv /tmp/built.db* /tmp/built/
+        ln -sf built.db.tar.zst /tmp/built/built.db
+        printf "[built]\nSigLevel = Never\nServer = file:///tmp/built\n" >> /etc/pacman.conf
+    fi
     pacman -Syu --noconfirm --needed --disable-sandbox base-devel >/dev/null
     # Dependencies are installed here, as root: makepkg --syncdeps would need sudo, and
     # setuid does not work under qemu-user.

@@ -1,0 +1,28 @@
+# fprintd's PAM module alone (ADR 0021): Mobarchy's fingerprint sensor is offered as fprintd
+# offers it (mobarchy-fingerprint, net.reactivated.Fprint), and fprintd's own package, which
+# also brings the module, conflicts with that. The module only talks D-Bus, so it works
+# against either. Build: tools/repo-build mobarchy-pam-fprintd
+
+pkgname=mobarchy-pam-fprintd
+_pkgname=fprintd
+pkgver=1.94.5
+pkgrel=1
+pkgdesc="fprintd's PAM module (pam_fprintd.so), for a fingerprint service offering fprintd's interface"
+arch=(aarch64 x86_64)
+url="https://fprint.freedesktop.org/"
+license=(GPL-2.0-or-later)
+depends=(pam systemd-libs)
+makedepends=(meson libfprint polkit dbus glib2 glib2-devel systemd)
+_archive="$_pkgname-v$pkgver"
+source=("https://gitlab.freedesktop.org/libfprint/fprintd/-/archive/v$pkgver/$_archive.tar.gz")
+sha256sums=('a026ef34c31b25975275cc29a5e4eba2b54524769672095a5228098a08acd82c')
+
+build() {
+    arch-meson "$_archive" build -D pam=true -D man=false -D gtk_doc=false \
+        -D pam_modules_dir=/usr/lib/security
+    meson compile -C build pam_fprintd
+}
+
+package() {
+    install -Dm755 build/pam/pam_fprintd.so -t "$pkgdir/usr/lib/security"
+}

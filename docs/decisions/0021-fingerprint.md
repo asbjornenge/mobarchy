@@ -53,9 +53,10 @@ GNOME and KDE settings, polkit.
 
 ## Consequences
 
-- The lock screen can verify through fprintd's interface, and sudo and polkit can too
-  through pam_fprintd. pam_fprintd ships with fprintd, which this replaces, so it is built
-  on its own.
+- The lock screen verifies through fprintd's interface. sudo takes a finger through
+  pam_fprintd, which ships with fprintd (replaced here), so `mobarchy-pam-fprintd` builds the
+  module alone. Over ssh it steps aside: then the password. polkit would too, once the
+  shell has a polkit agent.
 - A finger can't unlock the keyring: that still takes the PIN. The same is true on
   Android after a reboot.
 - Trusty panicked the phone once (`KP: trusty crashed`), on the storage's first use, after

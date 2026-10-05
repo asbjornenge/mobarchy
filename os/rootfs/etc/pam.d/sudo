@@ -1,0 +1,9 @@
+#%PAM-1.0
+# A finger on the sensor instead of the password (ADR 0021): pam_fprintd, against fprintd's
+# interface (mobarchy-fingerprint on comet). It steps aside without a sensor or an enrolled
+# finger, and over ssh (a remote session can't touch the phone): then the password.
+auth		sufficient	pam_fprintd.so
+auth		include		system-auth
+account		include		system-auth
+session		include		system-auth
+session		optional	pam_systemd.so class=none
