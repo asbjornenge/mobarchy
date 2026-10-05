@@ -1,0 +1,4 @@
+# comet: when the AoC comes back after a restart (a crash: its watchdog reloads it), its
+# audio routing and mixer settings are gone. Its audio control service reappearing runs the
+# audio setup again. Only once it has run: at boot the setup itself starts the AoC.
+ACTION=="add", SUBSYSTEM=="aoc", KERNEL=="audio_input_control", RUN+="/bin/sh -c 'systemctl is-active -q mobarchy-audio.service && systemctl --no-block restart mobarchy-audio.service'"
