@@ -116,6 +116,11 @@ static struct {
     GstElement *audio, *mux;
     char *audio_path, *video_path;
     int video_fd;
+    /* the video's thumbnail: a frame from its start, turned upright */
+    gboolean thumb_wanted;
+    int thumb_turn;                 /* degrees clockwise to upright */
+    char *thumb_path;               /* (a temporary one, until the video has its name) */
+    GstElement *thumb;
     GQueue torch_calls;             /* SetTorch calls waiting for the bridge */
     int lid;                        /* the lid switch (SW_LID) device, or -1 */
     int folded;
@@ -149,6 +154,7 @@ unmap_buffers(void)
 static void photo_failed(const char *why);
 static void torch_changed(gboolean on);
 static gboolean audio_stop(void);
+static char *thumbnail_for(const char *path);
 static void record_finished(const char *error);
 static void streams_create(void);
 static gboolean bridge_connect(gpointer unused);
@@ -246,7 +252,14 @@ audio_start(void)
 
     g_free(app.audio_path);
     app.audio_path = g_build_filename(g_get_user_runtime_dir(), "mobarchy-camera-audio.mka", NULL);
-    pipeline = g_strdup_printf("pipewiresrc ! audioconvert ! audioresample ! opusenc bitrate=128000 "
+    /* The built-in microphones come in quiet (raw: Android's camcorder path has the AoC's
+     * processing): +18 dB, with the loudest parts compressed (5:1 above -6 dBFS) rather than
+     * clipped, so speech is clear and singing to a guitar isn't distorted. */
+    pipeline = g_strdup_printf("pipewiresrc ! audioconvert ! audio/x-raw,format=F32LE "
+                               "! volume volume=7.94 "
+                               "! audiodynamic characteristics=soft-knee mode=compressor "
+                               "threshold=0.5 ratio=0.2 "
+                               "! audioconvert ! audioresample ! opusenc bitrate=160000 "
                                "! matroskamux ! filesink location=\"%s\"", app.audio_path);
     app.audio = gst_parse_launch(pipeline, &error);
     if (!app.audio || gst_element_set_state(app.audio, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
@@ -290,10 +303,22 @@ record_finished(const char *error)
             g_dbus_method_invocation_return_value(app.record_stop, g_variant_new("(s)", app.video_path));
         app.record_stop = NULL;
     }
-    if (!error)
+    if (!error) {
         g_message("video: %s", app.video_path);
-    else
+        if (app.thumb_path && g_file_test(app.thumb_path, G_FILE_TEST_EXISTS)) {
+            g_autofree char *thumb = thumbnail_for(app.video_path);
+            g_autofree char *dir = g_path_get_dirname(thumb);
+            g_mkdir_with_parents(dir, 0700);
+            g_autoptr(GFile) from = g_file_new_for_path(app.thumb_path);
+            g_autoptr(GFile) to = g_file_new_for_path(thumb);
+            g_autoptr(GError) moved = NULL;
+            if (!g_file_move(from, to, G_FILE_COPY_OVERWRITE, NULL, NULL, NULL, &moved))
+                g_warning("thumbnail: %s", moved->message);
+        }
+    } else {
         g_warning("no video: %s", error);
+    }
+    app.thumb_wanted = FALSE;
     app.stopping = FALSE;
     if (app.recorder_watch) {
         g_bus_unwatch_name(app.recorder_watch);
@@ -317,6 +342,55 @@ on_mux_bus(GstBus *bus, GstMessage *msg, gpointer unused)
         return G_SOURCE_REMOVE;
     }
     return G_SOURCE_CONTINUE;
+}
+
+/* The thumbnail where other programs (and the camera's gallery) look for one: the
+ * freedesktop thumbnail spec's large size (256), named by the MD5 of the file's URI. */
+static char *
+thumbnail_for(const char *path)
+{
+    g_autofree char *uri = g_filename_to_uri(path, NULL, NULL);
+    g_autofree char *md5 = g_compute_checksum_for_string(G_CHECKSUM_MD5, uri ?: path, -1);
+    g_autofree char *name = g_strconcat(md5, ".png", NULL);
+    return g_build_filename(g_get_user_cache_dir(), "thumbnails", "large", name, NULL);
+}
+
+static gboolean
+on_thumb_bus(GstBus *bus, GstMessage *msg, gpointer unused)
+{
+    if (GST_MESSAGE_TYPE(msg) != GST_MESSAGE_EOS && GST_MESSAGE_TYPE(msg) != GST_MESSAGE_ERROR)
+        return G_SOURCE_CONTINUE;
+    if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR)
+        g_warning("no thumbnail for the video");
+    gst_element_set_state(app.thumb, GST_STATE_NULL);
+    g_clear_object(&app.thumb);
+    return G_SOURCE_REMOVE;
+}
+
+/* a frame of the stream (I420, as the sensor sees it) into the video's thumbnail */
+static void
+thumbnail_from(const uint8_t *frame, uint32_t w, uint32_t h)
+{
+    g_autofree char *raw = g_build_filename(g_get_user_runtime_dir(), "mobarchy-camera-thumb.i420", NULL);
+    g_autoptr(GError) error = NULL;
+    static const char *const flip[] = { "none", "clockwise", "rotate-180", "counterclockwise" };
+
+    if (app.thumb || !g_file_set_contents(raw, (const char *)frame, (gssize)w * h * 3 / 2, &error))
+        return;
+    g_free(app.thumb_path);
+    app.thumb_path = g_build_filename(g_get_user_runtime_dir(), "mobarchy-camera-thumb.png", NULL);
+    g_autofree char *pipeline = g_strdup_printf(
+        "filesrc location=\"%s\" blocksize=%u ! rawvideoparse width=%u height=%u format=i420 "
+        "framerate=1/1 ! videoflip method=%s ! videoscale ! videoconvert "
+        "! video/x-raw,format=RGB,width=256,pixel-aspect-ratio=1/1 ! pngenc snapshot=true "
+        "! filesink location=\"%s\"", raw, w * h * 3 / 2, w, h, flip[(app.thumb_turn / 90) % 4],
+        app.thumb_path);
+    app.thumb = gst_parse_launch(pipeline, &error);
+    if (!app.thumb)
+        return;
+    g_autoptr(GstBus) bus = gst_element_get_bus(app.thumb);
+    gst_bus_add_watch(bus, on_thumb_bus, NULL);
+    gst_element_set_state(app.thumb, GST_STATE_PLAYING);
 }
 
 /* VIDEO: the camera's MP4 (video only) and the sound, into one MP4 in the photos' folder */
@@ -406,6 +480,10 @@ on_bridge(gint fd, GIOCondition cond, gpointer unused)
         }
         break;
     case MSG_FRAME:
+        if (app.thumb_wanted && m.index < CAMERA_MAX_BUFFERS && app.maps[m.index]) {
+            app.thumb_wanted = FALSE;
+            thumbnail_from(app.maps[m.index], app.width, app.height);
+        }
         if (!app.active || !app.active->streaming || app.pending >= 0) {
             /* not wanted (or paused), or still busy: give back */
             bridge_send(MSG_RELEASE, NULL, 0, 0, m.index);
@@ -424,6 +502,7 @@ on_bridge(gint fd, GIOCondition cond, gpointer unused)
     case MSG_RECORDING:
         if (app.record_start) {
             audio_start();
+            app.thumb_wanted = TRUE;
             set_recording(TRUE);
             g_dbus_method_invocation_return_value(app.record_start, NULL);
             app.record_start = NULL;
@@ -699,6 +778,14 @@ on_method(GDBusConnection *bus, const char *sender, const char *path, const char
         } else {
             struct camera_message m = { .type = MSG_RECORD, .orientation = rotation % 360 };
             g_strlcpy(m.camera, camera, sizeof m.camera);
+            /* the thumbnail turns as the video does (the bridge's JPEG/MP4 orientation) */
+            app.thumb_turn = 0;
+            for (int i = 0; i < app.n_cameras; i++)
+                if (!g_strcmp0(app.cameras[i].info.camera, camera)) {
+                    int sensor = app.cameras[i].info.orientation, turned = (rotation + 45) / 90 * 90 % 360;
+                    app.thumb_turn = app.cameras[i].info.facing == FACING_FRONT
+                                   ? (sensor - turned + 360) % 360 : (sensor + turned) % 360;
+                }
             app.record_start = inv;
             send(app.bridge, &m, sizeof m, MSG_NOSIGNAL);
             app.recorder_watch = g_bus_watch_name_on_connection(bus, sender,

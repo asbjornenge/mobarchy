@@ -24,6 +24,11 @@ Rectangle {
     // photos or videos: what the shutter does
     property string mode: "photo"       // photo, video
     function isVideo(path: string): bool { return path.endsWith(".mp4") }
+    // a video's thumbnail (the camera source makes one: the freedesktop thumbnail spec)
+    function thumbnail(path: string): string {
+        return StandardPaths.writableLocation(StandardPaths.GenericCacheLocation)
+               + "/thumbnails/large/" + Qt.md5("file://" + path) + ".png"
+    }
     // what shows: the viewfinder, the photos in a grid, or one photo (swipe for the others)
     property string view: "finder"      // finder, grid, photo
     readonly property bool viewing: view !== "finder"
@@ -115,18 +120,21 @@ Rectangle {
                                            : photos.count > 0 ? photos.get(0, "filePath") : ""
             Image {
                 anchors.fill: parent
-                visible: !win.isVideo(parent.newest)
-                source: parent.newest !== "" && visible ? "file://" + parent.newest : ""
+                source: parent.newest === "" ? ""
+                      : win.isVideo(parent.newest) ? win.thumbnail(parent.newest)
+                      : "file://" + parent.newest
                 sourceSize: Qt.size(120, 120)
                 fillMode: Image.PreserveAspectCrop
                 autoTransform: true
                 asynchronous: true
+                cache: false
             }
             Text {
                 anchors.centerIn: parent
                 visible: win.isVideo(parent.newest)
-                color: Theme.fg
-                font { family: Theme.font; pixelSize: 24 }
+                color: "white"
+                style: Text.Outline
+                font { family: Theme.font; pixelSize: 22 }
                 text: "󰐊"
             }
             TapHandler {
@@ -275,8 +283,8 @@ Rectangle {
             height: gallery.height
             Image {
                 anchors.fill: parent
-                visible: !page.video
-                source: page.video ? "" : "file://" + page.filePath
+                // a video: its thumbnail until it plays
+                source: page.video ? win.thumbnail(page.filePath) : "file://" + page.filePath
                 sourceSize: Qt.size(gallery.width * 2, gallery.height * 2)
                 fillMode: Image.PreserveAspectFit
                 autoTransform: true
@@ -335,22 +343,23 @@ Rectangle {
                 anchors { fill: parent; margins: 2 }
                 visible: win.isVideo(cell.filePath)
                 color: Theme.panel
-                Text {
-                    anchors.centerIn: parent
-                    color: Theme.fg
-                    font { family: Theme.font; pixelSize: 32 }
-                    text: "󰐊"
-                }
             }
             Image {
                 anchors { fill: parent; margins: 2 }
-                visible: !win.isVideo(cell.filePath)
-                source: visible ? "file://" + cell.filePath : ""
+                source: win.isVideo(cell.filePath) ? win.thumbnail(cell.filePath) : "file://" + cell.filePath
                 sourceSize: Qt.size(grid.cellWidth * 2, grid.cellHeight * 2)
                 fillMode: Image.PreserveAspectCrop
                 autoTransform: true
                 asynchronous: true
                 clip: true
+            }
+            Text {
+                anchors { right: parent.right; bottom: parent.bottom; margins: 8 }
+                visible: win.isVideo(cell.filePath)
+                color: "white"
+                style: Text.Outline
+                font { family: Theme.font; pixelSize: 22 }
+                text: "󰐊"
             }
             TapHandler { onTapped: win.showPhoto(cell.index) }
         }
