@@ -83,7 +83,9 @@ done
 for p in "${adds[@]}"; do cp "$p" "$repo/"; done
 
 # The database: every package file in the directory, the newest version of each wins (-R
-# removes the files of the versions it replaces).
+# removes the files of the versions it replaces). Made afresh each time: a package rebuilt
+# with the same version kept its old checksum in an updated database.
+rm -f "$repo"/mobarchy.db* "$repo"/mobarchy.files*
 image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
     echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
 docker run --rm --platform linux/arm64 -u "$(id -u):$(id -g)" -v "$repo:/repo" "$image" \
