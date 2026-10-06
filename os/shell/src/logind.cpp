@@ -83,12 +83,9 @@ void Brightness::setLevel(qreal level)
         m_apply.start();
 }
 
-QString Brightness::sessionPath()
+DisplaySession displaySession()
 {
-    if (!m_session.isEmpty())
-        return m_session;
-    // The shell runs as a user service, outside any session, so session/auto does not
-    // work: ask for the user's display session. Two quick calls to logind, once.
+    // Two quick calls to logind: the user, then its display session.
     QDBusConnection bus = QDBusConnection::systemBus();
     QDBusMessage getUser = QDBusMessage::createMethodCall(Login1, ManagerPath, ManagerIface,
                                                           QStringLiteral("GetUser"));
@@ -105,12 +102,21 @@ QString Brightness::sessionPath()
         return {};
     // Display is (so): session ID and object path.
     const QDBusArgument arg = display.value().variant().value<QDBusArgument>();
-    QString id;
+    DisplaySession session;
     QDBusObjectPath path;
     arg.beginStructure();
-    arg >> id >> path;
+    arg >> session.id >> path;
     arg.endStructure();
-    m_session = path.path();
+    session.path = path.path();
+    return session;
+}
+
+QString Brightness::sessionPath()
+{
+    // The shell runs as a user service, outside any session, so session/auto does not
+    // work: the user's display session, asked once.
+    if (m_session.isEmpty())
+        m_session = displaySession().path;
     return m_session;
 }
 

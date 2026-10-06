@@ -1,0 +1,9 @@
+#%PAM-1.0
+# polkit asks the owner (ADR 0024): the shell is the authentication agent. A finger on the
+# sensor (pam_fprintd; it steps aside without a sensor or an enrolled finger, and when the
+# owner types the PIN instead) or the PIN (the owner's password, ADR 0013).
+auth		sufficient	pam_fprintd.so
+auth		include		system-auth
+account		include		system-auth
+password	include		system-auth
+session		include		system-auth

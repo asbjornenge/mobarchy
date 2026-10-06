@@ -4,7 +4,7 @@
 #   tools/repo-build --repo <dir> os/android-fingerprint
 pkgname=mobarchy-android-fingerprint
 pkgver=0.1
-pkgrel=2
+pkgrel=3
 pkgdesc="The fingerprint sensor of Mobarchy's Android container, for Linux as fprintd offers it"
 arch=(aarch64)
 depends=(glib2 dbus polkit)

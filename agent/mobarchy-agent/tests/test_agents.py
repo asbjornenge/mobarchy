@@ -74,3 +74,10 @@ def test_local_tool_schema_and_results():
     result = NS(is_error=False, content=[NS(type="text", text="ok"), NS(type="image")])
     assert local._result_text(result) == "ok\n[an image; you cannot see images]"
     assert local._result_text(NS(is_error=True, content=[NS(type="text", text="denied")])) == "ERROR: denied"
+
+
+def test_task_url_names_a_new_task():
+    from mobarchy_agent.agents import task_url
+    a, b = task_url("http://127.0.0.1:8765/mcp"), task_url("http://127.0.0.1:8765/mcp")
+    assert a.startswith("http://127.0.0.1:8765/mcp?task=") and a != b
+    assert "&task=" in task_url("http://h/mcp?x=1")

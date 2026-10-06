@@ -90,10 +90,78 @@ def test_tap_outside_screen_is_an_error(fakes):
     assert r.is_error
 
 
-def test_confirm_tools_denied_by_default(fakes):
+def test_confirm_tools_denied_by_policy(fakes, monkeypatch):
+    monkeypatch.setattr(server, "policy", Policy(tools={"run_shell": Decision.DENY}))
     r = call("run_shell", {"command": "true"})
     assert r.is_error
     assert "denied by device policy" in r.content[0].text
+
+
+@pytest.fixture
+def owner(monkeypatch, tmp_path):
+    """The owner on the other side of approval.ask: answers from a list, records the asks."""
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    asked, answers = [], []
+
+    def ask(tool, title, what):
+        asked.append((tool, what))
+        return answers.pop(0)
+    monkeypatch.setattr(server.approval, "ask", ask)
+    return asked, answers
+
+
+def test_confirm_tools_ask_the_owner(fakes, owner):
+    asked, answers = owner
+    answers += [server.approval.Answer.ONCE, server.approval.Answer.DENY]
+    r = call("run_shell", {"command": "echo hi"})
+    assert not r.is_error
+    assert json.loads(r.content[0].text)["stdout"] == "hi\n"
+    assert asked == [("run_shell", "echo hi")]
+    r = call("run_shell", {"command": "echo again"})
+    assert r.is_error and "declined" in r.content[0].text
+
+
+def test_allowed_for_the_task_asks_once_per_task(fakes, owner, monkeypatch):
+    asked, answers = owner
+    answers += [server.approval.Answer.TASK, server.approval.Answer.DENY]
+    task = ["t1"]
+    monkeypatch.setattr(server, "task_of", lambda ctx: task[0])
+    assert not call("run_shell", {"command": "true"}).is_error
+    assert not call("run_shell", {"command": "true"}).is_error
+    assert len(asked) == 1
+    # another task is asked again
+    task[0] = "t2"
+    assert call("run_shell", {"command": "true"}).is_error
+    assert len(asked) == 2
+
+
+def test_without_a_task_allow_for_the_task_is_once(fakes, owner):
+    asked, answers = owner
+    answers += [server.approval.Answer.TASK, server.approval.Answer.DENY]
+    assert not call("run_shell", {"command": "true"}).is_error
+    assert call("run_shell", {"command": "true"}).is_error
+
+
+def test_no_answer_is_no(fakes, owner, monkeypatch):
+    def fail(*a):
+        raise server.approval.ApprovalError("no shell")
+    monkeypatch.setattr(server.approval, "ask", fail)
+    r = call("run_shell", {"command": "true"})
+    assert r.is_error and "could not ask the owner" in r.content[0].text
+
+
+def test_a_locked_phone_is_not_asked(fakes, owner, tmp_path):
+    asked, _ = owner
+    (tmp_path / "mobarchy").mkdir()
+    (tmp_path / "mobarchy" / "locked").touch()
+    r = call("run_shell", {"command": "true"})
+    assert r.is_error and "locked" in r.content[0].text
+    assert asked == []
+
+
+def test_approval_detail():
+    assert server.approval.detail({"command": "pkexec pacman -S foo", "timeout_s": 30}) == "pkexec pacman -S foo"
+    assert '"id": "x"' in server.approval.detail({"id": "x"})
 
 
 def test_policy_override_allows_confirm_tool(fakes, monkeypatch):

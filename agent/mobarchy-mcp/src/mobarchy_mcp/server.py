@@ -10,18 +10,19 @@ from __future__ import annotations
 import argparse
 import configparser
 import functools
+import inspect
 import os
 import shlex
 import subprocess
 import time
 from pathlib import Path
 
-from mcp.server.mcpserver import Image, MCPServer
+from mcp.server.mcpserver import Context, Image, MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import bluetooth, browser, camera, clipboard, clock, media, network, power, store, webapps
+from . import approval, bluetooth, browser, camera, clipboard, clock, media, network, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -29,7 +30,10 @@ INSTRUCTIONS = """\
 You are operating a Mobarchy phone. Take a `screenshot` to see the screen.
 Coordinates for tap/swipe are logical pixels in the same space as the screenshot image.
 After acting, take a new screenshot to verify the result.
-Tools marked risk=confirm are irreversible or outward-facing and may be denied by the device's policy."""
+Tools marked risk=confirm are irreversible or outward-facing: the owner approves each call on the
+screen (or the device's policy denies them). Say what you are about to do before such a call.
+For root, use `pkexec COMMAND` in run_shell, never sudo: the owner then authorizes it with a
+finger or the PIN on the phone."""
 
 mcp = MCPServer(name="mobarchy", title="Mobarchy phone", version="0.1.0", instructions=INSTRUCTIONS)
 policy = Policy.load()
@@ -68,6 +72,40 @@ def locked() -> bool:
     return Path(runtime, "mobarchy", "locked").exists()
 
 
+# Tools the owner allowed for the rest of a task: task -> tool names. mobarchy-agent names
+# each run of the agent in the server's URL, ?task=ID (MCP itself is stateless); the last
+# few tasks are kept.
+_granted: dict[str, set[str]] = {}
+
+
+def task_of(ctx: Context | None) -> str | None:
+    try:
+        request = ctx.request_context.request if ctx is not None else None
+    except ValueError:
+        return None
+    query = getattr(request, "query_params", None)
+    return (query.get("task") if query is not None else None) or None
+
+
+def approve(name: str, title: str, arguments: dict, ctx: Context | None) -> None:
+    """The owner allows this call on the screen, or it doesn't run (ADR 0024)."""
+    if locked():
+        raise ToolError("the phone is locked: the owner can't be asked until they unlock it")
+    task = task_of(ctx)
+    if task and name in _granted.get(task, ()):
+        return
+    try:
+        answer = approval.ask(name, title, approval.detail(arguments))
+    except (approval.ApprovalError, subprocess.TimeoutExpired) as e:
+        raise ToolError(f"could not ask the owner, so not allowed: {e}") from e
+    if answer is approval.Answer.DENY:
+        raise ToolError("the owner declined this")
+    if answer is approval.Answer.TASK and task:
+        _granted.setdefault(task, set()).add(name)
+        while len(_granted) > 20:
+            del _granted[next(iter(_granted))]
+
+
 def tool(risk: Risk, title: str, screen: bool = False):
     """Register a tool with a risk level. The policy check runs before the tool body.
     screen: the tool sees or drives the screen, which a locked phone doesn't allow."""
@@ -79,19 +117,31 @@ def tool(risk: Risk, title: str, screen: bool = False):
 
     def decorator(fn):
         @functools.wraps(fn)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args, mcp_context: Context | None = None, **kwargs):
             if screen and locked():
                 raise ToolError("the phone is locked: the owner has to unlock it (with the PIN) first")
-            if policy.decide(fn.__name__, risk) is Decision.DENY:
+            decision = policy.decide(fn.__name__, risk)
+            if decision is Decision.DENY:
                 raise ToolError(
                     f"denied by device policy: '{fn.__name__}' has risk level '{risk}' "
                     f"(policy: {policy.source})"
                 )
+            if decision is Decision.ASK:
+                arguments = inspect.signature(fn).bind(*args, **kwargs)
+                arguments.apply_defaults()
+                approve(fn.__name__, title, dict(arguments.arguments), mcp_context)
             try:
                 return fn(*args, **kwargs)
             except comp.CompositorError as e:
                 raise ToolError(str(e)) from e
 
+        # The request's context comes in as mcp_context (for the session an approval is for);
+        # it isn't one of the tool's arguments.
+        sig = inspect.signature(fn, eval_str=True)
+        wrapper.__signature__ = sig.replace(parameters=[
+            *sig.parameters.values(),
+            inspect.Parameter("mcp_context", inspect.Parameter.KEYWORD_ONLY, default=None, annotation=Context)])
+        wrapper.__annotations__ = {**fn.__annotations__, "mcp_context": Context}
         wrapper.__doc__ = f"{fn.__doc__.strip()}\n\nRisk level: {risk}."
         return mcp.tool(title=title, annotations=annotations, meta={"mobarchy/risk": str(risk)})(wrapper)
 
@@ -503,8 +553,10 @@ def set_network_time(enabled: bool) -> dict:
 
 
 @tool(Risk.CONFIRM, "Run shell command")
-def run_shell(command: str, timeout_s: int = 30) -> dict:
-    """Run a shell command on the device as the session user. Returns exit code, stdout and stderr (truncated)."""
+def run_shell(command: str, timeout_s: int = 60) -> dict:
+    """Run a shell command on the device as the session user. Returns exit code, stdout and stderr (truncated).
+    The owner approves the command first. For root, prefix it with pkexec (never sudo). Raise
+    timeout_s for long work: an install with pkexec waits for the owner's finger too."""
     r = subprocess.run(["bash", "-lc", command], capture_output=True, text=True, timeout=timeout_s)
     return {"exit_code": r.returncode, "stdout": r.stdout[-8000:], "stderr": r.stderr[-4000:]}
 

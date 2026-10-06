@@ -6,6 +6,13 @@
 #include <QTimer>
 #include <QtQml/qqmlregistration.h>
 
+// The user's display session in logind: its ID and object path (empty: none). The shell runs
+// as a user service, outside any session, so this is the session it serves.
+struct DisplaySession {
+    QString id, path;
+};
+DisplaySession displaySession();
+
 class Brightness : public QObject
 {
     Q_OBJECT

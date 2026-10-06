@@ -196,6 +196,18 @@ QtObject {
         }
     }
     readonly property WifiPassword wifiPassword: WifiPassword { wifi: shell.wifi }
+    // The owner approves the agent's risky steps, and root, on the screen (ADR 0024). A
+    // locked phone turns the agent down; polkit's requests wait for the unlock.
+    readonly property Approvals approvals: Approvals { locked: shell.lockScreen.shown }
+    readonly property ApprovalSheet approvalSheet: ApprovalSheet {
+        approvals: shell.approvals
+        haptics: shell.haptics
+    }
+    readonly property PolkitAgent polkit: PolkitAgent { held: shell.lockScreen.shown }
+    readonly property AuthSheet authSheet: AuthSheet {
+        polkit: shell.polkit
+        haptics: shell.haptics
+    }
     // One sheet at a time.
     readonly property Connections drawerOpens: Connections {
         target: shell.drawer

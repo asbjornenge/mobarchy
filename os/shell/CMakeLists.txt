@@ -7,6 +7,7 @@ cmake_minimum_required(VERSION 3.21)
 project(mobarchy-shell VERSION 0.1 LANGUAGES C CXX)
 
 find_package(Qt6 6.5 REQUIRED COMPONENTS Gui GuiPrivate Quick DBus WaylandClient Multimedia Test)
+find_package(PolkitQt6-1 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PAM REQUIRED IMPORTED_TARGET pam)
 pkg_check_modules(XCRYPT REQUIRED IMPORTED_TARGET libxcrypt)
@@ -30,6 +31,7 @@ qt_add_qml_module(mobarchy-shell
     DEPENDENCIES QtMultimedia
     SOURCES
         src/apps.cpp src/apps.h
+        src/approvals.cpp src/approvals.h
         src/device.cpp src/device.h
         src/agent.cpp src/agent.h
         src/appstore.cpp src/appstore.h
@@ -47,6 +49,7 @@ qt_add_qml_module(mobarchy-shell
         src/mediaplayers.cpp src/mediaplayers.h
         src/notifications.cpp src/notifications.h
         src/pinlock.cpp src/pinlock.h
+        src/polkitagent.cpp src/polkitagent.h
         src/rfkill.cpp src/rfkill.h
         src/screenpower.cpp src/screenpower.h
         src/wifi.cpp src/wifi.h
@@ -74,6 +77,8 @@ qt_add_qml_module(mobarchy-shell
         qml/PinPad.qml
         qml/VolumeOsd.qml
         qml/WifiPassword.qml
+        qml/ApprovalSheet.qml
+        qml/AuthSheet.qml
         qml/Home.qml
         qml/Store.qml
         qml/KeyboardPanel.qml
@@ -95,6 +100,7 @@ qt6_generate_wayland_protocol_client_sources(mobarchy-shell
 target_include_directories(mobarchy-shell PRIVATE src)
 target_link_libraries(mobarchy-shell PRIVATE
     core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::WaylandClient Qt6::Multimedia
+    PolkitQt6-1::Agent
     PkgConfig::PIPEWIRE PkgConfig::PULSE PkgConfig::PAM PkgConfig::XCRYPT PkgConfig::XKBCOMMON)
 
 include(GNUInstallDirs)

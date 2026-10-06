@@ -12,9 +12,12 @@
  * Who may do what is polkit's, with fprintd's actions: net.reactivated.fprint.device.verify
  * and .enroll for one's own fingers, .setusername for someone else's.
  *
- * And one of its own, org.mobarchy.Fingerprint.ResetLockout (org.mobarchy.fingerprint.
- * reset-lockout): the matcher locks fingers out after too many wrong ones; the owner's PIN
- * (the lock screen gives it) lets them in again, as on Android.
+ * And two of its own, org.mobarchy.Fingerprint:
+ * - ResetLockout (org.mobarchy.fingerprint.reset-lockout): the matcher locks fingers out
+ *   after too many wrong ones; the owner's PIN (the lock screen gives it) lets them in again,
+ *   as on Android.
+ * - SkipVerify (.verify): the owner typed the PIN instead. The verify running (pam_fprintd's)
+ *   ends as "disconnected", and pam_fprintd steps aside for the password (ADR 0024).
  */
 #include "../protocol.h"
 
@@ -69,6 +72,7 @@ static const char introspection[] =
     "  </interface>"
     "  <interface name='org.mobarchy.Fingerprint'>"
     "    <method name='ResetLockout'/>"
+    "    <method name='SkipVerify'/>"
     "  </interface>"
     "</node>";
 
@@ -628,6 +632,20 @@ on_method(GDBusConnection *bus, const char *sender, const char *path, const char
     g_autoptr(GError) error = NULL;
 
     if (!strcmp(iface, "org.mobarchy.Fingerprint")) {
+        if (!strcmp(method, "SkipVerify")) {
+            if (!authorized(sender, "net.reactivated.fprint.device.verify")) {
+                FAIL(inv, "PermissionDenied", "Not authorized");
+                return;
+            }
+            /* as at a no-match: the verify's end is said now, the bridge's cancel follows */
+            if (app.action == VERIFY && !app.stopping) {
+                app.stopping = TRUE;
+                bridge_send(FP_CANCEL, NULL, 0);
+                emit("VerifyStatus", g_variant_new("(sb)", "verify-disconnected", TRUE));
+            }
+            g_dbus_method_invocation_return_value(inv, NULL);
+            return;
+        }
         if (!authorized(sender, "org.mobarchy.fingerprint.reset-lockout")) {
             FAIL(inv, "PermissionDenied", "Not authorized");
             return;

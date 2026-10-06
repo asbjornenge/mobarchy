@@ -1,17 +1,17 @@
 from mobarchy_mcp.policy import Decision, Policy, Risk
 
 
-def test_defaults_deny_confirm():
+def test_defaults_ask_for_confirm():
     p = Policy()
     assert p.decide("screenshot", Risk.READ) is Decision.ALLOW
     assert p.decide("tap", Risk.ACT) is Decision.ALLOW
-    assert p.decide("run_shell", Risk.CONFIRM) is Decision.DENY
+    assert p.decide("run_shell", Risk.CONFIRM) is Decision.ASK
 
 
 def test_missing_file_uses_defaults(tmp_path):
     p = Policy.load(tmp_path / "nope.toml")
     assert p.source == "built-in defaults"
-    assert p.decide("run_shell", Risk.CONFIRM) is Decision.DENY
+    assert p.decide("run_shell", Risk.CONFIRM) is Decision.ASK
 
 
 def test_tool_override_beats_risk_level(tmp_path):
@@ -21,3 +21,11 @@ def test_tool_override_beats_risk_level(tmp_path):
     assert p.decide("run_shell", Risk.CONFIRM) is Decision.ALLOW
     assert p.decide("tap", Risk.ACT) is Decision.ALLOW
     assert p.decide("swipe", Risk.ACT) is Decision.DENY
+
+
+def test_ask_in_the_file(tmp_path):
+    f = tmp_path / "policy.toml"
+    f.write_text('[risk]\nconfirm = "deny"\n[tools]\nrun_shell = "ask"\n')
+    p = Policy.load(f)
+    assert p.decide("run_shell", Risk.CONFIRM) is Decision.ASK
+    assert p.decide("store_remove", Risk.CONFIRM) is Decision.DENY

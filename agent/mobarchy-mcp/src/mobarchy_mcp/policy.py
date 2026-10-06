@@ -9,7 +9,7 @@ Policy file (TOML), default /etc/mobarchy/policy.toml:
     [risk]
     read = "allow"
     act = "allow"
-    confirm = "deny"       # no on-device confirmation UI yet, so deny
+    confirm = "ask"        # the owner answers on the screen (ADR 0024)
 
     [tools]
     run_shell = "allow"    # per-tool override
@@ -34,10 +34,11 @@ class Risk(enum.StrEnum):
 
 class Decision(enum.StrEnum):
     ALLOW = "allow"
+    ASK = "ask"            # the owner decides, call by call (approval.py, ADR 0024)
     DENY = "deny"
 
 
-DEFAULTS = {Risk.READ: Decision.ALLOW, Risk.ACT: Decision.ALLOW, Risk.CONFIRM: Decision.DENY}
+DEFAULTS = {Risk.READ: Decision.ALLOW, Risk.ACT: Decision.ALLOW, Risk.CONFIRM: Decision.ASK}
 
 
 @dataclass

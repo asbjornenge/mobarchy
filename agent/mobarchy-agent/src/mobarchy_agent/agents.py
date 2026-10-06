@@ -18,8 +18,9 @@ import shutil
 import socket
 import sys
 import tempfile
+import uuid
 from collections.abc import AsyncIterator
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from . import local
@@ -155,9 +156,11 @@ async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume
            "--permission-mode", "dontAsk", "--append-system-prompt", SYSTEM_PROMPT]
     if resume:
         cmd += ["--resume", resume]
+    # (a step the owner approves waits for them: up to two minutes, then root)
+    env = {**os.environ, "MCP_TOOL_TIMEOUT": "600000"}
     proc = await asyncio.create_subprocess_exec(
         *cmd, cwd=WORKDIR, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        stdin=asyncio.subprocess.DEVNULL, limit=16 * 1024 * 1024)
+        stdin=asyncio.subprocess.DEVNULL, limit=16 * 1024 * 1024, env=env)
     session = None
     finished = False
     last_text = ""
@@ -327,6 +330,8 @@ async def codex_run(prompt: str, config: Config, on_event: EventHandler, resume:
     args = ["--json", "--skip-git-repo-check",
             # The phone's tools. Codex's own shell runs read-only and never asks.
             "-c", f'mcp_servers.mobarchy.url="{config.mcp_url}"',
+            # (a step the owner approves waits for them: up to two minutes, then root)
+            "-c", "mcp_servers.mobarchy.tool_timeout_sec=600",
             "-c", 'approval_policy="never"', "-s", "read-only",
             "-c", "instructions=" + json.dumps(SYSTEM_PROMPT)]
     cmd = [exe, "exec", *args, "resume", resume, prompt] if resume else [exe, "exec", *args, prompt]
@@ -467,6 +472,11 @@ def current_conversation(new: bool = False) -> Conversation:
     return conv
 
 
+def task_url(url: str) -> str:
+    """The MCP server's URL naming a new task (mobarchy-mcp keeps "allowed for this task" per task)."""
+    return f"{url}{'&' if '?' in url else '?'}task={uuid.uuid4().hex}"
+
+
 async def run(prompt: str, config: Config, on_event: EventHandler, agent: str | None = None,
               new_conversation: bool = False) -> None:
     st = State.load()
@@ -493,6 +503,9 @@ async def run(prompt: str, config: Config, on_event: EventHandler, agent: str | 
             conv.save()
         await _emit(on_event, e)
 
+    # This run is a task of its own to the phone's tools: what the owner allows "for this
+    # task" ends with it (ADR 0024).
+    config = replace(config, mcp_url=task_url(config.mcp_url))
     resume = conv.sessions.get(agent)
     bridged = conv.bridged_prompt(agent, prompt)
     session = None
