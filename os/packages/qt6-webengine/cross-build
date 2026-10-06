@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# Cross-compile qt6-webengine for aarch64 on an x86_64 PC, and package it for Mobarchy's
+# repository. Chromium under qemu-user takes days; on the phone it cooks the phone.
+#
+#   cross-build --work <dir> [--repo <dir>] [step...]
+#
+#   --work   where everything goes (~100 GB: sysroot, sources, build tree): a big disk
+#   --repo   Mobarchy's repository: the package is added to it (tools/repo-build --add)
+#   steps    sysroot source host configure build package (default: all, in that order;
+#            each one is done again when named)
+#
+# How (Qt's own cross-compiling, as for embedded boards):
+#   sysroot    an Arch Linux ARM root with the package's dependencies (the
+#              mobarchy-alarm-base container under qemu-user, exported)
+#   source     qtwebengine at the PKGBUILD's tag with its Chromium, patched as the PKGBUILD
+#              patches (its _patch)
+#   host       an Arch Linux x86_64 container with the same Qt (its host tools: moc, rcc,
+#              and QtWebEngine's host build: gn, v8's snapshot) and clang/lld
+#   configure  CMake in the host container: target aarch64-unknown-linux-gnu, --sysroot
+#   build      ninja, niced (the PC stays usable); hours
+#   package    makepkg -R in the aarch64 container: the PKGBUILD's package() installs the
+#              cross-built tree
+set -euo pipefail
+here="$(cd "$(dirname "$0")" && pwd)"
+repo_root="$(cd "$here/../../.." && pwd)"
+work="" repo="" steps=()
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --work) work="$(realpath -m "$2")"; shift 2 ;;
+        --repo) repo="$(realpath -m "$2")"; shift 2 ;;
+        -*) echo "unknown argument: $1" >&2; exit 2 ;;
+        *) steps+=("$1"); shift ;;
+    esac
+done
+[ -n "$work" ] || { echo "usage: $0 --work <dir> [--repo <dir>] [step...]" >&2; exit 2; }
+[ ${#steps[@]} -gt 0 ] || steps=(sysroot source host configure build package)
+mkdir -p "$work"
+sysroot=$work/sysroot src=$work/src/qtwebengine build=$work/build out=$work/out
+host_image=mobarchy-qwe-host:latest
+alarm_image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
+    echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
+pkgvar() { bash -c "source '$here/PKGBUILD'; $1"; }
+pkgver=$(pkgvar 'echo $pkgver') pkgrel=$(pkgvar 'echo $pkgrel')
+jobs=${JOBS:-$(( $(nproc) - 2 ))}
+
+# In the x86_64 host container, the work directory at the same path.
+in_host() { docker run --rm -u "$(id -u):$(id -g)" -v "$work:$work" -w "$work" "$host_image" bash -euo pipefail -c "$1"; }
+
+step_sysroot() {
+    # The target's libraries and headers (and gcc's: crt files, libstdc++ headers). ttf-font
+    # is a choice: one of them.
+    local deps
+    deps=$(pkgvar 'printf "%s\n" "${depends[@]}" "${makedepends[@]}"' \
+        | grep -vxE 'cmake|git|gperf|ninja|nodejs|perf|python-html5lib' | sed 's/^ttf-font$/ttf-dejavu/' | tr '\n' ' ')
+    docker rm -f qwe-sysroot >/dev/null 2>&1 || true
+    docker run --name qwe-sysroot --platform linux/arm64 "$alarm_image" bash -c "
+        pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+        for i in 1 2 3; do
+            pacman -Syu --noconfirm --needed --disable-sandbox gcc pkgconf linux-api-headers $deps >/tmp/p.log 2>&1 && exit 0
+            sleep 30
+        done
+        tail -20 /tmp/p.log; exit 1"
+    rm -rf "$sysroot" && mkdir -p "$sysroot"
+    docker export qwe-sysroot | tar -x -C "$sysroot" --exclude='dev/*' --exclude='proc/*' --exclude='sys/*' \
+        --exclude='var/cache/pacman/pkg/*' 2>/dev/null || true
+    docker rm qwe-sysroot >/dev/null
+    [ -f "$sysroot/usr/lib/cmake/Qt6/qt.toolchain.cmake" ] || { echo "sysroot: no Qt" >&2; exit 1; }
+}
+
+step_source() {
+    # Upstream's tag and the Chromium it points at (shallow: Chromium's history is huge;
+    # a checkout there already is reset instead, a few GB less to fetch).
+    if [ "$(git -C "$src" describe --tags 2>/dev/null)" != "v$pkgver" ]; then
+        rm -rf "$src" && mkdir -p "$(dirname "$src")"
+        git clone -q --depth 1 -b "v$pkgver" https://github.com/qt/qtwebengine.git "$src"
+        local sha
+        sha=$(git -C "$src" ls-tree HEAD src/3rdparty | awk '{print $3}')
+        git -C "$src/src/3rdparty" init -q
+        git -C "$src/src/3rdparty" fetch -q --depth 1 https://github.com/qt/qtwebengine-chromium.git "$sha"
+        git -C "$src/src/3rdparty" checkout -q FETCH_HEAD
+    fi
+    git -C "$src" checkout -q -- . && git -C "$src/src/3rdparty" checkout -q -- .
+    bash -c "source '$here/PKGBUILD'; _patch '$src' '$here'" >/dev/null
+}
+
+step_host() {
+    docker build -q -t "$host_image" - <<'EOF'
+FROM archlinux:latest
+RUN pacman -Syu --noconfirm --needed base-devel clang lld llvm cmake ninja nodejs gperf python python-html5lib \
+      git pkgconf qt6-base qt6-declarative qt6-tools qt6-shadertools qt6-webchannel qt6-positioning \
+      qt6-websockets \
+    && pacman -Scc --noconfirm
+EOF
+    # The host's Qt has to be the target's (moc and rcc output, QtWebEngine's host build).
+    local host target
+    host=$(docker run --rm "$host_image" pacman -Q qt6-base | awk '{print $2}')
+    target=$(bash -c "grep -m1 '^%VERSION%' -A1 '$sysroot'/var/lib/pacman/local/qt6-base-*/desc | tail -1")
+    [ "${host%-*}" = "${target%-*}" ] || { echo "host Qt $host, target Qt $target: not the same" >&2; exit 1; }
+}
+
+step_configure() {
+    cat > "$work/aarch64.cmake" <<EOF
+# clang for aarch64 against the Arch Linux ARM sysroot (gcc's libstdc++ and crt files in it)
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+set(CMAKE_SYSROOT $sysroot)
+set(CMAKE_C_COMPILER clang)
+set(CMAKE_CXX_COMPILER clang++)
+set(CMAKE_C_COMPILER_TARGET aarch64-unknown-linux-gnu)
+set(CMAKE_CXX_COMPILER_TARGET aarch64-unknown-linux-gnu)
+set(CMAKE_AR llvm-ar)
+set(CMAKE_RANLIB llvm-ranlib)
+set(CMAKE_EXE_LINKER_FLAGS_INIT -fuse-ld=lld)
+set(CMAKE_SHARED_LINKER_FLAGS_INIT -fuse-ld=lld)
+set(CMAKE_MODULE_LINKER_FLAGS_INIT -fuse-ld=lld)
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+set(ENV{PKG_CONFIG_SYSROOT_DIR} $sysroot)
+set(ENV{PKG_CONFIG_LIBDIR} $sysroot/usr/lib/pkgconfig:$sysroot/usr/share/pkgconfig)
+EOF
+    # The PKGBUILD's features, for the same package.
+    in_host "cmake -S '$src' -B '$build' -G Ninja \
+        -DCMAKE_MESSAGE_LOG_LEVEL=STATUS \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_TOOLCHAIN_FILE='$sysroot/usr/lib/cmake/Qt6/qt.toolchain.cmake' \
+        -DQT_CHAINLOAD_TOOLCHAIN_FILE='$work/aarch64.cmake' \
+        -DQT_HOST_PATH=/usr \
+        -DQT_FEATURE_webengine_system_ffmpeg=ON \
+        -DQT_FEATURE_webengine_system_icu=ON \
+        -DQT_FEATURE_webengine_system_re2=ON \
+        -DQT_FEATURE_webengine_system_openh264=ON \
+        -DQT_FEATURE_webengine_proprietary_codecs=ON \
+        -DQT_FEATURE_webengine_kerberos=ON \
+        -DQT_FEATURE_webengine_webrtc_pipewire=ON" 2>&1 | tee "$work/configure.log" | tail -40
+}
+
+step_build() {
+    in_host "export NINJAFLAGS=-j$jobs; nice -n 15 cmake --build '$build' --parallel $jobs" \
+        > "$work/build.log" 2>&1 || { tail -40 "$work/build.log" >&2; exit 1; }
+}
+
+step_package() {
+    # The PKGBUILD's package(), on the cross-built tree, in the aarch64 container (cmake
+    # --install there; its paths are the same as here).
+    mkdir -p "$out" "$work/makepkg/src"
+    docker run --rm --platform linux/arm64 -v "$work:$work" -v "$here:/pkg:ro" "$alarm_image" bash -euo pipefail -c "
+        pacman -S --noconfirm --needed --disable-sandbox cmake >/dev/null
+        useradd -m builder && cp -r /pkg /tmp/pkg && chown -R builder /tmp/pkg $out $work/makepkg
+        su builder -c 'cd /tmp/pkg && QWE_BUILD=$build QWE_SRC=$src BUILDDIR=$work/makepkg PKGDEST=$out \
+            PKGEXT=.pkg.tar.zst makepkg -R -d -f --noconfirm'"
+    local pkg=$out/qt6-webengine-$pkgver-$pkgrel-aarch64.pkg.tar.zst
+    ls -la "$pkg"
+    [ -z "$repo" ] || "$repo_root/tools/repo-build" --repo "$repo" --add "$pkg"
+}
+
+for s in "${steps[@]}"; do
+    echo "== $s ($(date +%T))"
+    "step_$s"
+done

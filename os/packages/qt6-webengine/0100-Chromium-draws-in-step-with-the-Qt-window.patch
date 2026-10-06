@@ -1,0 +1,147 @@
+From: Mobarchy <noreply@mobarchy.invalid>
+Subject: [PATCH] Chromium draws in step with the Qt window
+
+Chromium's frames are begun by viz's synthetic BeginFrame source, which runs at
+BeginFrameArgs::DefaultInterval() (60 Hz) unless the display's vsync parameters are given,
+and QtWebEngine never gives them. On a 120 Hz screen, frames of a scrolling page then land
+one, two or three vsyncs apart: on a phone (Pixel 9 Pro Fold, Wayland, Qt Quick) scrolling
+judders, while the Qt Quick UI around it is smooth.
+
+After the window's frames (QQuickWindow::afterFrameEnd, about once a second), tell the
+view's ui::Compositor the screen's refresh interval and when the frame went out
+(SetDisplayVSyncParameters, which reaches viz's RootCompositorFrameSinkImpl). Measured on
+the phone, Qt Quick frames during a touch scroll: ~20% within 10 ms of the last; with
+--disable-frame-rate-limit ~95% (so the frames can be made in time: only the clock is
+wrong), but then an idle page costs a core.
+
+---
+diff --git a/src/core/render_widget_host_view_qt.cpp b/src/core/render_widget_host_view_qt.cpp
+index cd50ba6..04112fc 100644
+--- a/src/core/render_widget_host_view_qt.cpp
++++ b/src/core/render_widget_host_view_qt.cpp
+@@ -951,6 +951,11 @@ bool RenderWidgetHostViewQt::isPopup() const
+     return widget_type_ == content::WidgetType::kPopup;
+ }
+ 
++void RenderWidgetHostViewQt::setDisplayVSync(base::TimeTicks timebase, base::TimeDelta interval)
++{
++    m_uiCompositor->SetDisplayVSyncParameters(timebase, interval);
++}
++
+ bool RenderWidgetHostViewQt::updateScreenInfo()
+ {
+ 
+diff --git a/src/core/render_widget_host_view_qt.h b/src/core/render_widget_host_view_qt.h
+index e935ae8..80127b2 100644
+--- a/src/core/render_widget_host_view_qt.h
++++ b/src/core/render_widget_host_view_qt.h
+@@ -169,6 +169,7 @@ public:
+     void notifyShown();
+     void notifyHidden();
+     bool updateScreenInfo();
++    void setDisplayVSync(base::TimeTicks timebase, base::TimeDelta interval);
+     void handleWheelEvent(QWheelEvent *);
+     void processMotionEvent(const ui::MotionEvent &motionEvent);
+     void resetInputManagerState() { m_imState = 0; }
+diff --git a/src/core/render_widget_host_view_qt_delegate_client.cpp b/src/core/render_widget_host_view_qt_delegate_client.cpp
+index 0c0c588..00dbed2 100644
+--- a/src/core/render_widget_host_view_qt_delegate_client.cpp
++++ b/src/core/render_widget_host_view_qt_delegate_client.cpp
+@@ -208,6 +208,19 @@ void RenderWidgetHostViewQtDelegateClient::notifyHidden()
+     m_rwhv->notifyHidden();
+ }
+ 
++qint64 RenderWidgetHostViewQtDelegateClient::nowUs()
++{
++    return base::TimeTicks::Now().since_origin().InMicroseconds();
++}
++
++void RenderWidgetHostViewQtDelegateClient::displayVSync(qint64 frameEndUs, qreal refreshRate)
++{
++    if (refreshRate <= 0)
++        return;
++    m_rwhv->setDisplayVSync(base::TimeTicks() + base::Microseconds(frameEndUs),
++                            base::Seconds(1 / refreshRate));
++}
++
+ void RenderWidgetHostViewQtDelegateClient::visualPropertiesChanged()
+ {
+     RenderWidgetHostViewQtDelegate *delegate = m_rwhv->delegate();
+diff --git a/src/core/render_widget_host_view_qt_delegate_client.h b/src/core/render_widget_host_view_qt_delegate_client.h
+index 3fb1f8f..182469d 100644
+--- a/src/core/render_widget_host_view_qt_delegate_client.h
++++ b/src/core/render_widget_host_view_qt_delegate_client.h
+@@ -56,6 +56,10 @@ public:
+     void notifyShown();
+     void notifyHidden();
+     void visualPropertiesChanged();
++    // A frame of the window went out at frameEndUs (nowUs()'s clock), and the screen
++    // refreshes at refreshRate (Hz): Chromium's frames follow (any thread for nowUs).
++    void displayVSync(qint64 frameEndUs, qreal refreshRate);
++    static qint64 nowUs();
+     bool forwardEvent(QEvent *);
+     QVariant inputMethodQuery(Qt::InputMethodQuery query);
+     void closePopup();
+diff --git a/src/core/render_widget_host_view_qt_delegate_item.cpp b/src/core/render_widget_host_view_qt_delegate_item.cpp
+index 085bfa1..40f0193 100644
+--- a/src/core/render_widget_host_view_qt_delegate_item.cpp
++++ b/src/core/render_widget_host_view_qt_delegate_item.cpp
+@@ -10,6 +10,7 @@
+ #include <QtCore/qthread.h>
+ #include <QtGui/qevent.h>
+ #include <QtGui/qguiapplication.h>
++#include <QtGui/qscreen.h>
+ #include <QtGui/qwindow.h>
+ #include <QtQuick/qsgimagenode.h>
+ #include <rhi/qrhi.h>
+@@ -517,12 +518,30 @@ void RenderWidgetHostViewQtDelegateItem::onBeforeRendering()
+ 
+ void RenderWidgetHostViewQtDelegateItem::onAfterFrameEnd()
+ {
++    // Chromium draws on a clock of its own, at 60 Hz unless told otherwise, and out of phase
++    // with the window: on a 120 Hz screen its frames land one, two or three vsyncs apart, and
++    // scrolling judders. Tell it the window's rate and when a frame of the window went out
++    // (now); about once a second keeps it in phase.
++    const qint64 now = RenderWidgetHostViewQtDelegateClient::nowUs();
++    if (now - m_lastVSyncReportUs >= 1000000) {
++        m_lastVSyncReportUs = now;
++        QMetaObject::invokeMethod(this, [this, now] { reportVSync(now); }, Qt::QueuedConnection);
++    }
++
+     auto comp = compositor();
+     if (!comp || comp->type() != Compositor::Type::Native)
+         return;
+     comp->releaseTexture();
+ }
+ 
++void RenderWidgetHostViewQtDelegateItem::reportVSync(qint64 frameEndUs)
++{
++    QQuickWindow *win = QQuickItem::window();
++    if (!win || !win->screen() || !m_client)
++        return;
++    m_client->displayVSync(frameEndUs, win->screen()->refreshRate());
++}
++
+ void RenderWidgetHostViewQtDelegateItem::onWindowPosChanged()
+ {
+     polish();
+diff --git a/src/core/render_widget_host_view_qt_delegate_item.h b/src/core/render_widget_host_view_qt_delegate_item.h
+index 6775e40..c59f3e3 100644
+--- a/src/core/render_widget_host_view_qt_delegate_item.h
++++ b/src/core/render_widget_host_view_qt_delegate_item.h
+@@ -106,6 +106,7 @@ private Q_SLOTS:
+     void onBeforeRendering();
+     void onAfterFrameEnd();
+     void onWindowPosChanged();
++    void reportVSync(qint64 frameEndUs);
+     void onHide();
+ 
+ private:
+@@ -119,6 +120,7 @@ private:
+     QColor m_clearColor;
+     Qt::InputMethodHints m_inputMethodHints = {};
+     QList<QMetaObject::Connection> m_windowConnections;
++    qint64 m_lastVSyncReportUs = 0; // (render thread)
+     WebContentsAdapterClient *m_adapterClient = nullptr;
+     WidgetDelegate *m_widgetDelegate = nullptr;
+ };
