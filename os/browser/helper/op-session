@@ -1,24 +1,37 @@
 #!/usr/bin/env python3
 """The browser's 1Password session (ADR 0023): one long-lived process that runs op for it.
 
-1Password authorizes op per session (as a terminal's): a new process each time asks the
-owner again, every time. This runs for as long as the browser does, started by the user's
+1Password authorizes op per session (a terminal's): op run each time from a new process,
+with no terminal, asks the owner every time. This runs for as long as the browser does, started by the user's
 service manager (the 1Password app refuses op as the browser's own child), and runs each op
 the browser asks for in the same session.
 
 Protocol, one JSON object per line: in {"args": [...]}, out {"code": n, "out": "...", "err": "..."}.
 Nothing is kept; stdin closing (the browser gone) ends it.
 """
+import fcntl
 import json
+import os
 import subprocess
 import sys
+import termios
+
+# 1Password tells sessions apart by their terminal: without one, every op is a new session
+# (and asks again). So this session gets a terminal of its own, a pseudo-terminal it keeps
+# open, as its controlling terminal; each op runs on it.
+try:
+    os.setsid()
+except OSError:
+    pass                                # (already a session leader: systemd's service)
+master, slave = os.openpty()
+fcntl.ioctl(slave, termios.TIOCSCTTY, 0)
 
 for line in sys.stdin:
     try:
         args = json.loads(line)["args"]
         if not all(isinstance(a, str) for a in args):
             raise ValueError("args must be strings")
-        r = subprocess.run(["op", *args], capture_output=True, text=True, timeout=120)
+        r = subprocess.run(["op", *args], stdin=slave, capture_output=True, text=True, timeout=120)
         reply = {"code": r.returncode, "out": r.stdout, "err": r.stderr}
     except (ValueError, KeyError, json.JSONDecodeError, subprocess.TimeoutExpired, OSError) as e:
         reply = {"code": -1, "out": "", "err": str(e)}

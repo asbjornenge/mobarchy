@@ -2,7 +2,7 @@
 #   tools/repo-build os/browser
 pkgname=mobarchy-browser
 pkgver=0.1
-pkgrel=6
+pkgrel=7
 pkgdesc="Mobarchy's browser: QtWebEngine with a phone's chrome"
 arch=(aarch64 x86_64)
 depends=(python qt6-base qt6-declarative qt6-wayland qt6-webengine ttf-jetbrains-mono-nerd adwaita-icon-theme)
