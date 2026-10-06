@@ -83,8 +83,9 @@ Window {
         id: tabComponent
         WebEngineView {
             id: view
-            anchors { left: parent.left; right: parent.right; top: parent.top; bottom: parent.bottom
-                      bottomMargin: win.barShown && !win.fullScreen ? bar.height : 0 }
+            // The bar floats over the page: a page that changed size with the bar would be
+            // laid out again on every swipe that shows or hides it, and jump.
+            anchors.fill: parent
             visible: win.current === view
             profile: profile
             settings.scrollAnimatorEnabled: true

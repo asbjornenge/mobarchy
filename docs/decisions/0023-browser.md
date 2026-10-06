@@ -30,7 +30,8 @@ Mobarchy gets its own browser, `mobarchy-browser` (`os/browser`):
     from history), tabs, and a menu.
   - Tabs are a grid of cards.
   - Forward and back are a swipe along the bar.
-  - The bar hides while scrolling down and returns while scrolling up.
+  - The bar hides while scrolling down and returns while scrolling up. It floats over the
+    page: the page keeps its size, so showing or hiding the bar never lays it out again.
   - Sizes follow the shell's (Theme).
 - **Phone integration:**
   - Mobarchy's keyboard, through text input, as everywhere.
