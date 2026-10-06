@@ -186,8 +186,9 @@ step_package() {
     mkdir -p "$out" "$work/makepkg/src"
     docker run --rm --platform linux/arm64 -v "$work:$work" -v "$here:/pkg:ro" "$alarm_image" bash -euo pipefail -c "
         pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
-        pacman -Sy --noconfirm --needed --disable-sandbox cmake >/dev/null
-        useradd -m builder && cp -r /pkg /tmp/pkg && chown -R builder /tmp/pkg $out $work/makepkg
+        pacman -Sy --noconfirm --needed --disable-sandbox cmake fakeroot binutils >/dev/null
+        # (the build tree's owner: cmake --install writes to it)
+        useradd -m -o -u $(id -u) builder && cp -r /pkg /tmp/pkg && chown -R builder /tmp/pkg $out $work/makepkg
         su builder -c 'cd /tmp/pkg && QWE_BUILD=$build QWE_SRC=$src BUILDDIR=$work/makepkg PKGDEST=$out \
             PKGEXT=.pkg.tar.zst makepkg -R -d -f --noconfirm'"
     local pkg=$out/qt6-webengine-$pkgver-$pkgrel-aarch64.pkg.tar.zst
