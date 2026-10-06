@@ -453,6 +453,40 @@ Sheet {
                             onMoved: (v) => quick.volume.volume = v
                             onIconClicked: quick.volume.muted = !quick.volume.muted
                         }
+                        // where the sound goes, when there is a choice
+                        Flow {
+                            width: parent.width
+                            visible: quick.volume.available && quick.volume.outputs.length > 1
+                            spacing: 8
+                            Repeater {
+                                model: quick.volume.outputs
+                                delegate: Rectangle {
+                                    id: outputPill
+                                    required property var modelData
+                                    readonly property bool current: modelData.name === quick.volume.output
+                                    width: Math.min(outputLabel.implicitWidth + 32, parent.width)
+                                    height: 40
+                                    radius: 20
+                                    color: current ? Theme.accent : outputTap.pressed ? Theme.line : Theme.panel
+                                    Text {
+                                        id: outputLabel
+                                        anchors { left: parent.left; right: parent.right; leftMargin: 16; rightMargin: 16
+                                                  verticalCenter: parent.verticalCenter }
+                                        text: (outputPill.modelData.kind === "bluetooth" ? "󰂯  "
+                                               : outputPill.modelData.kind === "headphones" ? "󰋋  " : "󰓃  ")
+                                              + outputPill.modelData.description
+                                        elide: Text.ElideRight
+                                        color: outputPill.current ? Theme.bg : Theme.fg
+                                        font { family: Theme.font; pixelSize: 13; bold: outputPill.current }
+                                    }
+                                    MouseArea {
+                                        id: outputTap
+                                        anchors.fill: parent
+                                        onClicked: quick.volume.setOutput(outputPill.modelData.name)
+                                    }
+                                }
+                            }
+                        }
 
                         NowPlaying {
                             width: parent.width

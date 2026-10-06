@@ -2,6 +2,24 @@
 
 #include <pulse/pulseaudio.h>
 
+namespace {
+// What kind of output a sink is: a phone's own speaker, wired headphones, Bluetooth.
+QString kindOf(const pa_sink_info *sink)
+{
+    const char *bus = pa_proplist_gets(sink->proplist, PA_PROP_DEVICE_BUS);
+    const char *form = pa_proplist_gets(sink->proplist, PA_PROP_DEVICE_FORM_FACTOR);
+    if (bus && qstrcmp(bus, "bluetooth") == 0)
+        return QStringLiteral("bluetooth");
+    if (QByteArray(sink->name).startsWith("bluez_output."))
+        return QStringLiteral("bluetooth");
+    if (form && (qstrcmp(form, "headphone") == 0 || qstrcmp(form, "headset") == 0))
+        return QStringLiteral("headphones");
+    if (sink->active_port && sink->active_port->type == PA_DEVICE_PORT_TYPE_HEADPHONES)
+        return QStringLiteral("headphones");
+    return QStringLiteral("speaker");
+}
+}  // namespace
+
 Volume::Volume(QObject *parent)
     : QObject(parent)
 {
@@ -47,8 +65,12 @@ void Volume::contextState(pa_context *c, void *self)
     auto *v = static_cast<Volume *>(self);
     switch (pa_context_get_state(c)) {
     case PA_CONTEXT_READY:
-        pa_context_set_subscribe_callback(c, [](pa_context *, pa_subscription_event_type_t, uint32_t, void *self) {
-            static_cast<Volume *>(self)->refresh();
+        pa_context_set_subscribe_callback(c, [](pa_context *, pa_subscription_event_type_t t, uint32_t index, void *self) {
+            auto *v = static_cast<Volume *>(self);
+            if ((t & PA_SUBSCRIPTION_EVENT_FACILITY_MASK) == PA_SUBSCRIPTION_EVENT_SINK
+                && (t & PA_SUBSCRIPTION_EVENT_TYPE_MASK) == PA_SUBSCRIPTION_EVENT_NEW)
+                v->sinkAdded(index);
+            v->refresh();
         }, v);
         pa_operation_unref(pa_context_subscribe(
             c, pa_subscription_mask_t(PA_SUBSCRIPTION_MASK_SINK | PA_SUBSCRIPTION_MASK_SERVER), nullptr, nullptr));
@@ -93,11 +115,86 @@ void Volume::refresh()
     }, this);
     if (op)
         pa_operation_unref(op);
+
+    // The outputs, gathered here and handed over at the end of the list.
+    struct Listing {
+        Volume *v;
+        QVariantList outputs;
+    };
+    op = pa_context_get_sink_info_list(m_context, [](pa_context *, const pa_sink_info *sink, int eol, void *data) {
+        auto *l = static_cast<Listing *>(data);
+        if (eol) {
+            Volume *v = l->v;
+            QVariantList outputs = std::move(l->outputs);
+            delete l;
+            QMetaObject::invokeMethod(v, [v, outputs] {
+                if (outputs != v->m_outputs) {
+                    v->m_outputs = outputs;
+                    emit v->outputsChanged();
+                }
+            }, Qt::QueuedConnection);
+            return;
+        }
+        l->outputs.append(QVariantMap{
+            {QStringLiteral("name"), QString::fromUtf8(sink->name)},
+            {QStringLiteral("description"), QString::fromUtf8(sink->description)},
+            {QStringLiteral("kind"), kindOf(sink)},
+        });
+    }, new Listing{this, {}});
+    if (op)
+        pa_operation_unref(op);
+}
+
+// PulseAudio thread: a sink came. Headphones and Bluetooth take over (the owner just put them
+// on); a speaker coming back doesn't.
+void Volume::sinkAdded(uint32_t index)
+{
+    pa_operation *op = pa_context_get_sink_info_by_index(m_context, index,
+        [](pa_context *, const pa_sink_info *sink, int eol, void *self) {
+            if (eol || !sink || kindOf(sink) == QLatin1String("speaker"))
+                return;
+            auto *v = static_cast<Volume *>(self);
+            const QString name = QString::fromUtf8(sink->name);
+            QMetaObject::invokeMethod(v, [v, name] { v->setOutput(name); }, Qt::QueuedConnection);
+        }, this);
+    if (op)
+        pa_operation_unref(op);
+}
+
+void Volume::setOutput(const QString &name)
+{
+    if (!m_context || name.isEmpty())
+        return;
+    const QByteArray sink = name.toUtf8();
+    qInfo() << "volume: sound goes to" << name;
+    pa_threaded_mainloop_lock(m_loop);
+    // The default (where new sounds go, remembered by WirePlumber), and what plays now.
+    if (pa_operation *op = pa_context_set_default_sink(m_context, sink.constData(), nullptr, nullptr))
+        pa_operation_unref(op);
+    struct Move {
+        QByteArray sink;
+    };
+    pa_operation *op = pa_context_get_sink_input_info_list(m_context,
+        [](pa_context *c, const pa_sink_input_info *input, int eol, void *data) {
+            auto *m = static_cast<Move *>(data);
+            if (eol) {
+                delete m;
+                return;
+            }
+            if (pa_operation *op = pa_context_move_sink_input_by_name(c, input->index, m->sink.constData(), nullptr, nullptr))
+                pa_operation_unref(op);
+        }, new Move{sink});
+    if (op)
+        pa_operation_unref(op);
+    pa_threaded_mainloop_unlock(m_loop);
 }
 
 void Volume::update(bool available, const QByteArray &sink, int channels, qreal volume, bool muted)
 {
-    m_sink = sink;
+    if (sink != m_sink) {
+        m_sink = sink;
+        emit outputsChanged();
+    }
     m_channels = channels > 0 ? channels : 2;
     if (available != m_available || !qFuzzyCompare(volume + 1, m_volume + 1) || muted != m_muted) {
         m_available = available;
