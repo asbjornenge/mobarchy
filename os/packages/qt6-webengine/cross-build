@@ -42,10 +42,10 @@ alarm_image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mob
 pkgvar() { bash -c "source '$here/PKGBUILD'; $1"; }
 pkgver=$(pkgvar 'echo $pkgver') pkgrel=$(pkgvar 'echo $pkgrel')
 # The build's memory: capped (a Chromium build at full width ran a 60 GB PC out of memory and
-# took the desktop with it), and the jobs to fit (~3 GB each for clang on Chromium, some
-# much more): MEMORY=24g JOBS=8 by default.
-memory=${MEMORY:-24g}
-jobs=${JOBS:-$(( ${memory%g} / 3 < $(nproc) - 2 ? ${memory%g} / 3 : $(nproc) - 2 ))}
+# took the desktop with it), and the jobs to fit (~4 GB each: v8's jumbo units take
+# several): MEMORY=32g JOBS=8 by default.
+memory=${MEMORY:-32g}
+jobs=${JOBS:-$(( ${memory%g} / 4 < $(nproc) - 2 ? ${memory%g} / 4 : $(nproc) - 2 ))}
 
 # In the x86_64 host container, the work directory at the same path, and the host's gn on
 # PATH (QtWebEngine's gn step looks for it there, in a CMake run of its own).
