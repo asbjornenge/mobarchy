@@ -29,3 +29,5 @@ target_link_libraries(mobarchy-browser PRIVATE Qt6::Gui Qt6::Quick Qt6::DBus Qt6
 
 install(TARGETS mobarchy-browser RUNTIME DESTINATION bin)
 install(FILES org.mobarchy.Browser.desktop DESTINATION share/applications)
+install(PROGRAMS helper/op-session DESTINATION lib/mobarchy-browser)
+target_compile_definitions(mobarchy-browser PRIVATE OP_SESSION="${CMAKE_INSTALL_PREFIX}/lib/mobarchy-browser/op-session")

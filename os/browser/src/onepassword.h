@@ -4,6 +4,8 @@
 #pragma once
 
 #include <QObject>
+#include <QProcess>
+#include <QQueue>
 #include <QVariantList>
 #include <QtQml/qqmlregistration.h>
 
@@ -36,9 +38,17 @@ signals:
                           const QString &error);
 
 private:
-    void run(const QStringList &args, std::function<void(int, const QByteArray &, const QString &)> done);
+    using Done = std::function<void(int, const QByteArray &, const QString &)>;
+    void run(const QStringList &args, Done done);
+    void next();
     void setBusy(bool busy);
 
     QString m_op;
     bool m_busy = false;
+    // the session (helper/op-session): one process for the browser's lifetime, so 1Password
+    // asks once per session, not at every login
+    QProcess *m_session = nullptr;
+    QByteArray m_buffer;
+    QQueue<QPair<QStringList, Done>> m_queue;
+    bool m_waiting = false;
 };

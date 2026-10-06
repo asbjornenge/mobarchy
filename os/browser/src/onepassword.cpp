@@ -34,28 +34,58 @@ static QString explain(const QString &stderrText)
     return e.section(QLatin1Char('\n'), -1).remove(QRegularExpression(QStringLiteral("^\\[ERROR\\] [^ ]+ [^ ]+ ")));
 }
 
-void OnePassword::run(const QStringList &args, std::function<void(int, const QByteArray &, const QString &)> done)
+void OnePassword::run(const QStringList &args, Done done)
 {
-    auto *p = new QProcess(this);
+    m_queue.enqueue({args, done});
     setBusy(true);
-    connect(p, &QProcess::finished, this, [this, p, done](int code) {
-        p->deleteLater();
-        setBusy(false);
-        done(code, p->readAllStandardOutput(), QString::fromUtf8(p->readAllStandardError()));
-    });
-    connect(p, &QProcess::errorOccurred, this, [this, p, done](QProcess::ProcessError e) {
-        if (e != QProcess::FailedToStart)
-            return;
-        p->deleteLater();
-        setBusy(false);
-        done(-1, {}, tr("1Password's CLI (op) isn't installed"));
-    });
-    // Through the user's service manager, not as the browser's child: the 1Password app
-    // drops op's connection when op's parent is the browser ("InvalidClientInfo" in its log;
-    // started from a shell or by systemd, op is accepted).
-    p->start(QStringLiteral("systemd-run"),
-             QStringList{QStringLiteral("--user"), QStringLiteral("--wait"), QStringLiteral("--pipe"),
-                         QStringLiteral("--quiet"), QStringLiteral("--collect"), m_op} + args);
+    next();
+}
+
+// One request at a time, through the session (started on first use, again if it ended).
+void OnePassword::next()
+{
+    if (m_waiting || m_queue.isEmpty()) {
+        if (m_queue.isEmpty() && !m_waiting)
+            setBusy(false);
+        return;
+    }
+    if (!m_session || m_session->state() == QProcess::NotRunning) {
+        delete m_session;
+        m_session = new QProcess(this);
+        m_buffer.clear();
+        // Started by the user's service manager, not as the browser's child: the 1Password
+        // app drops op's connection when op's parent is the browser ("InvalidClientInfo").
+        connect(m_session, &QProcess::readyReadStandardOutput, this, [this] {
+            m_buffer += m_session->readAllStandardOutput();
+            int nl;
+            while ((nl = m_buffer.indexOf('\n')) >= 0) {
+                const QJsonObject r = QJsonDocument::fromJson(m_buffer.left(nl)).object();
+                m_buffer.remove(0, nl + 1);
+                if (!m_waiting || m_queue.isEmpty())
+                    continue;
+                m_waiting = false;
+                auto [args, done] = m_queue.dequeue();
+                done(r.value(QStringLiteral("code")).toInt(-1),
+                     r.value(QStringLiteral("out")).toString().toUtf8(),
+                     r.value(QStringLiteral("err")).toString());
+                next();
+            }
+        });
+        connect(m_session, &QProcess::finished, this, [this] {
+            if (m_waiting && !m_queue.isEmpty()) {
+                m_waiting = false;
+                auto [args, done] = m_queue.dequeue();
+                done(-1, {}, tr("1Password's session ended"));
+            }
+            QMetaObject::invokeMethod(this, &OnePassword::next, Qt::QueuedConnection);
+        });
+        m_session->start(QStringLiteral("systemd-run"),
+                         {QStringLiteral("--user"), QStringLiteral("--pipe"), QStringLiteral("--quiet"),
+                          QStringLiteral("--collect"), QStringLiteral(OP_SESSION)});
+    }
+    m_waiting = true;
+    const QJsonObject req{{QStringLiteral("args"), QJsonArray::fromStringList(m_queue.head().first)}};
+    m_session->write(QJsonDocument(req).toJson(QJsonDocument::Compact) + '\n');
 }
 
 bool OnePassword::matches(const QString &loginUrl, const QString &host)
