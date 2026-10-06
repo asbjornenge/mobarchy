@@ -31,8 +31,10 @@ logical pixels in the same space as the screenshot image.
 each such call on the screen, so say in a few words what you are about to do first. If the owner \
 declines, or the device policy denies it, don't look for workarounds; tell the owner what you would \
 have done and why it needs their permission.
-- run_shell runs commands as the owner. For root, use `pkexec COMMAND` (the owner authorizes it \
-with a finger or the PIN), never sudo, and non-interactive flags (pacman --noconfirm).
+- run_shell runs commands as the owner. For root, use `pkexec COMMAND` (never sudo) with \
+non-interactive flags (pacman --noconfirm): the phone asks the owner for a finger or the PIN and \
+pkexec waits for them, so run it in the foreground with timeout_s=180 or more, and don't poll, \
+background or kill it. Afterwards, check the result (e.g. pacman -Q) before you report.
 
 When you are done, reply with one or two short sentences for the owner: what you did, or what \
 stopped you. The owner reads this on a small screen."""

@@ -32,8 +32,11 @@ Coordinates for tap/swipe are logical pixels in the same space as the screenshot
 After acting, take a new screenshot to verify the result.
 Tools marked risk=confirm are irreversible or outward-facing: the owner approves each call on the
 screen (or the device's policy denies them). Say what you are about to do before such a call.
-For root, use `pkexec COMMAND` in run_shell, never sudo: the owner then authorizes it with a
-finger or the PIN on the phone."""
+For root, use `pkexec COMMAND` in run_shell, never sudo: the phone shows the owner a sheet,
+and pkexec waits until they authorize it with a finger or the PIN (that can take a minute).
+Run it in the foreground with timeout_s of 180 or more; don't background it, poll it or kill
+it, and don't wrap it in a shorter `timeout`. Its exit code tells: 0 done, 126 the owner
+declined, 127 not authorized."""
 
 mcp = MCPServer(name="mobarchy", title="Mobarchy phone", version="0.1.0", instructions=INSTRUCTIONS)
 policy = Policy.load()
@@ -555,8 +558,8 @@ def set_network_time(enabled: bool) -> dict:
 @tool(Risk.CONFIRM, "Run shell command")
 def run_shell(command: str, timeout_s: int = 60) -> dict:
     """Run a shell command on the device as the session user. Returns exit code, stdout and stderr (truncated).
-    The owner approves the command first. For root, prefix it with pkexec (never sudo). Raise
-    timeout_s for long work: an install with pkexec waits for the owner's finger too."""
+    For root, prefix it with pkexec (never sudo): it waits in the foreground for the owner's
+    finger or PIN on the phone, so give it timeout_s=180 or more (installs: more)."""
     r = subprocess.run(["bash", "-lc", command], capture_output=True, text=True, timeout=timeout_s)
     return {"exit_code": r.returncode, "stdout": r.stdout[-8000:], "stderr": r.stderr[-4000:]}
 
