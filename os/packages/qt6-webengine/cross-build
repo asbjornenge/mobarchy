@@ -15,7 +15,7 @@
 #   source     qtwebengine at the PKGBUILD's tag with its Chromium, patched as the PKGBUILD
 #              patches (its _patch)
 #   host       an Arch Linux x86_64 container with the same Qt (its host tools: moc, rcc,
-#              and QtWebEngine's host build: gn, v8's snapshot) and clang/lld
+#              and QtWebEngine's host build: v8's snapshot) and clang/lld; gn built in it
 #   configure  CMake in the host container: target aarch64-unknown-linux-gnu, --sysroot
 #   build      ninja, niced (the PC stays usable); hours
 #   package    makepkg -R in the aarch64 container: the PKGBUILD's package() installs the
@@ -43,8 +43,12 @@ pkgvar() { bash -c "source '$here/PKGBUILD'; $1"; }
 pkgver=$(pkgvar 'echo $pkgver') pkgrel=$(pkgvar 'echo $pkgrel')
 jobs=${JOBS:-$(( $(nproc) - 2 ))}
 
-# In the x86_64 host container, the work directory at the same path.
-in_host() { docker run --rm -u "$(id -u):$(id -g)" -v "$work:$work" -w "$work" "$host_image" bash -euo pipefail -c "$1"; }
+# In the x86_64 host container, the work directory at the same path, and the host's gn on
+# PATH (QtWebEngine's gn step looks for it there, in a CMake run of its own).
+in_host() {
+    docker run --rm -u "$(id -u):$(id -g)" -v "$work:$work" -w "$work" \
+        -e PATH="$work/host/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" "$host_image" bash -euo pipefail -c "$1"
+}
 
 step_sysroot() {
     # The target's libraries and headers (and gcc's: crt files, libstdc++ headers). ttf-font
@@ -60,9 +64,11 @@ step_sysroot() {
             sleep 30
         done
         tail -20 /tmp/p.log; exit 1"
-    rm -rf "$sysroot" && mkdir -p "$sysroot"
-    docker export qwe-sysroot | tar -x -C "$sysroot" --exclude='dev/*' --exclude='proc/*' --exclude='sys/*' \
-        --exclude='var/cache/pacman/pkg/*' 2>/dev/null || true
+    [ ! -d "$sysroot" ] || { chmod -R u+w "$sysroot" && rm -rf "$sysroot"; }
+    mkdir -p "$sysroot"
+    # (anchored: usr/include/sys is not sys)
+    docker export qwe-sysroot | tar -x -C "$sysroot" --anchored --exclude='dev/*' --exclude='proc/*' \
+        --exclude='sys/*' --exclude='var/cache/pacman/pkg/*' 2>/dev/null || true
     docker rm qwe-sysroot >/dev/null
     [ -f "$sysroot/usr/lib/cmake/Qt6/qt.toolchain.cmake" ] || { echo "sysroot: no Qt" >&2; exit 1; }
 }
@@ -84,11 +90,14 @@ step_source() {
 }
 
 step_host() {
-    docker build -q -t "$host_image" - <<'EOF'
+    # The package's dependencies here too: Chromium's host toolchain builds tools that link
+    # some of them (nss, ...).
+    local deps
+    deps=$(pkgvar 'printf "%s\n" "${depends[@]}" "${makedepends[@]}"' | sed 's/^ttf-font$/ttf-dejavu/' | tr '\n' ' ')
+    docker build -q -t "$host_image" - <<EOF
 FROM archlinux:latest
 RUN pacman -Syu --noconfirm --needed base-devel clang lld llvm cmake ninja nodejs gperf python python-html5lib \
-      git pkgconf qt6-base qt6-declarative qt6-tools qt6-shadertools qt6-webchannel qt6-positioning \
-      qt6-websockets \
+      git pkgconf qt6-shadertools $deps \
     && pacman -Scc --noconfirm
 EOF
     # The host's Qt has to be the target's (moc and rcc output, QtWebEngine's host build).
@@ -96,6 +105,11 @@ EOF
     host=$(docker run --rm "$host_image" pacman -Q qt6-base | awk '{print $2}')
     target=$(bash -c "grep -m1 '^%VERSION%' -A1 '$sysroot'/var/lib/pacman/local/qt6-base-*/desc | tail -1")
     [ "${host%-*}" = "${target%-*}" ] || { echo "host Qt $host, target Qt $target: not the same" >&2; exit 1; }
+    # gn, for the host: a cross build takes it ready-made (QtWebEngine's own, src/gn)
+    in_host "cmake -S '$src/src/gn' -B '$work/gn-build' -G Ninja -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX='$work/host' >/dev/null && cmake --build '$work/gn-build' >/dev/null \
+        && cmake --install '$work/gn-build' >/dev/null"
+    "$work/host/bin/gn" --version
 }
 
 step_configure() {
@@ -128,6 +142,7 @@ EOF
         -DCMAKE_TOOLCHAIN_FILE='$sysroot/usr/lib/cmake/Qt6/qt.toolchain.cmake' \
         -DQT_CHAINLOAD_TOOLCHAIN_FILE='$work/aarch64.cmake' \
         -DQT_HOST_PATH=/usr \
+        -DGn_EXECUTABLE='$work/host/bin/gn' \
         -DQT_FEATURE_webengine_system_ffmpeg=ON \
         -DQT_FEATURE_webengine_system_icu=ON \
         -DQT_FEATURE_webengine_system_re2=ON \
