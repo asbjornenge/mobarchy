@@ -21,7 +21,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import bluetooth, camera, clipboard, clock, media, network, power, store, webapps
+from . import bluetooth, browser, camera, clipboard, clock, media, network, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -381,6 +381,24 @@ def take_photo(facing: str = "back") -> list:
     except camera.CameraError as e:
         raise ToolError(f"camera: {e}") from e
     return [f"Saved as {path}", Image(path=path)]
+
+
+# The browser shows on the screen, and its tabs are the owner's browsing: not while the
+# phone is locked (ADR 0023).
+@tool(Risk.ACT, "Open a web page", screen=True)
+def browser_open(url: str) -> str:
+    """Open a web page (http or https) in a new tab of the phone's browser, which the
+    owner sees and uses (with their logins), and bring it to the front."""
+    try:
+        return f"Opened {browser.open_url(url)}"
+    except browser.BrowserError as e:
+        raise ToolError(f"browser: {e}") from e
+
+
+@tool(Risk.READ, "List the browser's tabs", screen=True)
+def browser_tabs() -> dict:
+    """The browser's open tabs: title, URL, and which one is in front."""
+    return {"tabs": browser.tabs()}
 
 
 @tool(Risk.READ, "Browse the app store")
