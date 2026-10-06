@@ -63,9 +63,19 @@ Item {
         radius: 20
         color: Theme.panel
         MouseArea { anchors.fill: parent }
+        // (a long list scrolls)
+        Flickable {
+            id: list
+            anchors { fill: parent; margins: 20 }
+            contentHeight: content.implicitHeight
+            clip: true
+            interactive: contentHeight > height
+            boundsBehavior: Flickable.StopAtBounds
+            maximumFlickVelocity: Theme.flickVelocity
+            flickDeceleration: Theme.flickDeceleration
         Column {
             id: content
-            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 20 }
+            width: list.width
             spacing: 12
             Text {
                 text: "󰌋  " + qsTr("1Password · %1").arg(sheet.host)
@@ -137,6 +147,7 @@ Item {
                     }
                 }
             }
+        }
         }
     }
 }
