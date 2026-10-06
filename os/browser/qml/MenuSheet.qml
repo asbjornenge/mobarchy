@@ -43,8 +43,8 @@ Item {
             BarButton { width: 72; icon: menu.desktopSite ? "󰄜" : "󰍹"
                         label: menu.desktopSite ? qsTr("Phone site") : qsTr("Desktop site")
                         onClicked: { menu.close(); menu.toggleDesktop() } }
-            BarButton { width: 72; icon: "󰛁"; label: qsTr("Text −"); onClicked: menu.textSmaller() }
-            BarButton { width: 72; icon: "󰛂"; label: qsTr("Text +"); onClicked: menu.textBigger() }
+            BarButton { width: 72; icon: "A−"; label: qsTr("Smaller"); onClicked: menu.textSmaller() }
+            BarButton { width: 72; icon: "A+"; label: qsTr("Bigger"); onClicked: menu.textBigger() }
             Item {
                 width: 72; height: 64
                 Text {

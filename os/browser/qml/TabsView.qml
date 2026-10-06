@@ -13,6 +13,7 @@ Rectangle {
 
     color: Theme.bg
     visible: false
+    MouseArea { anchors.fill: parent }  // (the page and its bar below take no taps)
 
     GridView {
         id: grid
