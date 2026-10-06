@@ -1,7 +1,7 @@
 # Mobarchy defaults. Users override them in ~/.config/mimeapps.list.
 [Default Applications]
-text/html=firefox.desktop
-x-scheme-handler/http=firefox.desktop
-x-scheme-handler/https=firefox.desktop
+text/html=org.mobarchy.Browser.desktop;firefox.desktop
+x-scheme-handler/http=org.mobarchy.Browser.desktop;firefox.desktop
+x-scheme-handler/https=org.mobarchy.Browser.desktop;firefox.desktop
 x-scheme-handler/about=firefox.desktop
-application/xhtml+xml=firefox.desktop
+application/xhtml+xml=org.mobarchy.Browser.desktop;firefox.desktop

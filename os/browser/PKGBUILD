@@ -1,0 +1,26 @@
+# Mobarchy's browser (ADR 0023), built from this directory:
+#   tools/repo-build os/browser
+pkgname=mobarchy-browser
+pkgver=0.1
+pkgrel=1
+pkgdesc="Mobarchy's browser: QtWebEngine with a phone's chrome"
+arch=(aarch64 x86_64)
+depends=(qt6-base qt6-declarative qt6-wayland qt6-webengine ttf-jetbrains-mono-nerd adwaita-icon-theme)
+makedepends=(cmake ninja)
+options=(!debug)
+
+prepare() {
+    if [[ $srcdir == "$startdir/src" ]]; then
+        echo "set BUILDDIR: ./src is the browser's source tree, not makepkg's work directory" >&2
+        return 1
+    fi
+}
+
+build() {
+    cmake -S "$startdir" -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}

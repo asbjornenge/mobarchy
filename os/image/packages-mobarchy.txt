@@ -1,6 +1,8 @@
 # From Mobarchy's own package repository (tools/repo-build); os/image/build installs these
 # with packages.txt. Mesa for a device's GPU comes with the device's hook (ADR 0008).
 mobarchy-shell
+# Mobarchy's browser (ADR 0023)
+mobarchy-browser
 mobarchy-agent
 # Patched: a fix for a hang on ARM (os/packages/hyprgraphics)
 hyprgraphics
