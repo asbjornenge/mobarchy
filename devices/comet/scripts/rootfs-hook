@@ -64,3 +64,6 @@ systemctl enable mobarchy-sensor-proxy.service >/dev/null
 # The fingerprint sensor on the Linux side (ADR 0021): net.reactivated.Fprint, from the
 # container's.
 systemctl enable mobarchy-fingerprint.service >/dev/null
+# polkit's agent helper, setuid: this kernel (6.1) has no socket pidfds for its socket (the
+# socket is masked in rootfs/; a pacman hook does this again at polkit upgrades).
+chmod 4755 /usr/lib/polkit-1/polkit-agent-helper-1

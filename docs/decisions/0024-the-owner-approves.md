@@ -59,3 +59,13 @@ polkit (1Password's system unlock, pkexec, run0) failed.
   sheet). The sheet shows the full command; reading it is the owner's part.
 - Asking needs the shell. Over ssh, nothing changes: sudo still lets the developer's key
   through (ADR 0022), and pkexec there has its own terminal prompt.
+
+## Since (2026-10-06)
+
+- **The shipped policy allows the agent's steps** (`confirm = "allow"`): asking at every
+  command was too much in use. The sheet comes back with finer rules (kinds of commands).
+  Root is unchanged: pkexec asks for a finger or the PIN.
+- **comet: polkit's agent helper is setuid.** polkit 127 starts its helper through a socket
+  that needs socket pidfds (Linux 6.5), and comet's kernel is 6.1, so the helper refused.
+  On comet the socket is masked and the helper is setuid again, as before polkit 126
+  (`devices/comet`: rootfs-hook, a pacman hook for polkit upgrades).

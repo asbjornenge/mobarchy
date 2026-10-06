@@ -1,0 +1,14 @@
+# comet's kernel (6.1) has no pidfds for sockets (SO_PEERPIDFD, 6.5), and polkit's agent
+# helper socket needs them: the helper runs setuid instead, as before polkit 126, and the
+# socket is masked (/etc/systemd/system/polkit-agent-helper.socket -> /dev/null). The
+# shell's polkit agent (ADR 0024) uses it. Again at every polkit upgrade.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = polkit
+
+[Action]
+Description = Making polkit's agent helper setuid (no socket pidfds on this kernel)...
+When = PostTransaction
+Exec = /usr/bin/chmod 4755 /usr/lib/polkit-1/polkit-agent-helper-1

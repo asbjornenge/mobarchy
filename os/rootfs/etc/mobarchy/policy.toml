@@ -2,10 +2,14 @@
 # Levels: read (observe), act (reversible local change), confirm (irreversible/outward-facing).
 # Decisions: allow, ask (the owner answers on the screen), deny.
 
+# The owner's choice (2026-10-06): no sheet for each of the agent's steps for now, until
+# finer rules exist ("allow this kind of command"). Root still asks for a finger or the PIN
+# (polkit, ADR 0024), whatever this says.
+
 [risk]
 read = "allow"
 act = "allow"
-confirm = "ask"
+confirm = "allow"
 
 [tools]
 # Per-tool overrides, e.g.:
