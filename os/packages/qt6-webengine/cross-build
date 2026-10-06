@@ -185,7 +185,8 @@ step_package() {
     # --install there; its paths are the same as here).
     mkdir -p "$out" "$work/makepkg/src"
     docker run --rm --platform linux/arm64 -v "$work:$work" -v "$here:/pkg:ro" "$alarm_image" bash -euo pipefail -c "
-        pacman -S --noconfirm --needed --disable-sandbox cmake >/dev/null
+        pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+        pacman -Sy --noconfirm --needed --disable-sandbox cmake >/dev/null
         useradd -m builder && cp -r /pkg /tmp/pkg && chown -R builder /tmp/pkg $out $work/makepkg
         su builder -c 'cd /tmp/pkg && QWE_BUILD=$build QWE_SRC=$src BUILDDIR=$work/makepkg PKGDEST=$out \
             PKGEXT=.pkg.tar.zst makepkg -R -d -f --noconfirm'"
