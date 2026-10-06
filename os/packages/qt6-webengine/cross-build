@@ -143,6 +143,7 @@ EOF
         -DQT_CHAINLOAD_TOOLCHAIN_FILE='$work/aarch64.cmake' \
         -DQT_HOST_PATH=/usr \
         -DGn_EXECUTABLE='$work/host/bin/gn' \
+        -DQT_FEATURE_use_lld_linker=ON \
         -DQT_FEATURE_webengine_system_ffmpeg=ON \
         -DQT_FEATURE_webengine_system_icu=ON \
         -DQT_FEATURE_webengine_system_re2=ON \
