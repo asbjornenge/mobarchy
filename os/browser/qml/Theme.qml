@@ -1,19 +1,20 @@
 pragma Singleton
 import QtQuick
 
-// The shell's theme (os/shell/qml/Theme.qml): Tokyo Night, Omarchy's default.
+// The shell's theme, live (ADR 0025): the same theme files, through the same ThemeSource.
 QtObject {
-    readonly property color bg: "#1a1b26"
-    readonly property color bgDark: "#16161e"
-    readonly property color panel: "#24283b"
-    readonly property color line: "#292e42"
-    readonly property color fg: "#c0caf5"
-    readonly property color muted: "#565f89"
-    readonly property color accent: "#7aa2f7"
-    readonly property color green: "#9ece6a"
-    readonly property color red: "#f7768e"
-    readonly property color magenta: "#bb9af7"
-    readonly property string font: "JetBrainsMono Nerd Font"
+    readonly property ThemeSource source: ThemeSource {}
+    readonly property color bg: source.colors.bg
+    readonly property color bgDark: source.colors.bgDark
+    readonly property color panel: source.colors.panel
+    readonly property color line: source.colors.line
+    readonly property color fg: source.colors.fg
+    readonly property color muted: source.colors.muted
+    readonly property color accent: source.colors.accent
+    readonly property color green: source.colors.green
+    readonly property color red: source.colors.red
+    readonly property color magenta: source.colors.magenta
+    readonly property string font: source.font
 
     // Scrolling like a phone: a flick throws the list (Qt's defaults are a desktop's, a
     // slow wheel-like glide), and the ends bounce (Flickable.DragAndOvershootBounds).

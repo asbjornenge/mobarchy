@@ -22,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import approval, bluetooth, browser, camera, clipboard, clock, media, network, power, store, webapps
+from . import approval, bluetooth, browser, themes, camera, clipboard, clock, media, network, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -512,6 +512,57 @@ def remove_web_app(app_id: str) -> dict:
     try:
         return {"result": webapps.remove(app_id)}
     except (OSError, ValueError) as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.READ, "List themes")
+def theme_list() -> dict:
+    """The themes: Mobarchy's own and the owner's, and which is active."""
+    return themes.list_themes()
+
+
+@tool(Risk.READ, "Current theme")
+def theme_current() -> dict:
+    """The active theme: its colours and font, and what each colour role is for (start from
+    these when making a new one)."""
+    return themes.current()
+
+
+@tool(Risk.ACT, "Switch theme")
+def theme_set(theme_id: str) -> dict:
+    """Switch to a theme by id. The shell and the browser change at once."""
+    try:
+        return themes.set_theme(theme_id)
+    except themes.ThemeError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Make a theme")
+def theme_create(theme_id: str, name: str, colors: dict[str, str], font: str = "",
+                 description: str = "", activate: bool = True) -> dict:
+    """Make a theme (or replace one of the owner's) and switch to it: any style the owner asks
+    for, e.g. "Pokémon", "solarized", "pink and gold".
+
+    colors: all ten roles as #rrggbb: bg, bgDark, panel, line, fg, muted, accent, green, red,
+    magenta (theme_current tells what each is for; most of the screen is bg, bgDark and panel,
+    so they set the mood, while accent is the style's signature colour). Dark backgrounds suit
+    the phone's OLED screens. It has to stay readable: text, accent and the buttons' text (bg)
+    on the accent are checked for contrast, and a failed check says which pair to fix.
+    font: an installed font family (empty: Mobarchy's); icons come from the Nerd Font, so a
+    Nerd Font keeps them. theme_id: lower-case, digits, dashes."""
+    try:
+        return themes.create_theme(theme_id, name, colors, font or None, description, activate)
+    except themes.ThemeError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Delete a theme")
+def theme_delete(theme_id: str) -> dict:
+    """Delete one of the owner's themes (Mobarchy's own stay). If it was active, Mobarchy's own
+    becomes active."""
+    try:
+        return themes.delete_theme(theme_id)
+    except themes.ThemeError as e:
         raise ToolError(str(e)) from e
 
 

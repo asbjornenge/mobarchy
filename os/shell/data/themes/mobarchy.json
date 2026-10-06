@@ -1,0 +1,17 @@
+{
+  "name": "Mobarchy",
+  "description": "Mobarchy's own: Tokyo Night, Omarchy's default. Deep blue-black, soft blue accent.",
+  "colors": {
+    "bg": "#1a1b26",
+    "bgDark": "#16161e",
+    "panel": "#24283b",
+    "line": "#292e42",
+    "fg": "#c0caf5",
+    "muted": "#565f89",
+    "accent": "#7aa2f7",
+    "green": "#9ece6a",
+    "red": "#f7768e",
+    "magenta": "#bb9af7"
+  },
+  "font": "JetBrainsMono Nerd Font"
+}

@@ -13,7 +13,7 @@ set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(mobarchy-browser
     URI Mobarchy.Browser
     VERSION 1.0
-    SOURCES src/onepassword.cpp src/onepassword.h
+    SOURCES src/onepassword.cpp src/onepassword.h src/themesource.cpp src/themesource.h
     QML_FILES
         qml/Main.qml
         qml/Theme.qml

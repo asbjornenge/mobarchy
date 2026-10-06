@@ -54,6 +54,7 @@ qt_add_qml_module(mobarchy-shell
         src/screenpower.cpp src/screenpower.h
         src/wifi.cpp src/wifi.h
         src/systemstatus.cpp src/systemstatus.h
+        src/themesource.cpp src/themesource.h
         src/toplevels.cpp src/toplevels.h
         src/touchguard.cpp src/touchguard.h
         src/voice.cpp src/voice.h
@@ -109,6 +110,8 @@ install(TARGETS mobarchy-shell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(FILES data/org.mobarchy.Shell.desktop data/org.mobarchy.Store.desktop data/org.mobarchy.Camera.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
 install(FILES data/org.mobarchy.Store.svg data/org.mobarchy.Camera.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+# The themes that come with Mobarchy (ADR 0025).
+install(DIRECTORY data/themes/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mobarchy/themes FILES_MATCHING PATTERN "*.json")
 
 enable_testing()
 qt_add_executable(tst_desktopentry tests/tst_desktopentry.cpp)
