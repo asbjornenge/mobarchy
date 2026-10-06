@@ -190,6 +190,7 @@ name = "1Password"
 summary = "Password manager: logins, cards and secure notes"
 icon = "/usr/share/icons/hicolor/256x256/apps/1password.png"
 category = "utilities"
+tested = ["comet"]
 note = "From Mobarchy's repository (1Password's own ARM64 build). Its Firefox extension fills in logins in the browser."
 
 [[app]]
