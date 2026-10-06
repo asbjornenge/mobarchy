@@ -161,10 +161,23 @@ EOF
 }
 
 step_build() {
-    # (out of memory inside the cap, the kernel kills a compiler there, not the desktop)
-    in_host --memory="$memory" --memory-swap="$memory" --name qwe-build \
-        "export NINJAFLAGS=-j$jobs; nice -n 15 cmake --build '$build' --parallel $jobs" \
-        > "$work/build.log" 2>&1 || { tail -40 "$work/build.log" >&2; exit 1; }
+    # (out of memory inside the cap, the kernel kills a compiler there, not the desktop; then
+    # again with half the jobs: v8's generated jumbo units take several GB each, and a few at
+    # once is what runs out. ninja goes on where it stopped.)
+    local j=$jobs
+    while true; do
+        echo "build: $j jobs, $memory ($(date +%T))"
+        if in_host --memory="$memory" --memory-swap="$memory" --name qwe-build \
+            "export NINJAFLAGS=-j$j; nice -n 15 cmake --build '$build' --parallel $j" > "$work/build.log" 2>&1; then
+            return 0
+        fi
+        if grep -q "Killed signal terminated program" "$work/build.log" && [ "$j" -gt 1 ]; then
+            j=$(( j / 2 ))
+            continue
+        fi
+        tail -40 "$work/build.log" >&2
+        exit 1
+    done
 }
 
 step_package() {
