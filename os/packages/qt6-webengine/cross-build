@@ -41,12 +41,19 @@ alarm_image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mob
     echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
 pkgvar() { bash -c "source '$here/PKGBUILD'; $1"; }
 pkgver=$(pkgvar 'echo $pkgver') pkgrel=$(pkgvar 'echo $pkgrel')
-jobs=${JOBS:-$(( $(nproc) - 2 ))}
+# The build's memory: capped (a Chromium build at full width ran a 60 GB PC out of memory and
+# took the desktop with it), and the jobs to fit (~3 GB each for clang on Chromium, some
+# much more): MEMORY=24g JOBS=8 by default.
+memory=${MEMORY:-24g}
+jobs=${JOBS:-$(( ${memory%g} / 3 < $(nproc) - 2 ? ${memory%g} / 3 : $(nproc) - 2 ))}
 
 # In the x86_64 host container, the work directory at the same path, and the host's gn on
 # PATH (QtWebEngine's gn step looks for it there, in a CMake run of its own).
+# Extra docker options before the command, e.g. a memory cap.
 in_host() {
-    docker run --rm -u "$(id -u):$(id -g)" -v "$work:$work" -w "$work" \
+    local opts=()
+    while [ $# -gt 1 ]; do opts+=("$1"); shift; done
+    docker run --rm -u "$(id -u):$(id -g)" -v "$work:$work" -w "$work" "${opts[@]}" \
         -e PATH="$work/host/bin:/usr/local/sbin:/usr/local/bin:/usr/bin" "$host_image" bash -euo pipefail -c "$1"
 }
 
@@ -154,7 +161,9 @@ EOF
 }
 
 step_build() {
-    in_host "export NINJAFLAGS=-j$jobs; nice -n 15 cmake --build '$build' --parallel $jobs" \
+    # (out of memory inside the cap, the kernel kills a compiler there, not the desktop)
+    in_host --memory="$memory" --memory-swap="$memory" --name qwe-build \
+        "export NINJAFLAGS=-j$jobs; nice -n 15 cmake --build '$build' --parallel $jobs" \
         > "$work/build.log" 2>&1 || { tail -40 "$work/build.log" >&2; exit 1; }
 }
 
