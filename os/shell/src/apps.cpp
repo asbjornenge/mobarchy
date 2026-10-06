@@ -175,6 +175,17 @@ const DesktopEntry *AppModel::forAppId(const QString &appId) const
     return nullptr;
 }
 
+QStringList AppModel::windowIds(const QString &appId) const
+{
+    QString base = appId.endsWith(QLatin1String(".desktop")) ? appId.chopped(8) : appId;
+    QStringList ids{base};
+    const auto it = std::find_if(m_all.cbegin(), m_all.cend(),
+                                 [&](const DesktopEntry &e) { return e.id == base + QStringLiteral(".desktop"); });
+    if (it != m_all.cend() && !it->wmClass.isEmpty() && !ids.contains(it->wmClass))
+        ids << it->wmClass;
+    return ids;
+}
+
 QString AppModel::iconForAppId(const QString &appId) const
 {
     const DesktopEntry *e = forAppId(appId);

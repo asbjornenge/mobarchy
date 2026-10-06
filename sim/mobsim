@@ -354,8 +354,11 @@ def rsync(src: str, dest: str, *extra: str, sudo: bool = False) -> None:
 
 
 # What os/shell needs to build and run (see os/shell/PKGBUILD).
+# (as os/shell/PKGBUILD's depends and makedepends)
 SHELL_BUILD_DEPS = ("qt6-declarative", "qt6-wayland", "qt6-svg", "layer-shell-qt", "ttf-jetbrains-mono-nerd",
-                    "adwaita-icon-theme", "iw", "libpulse", "cmake", "ninja", "gcc")
+                    "adwaita-icon-theme", "iw", "libpulse", "pam", "libxcrypt", "accountsservice",
+                    "libxkbcommon", "noto-fonts-emoji", "qt6-multimedia", "qt6-multimedia-ffmpeg",
+                    "libpipewire", "wayland", "pkgconf", "cmake", "ninja", "gcc")
 
 
 def cmd_sync(args) -> None:

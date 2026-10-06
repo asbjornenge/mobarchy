@@ -193,6 +193,21 @@ void ToplevelModel::close(int row)
         m_rows.at(row)->QtWayland::zwlr_foreign_toplevel_handle_v1::close();
 }
 
+bool ToplevelModel::activateApp(const QStringList &appIds)
+{
+    for (Toplevel *t : std::as_const(m_recent)) {
+        if (isOwn(t))
+            continue;
+        for (const QString &id : appIds) {
+            if (t->appId().compare(id, Qt::CaseInsensitive) == 0) {
+                activateToplevel(t);
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool ToplevelModel::activateOwn(const QString &title)
 {
     for (Toplevel *t : std::as_const(m_recent)) {

@@ -58,6 +58,18 @@ Window {
         category: "history"
         property var visits: []
     }
+    // The open tabs, for the next start: their URLs and which was in front.
+    Settings {
+        id: session
+        category: "session"
+        property var urls: []
+        property int current: 0
+    }
+    function saveSession() {
+        session.urls = tabs.map(t => t.url.toString()).filter(u => u.startsWith("http"))
+        session.current = Math.min(index, Math.max(0, session.urls.length - 1))
+    }
+
     function remember(url, title) {
         const u = url.toString()
         if (!u.startsWith("http"))
@@ -200,6 +212,7 @@ Window {
 
     // for the agent (org.mobarchy.Browser)
     function publish() {
+        saveSession()
         BrowserBus.titles = tabs.map(t => t.title)
         BrowserBus.urls = tabs.map(t => t.url.toString())
         BrowserBus.current = index
@@ -211,16 +224,25 @@ Window {
             win.raise()
             win.requestActivate()
         }
+        function onShowRequested() {
+            win.raise()
+            win.requestActivate()
+        }
     }
 
     Component.onCompleted: {
         defaultAgent = profile.httpUserAgent
         applyAgent()
+        // last time's tabs, then what this start was given
+        const restored = session.urls.slice()
+        const front = session.current
+        restored.forEach(u => newTab(u))
         const start = BrowserBus.startUrls()
-        if (start.length)
-            start.forEach(u => newTab(u))
-        else
+        start.forEach(u => newTab(u))
+        if (!tabs.length)
             newTab(homeUrl)
+        else if (!start.length)
+            index = Math.min(front, tabs.length - 1)
     }
 
     // --- the window --------------------------------------------------------------------

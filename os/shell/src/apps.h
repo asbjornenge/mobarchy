@@ -26,6 +26,9 @@ public:
     Q_INVOKABLE bool launch(const QString &id);
     // The icon for a window's app_id (matched against desktop IDs and StartupWMClass).
     Q_INVOKABLE QString iconForAppId(const QString &appId) const;
+    // The app IDs an app's windows can have: its desktop ID (without .desktop) and its
+    // StartupWMClass.
+    Q_INVOKABLE QStringList windowIds(const QString &appId) const;
     Q_INVOKABLE QString nameForAppId(const QString &appId) const;
 
 private:

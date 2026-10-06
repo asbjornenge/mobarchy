@@ -27,12 +27,15 @@ public:
 public slots:
     // Opens the URL in a new tab and shows the browser.
     Q_SCRIPTABLE void Open(const QString &url) { emit openRequested(url); }
+    // Shows the browser as it is (a second start without URLs).
+    Q_SCRIPTABLE void Show() { emit showRequested(); }
     // The open tabs: (title, URL), and the current one's index.
     Q_SCRIPTABLE QStringList Tabs() const;
     Q_SCRIPTABLE int Current() const { return m_current; }
 
 signals:
     void openRequested(const QString &url);
+    void showRequested();
 
 private:
     QStringList m_titles, m_urls, m_start;

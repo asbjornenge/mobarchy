@@ -23,6 +23,17 @@ Sheet {
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     onOpening: keyboard.visible = false
+    onShownChanged: if (!shown) newWindow.visible = false
+
+    // Holding an app's icon: a new window of it, apart from the one it has open.
+    function offerNewWindow(appId, name, tile) {
+        const p = tile.mapToItem(panel, tile.width / 2, 0)
+        newWindow.appId = appId
+        newWindow.name = name
+        newWindow.x = Math.max(12, Math.min(panel.width - newWindow.width - 12, p.x - newWindow.width / 2))
+        newWindow.y = Math.max(12, p.y - newWindow.height - 6)
+        newWindow.visible = true
+    }
 
     Rectangle {
         anchors.fill: parent
@@ -179,10 +190,17 @@ Sheet {
                 required property string icon
                 width: grid.cellWidth; height: grid.cellHeight
 
+                // A tap goes to the app (its window, if it has one open); holding it offers a
+                // new window.
                 MouseArea {
                     id: tap
                     anchors.fill: parent
-                    onClicked: { drawer.apps.launch(tile.appId); drawer.close() }
+                    onClicked: {
+                        if (!drawer.toplevels.activateApp(drawer.apps.windowIds(tile.appId)))
+                            drawer.apps.launch(tile.appId)
+                        drawer.close()
+                    }
+                    onPressAndHold: drawer.offerNewWindow(tile.appId, tile.name, tile)
                 }
                 Column {
                     anchors.centerIn: parent
@@ -205,6 +223,36 @@ Sheet {
                         color: Theme.fg
                         font { family: Theme.font; pixelSize: 12 }
                     }
+                }
+            }
+        }
+    
+        // (offerNewWindow)
+        Rectangle {
+            id: newWindow
+            property string appId
+            property string name
+            visible: false
+            z: 10
+            width: newRow.implicitWidth + 36; height: 52; radius: 26
+            color: newTap.pressed ? Theme.line : Theme.panel
+            border.color: Theme.accent
+            Row {
+                id: newRow
+                anchors.centerIn: parent
+                spacing: 10
+                Text { text: "󰖯"; color: Theme.accent; font { family: Theme.font; pixelSize: 18 }
+                       anchors.verticalCenter: parent.verticalCenter }
+                Text { text: qsTr("New window"); color: Theme.fg; font { family: Theme.font; pixelSize: 14 }
+                       anchors.verticalCenter: parent.verticalCenter }
+            }
+            MouseArea {
+                id: newTap
+                anchors.fill: parent
+                onClicked: {
+                    newWindow.visible = false
+                    drawer.apps.launch(newWindow.appId)
+                    drawer.close()
                 }
             }
         }

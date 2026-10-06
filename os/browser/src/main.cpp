@@ -34,11 +34,15 @@ int main(int argc, char *argv[])
     QDBusConnection bus = QDBusConnection::sessionBus();
     BrowserBus *browser = BrowserBus::instance();
     if (!bus.registerService(QString::fromLatin1(BrowserBus::Service))) {
-        // already running: the URLs go there (it shows itself)
+        // already running: the URLs go there (it shows itself), or it just shows itself
+        auto call = [&](const QString &method) {
+            return QDBusMessage::createMethodCall(QString::fromLatin1(BrowserBus::Service),
+                QString::fromLatin1(BrowserBus::Path), QString::fromLatin1(BrowserBus::Service), method);
+        };
         for (const QString &url : urls)
-            bus.call(QDBusMessage::createMethodCall(QString::fromLatin1(BrowserBus::Service),
-                QString::fromLatin1(BrowserBus::Path), QString::fromLatin1(BrowserBus::Service),
-                QStringLiteral("Open")) << url);
+            bus.call(call(QStringLiteral("Open")) << url);
+        if (urls.isEmpty())
+            bus.call(call(QStringLiteral("Show")));
         return 0;
     }
     bus.registerObject(QString::fromLatin1(BrowserBus::Path), browser,

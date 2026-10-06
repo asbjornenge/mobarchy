@@ -80,6 +80,9 @@ public:
     Q_INVOKABLE void close(int row);
     // Switch to one of the shell's own windows (e.g. home), by title.
     Q_INVOKABLE bool activateOwn(const QString &title);
+    // Switch to an app's most recent window (its app ID one of these, any case); false if
+    // it has none open.
+    Q_INVOKABLE bool activateApp(const QStringList &appIds);
 
 signals:
     void countChanged();

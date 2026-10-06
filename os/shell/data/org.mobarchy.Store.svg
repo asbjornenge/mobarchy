@@ -1,13 +1,16 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Mobarchy's app icons: a Tokyo Night tile, a line glyph in the accent gradient -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#7aa2f7"/>
       <stop offset="1" stop-color="#bb9af7"/>
     </linearGradient>
   </defs>
-  <rect x="8" y="8" width="112" height="112" rx="28" fill="url(#bg)"/>
-  <!-- a shopping bag -->
-  <path d="M40 50 h48 l-4 46 a6 6 0 0 1 -6 5 h-28 a6 6 0 0 1 -6 -5 z" fill="#1a1b26"/>
-  <path d="M52 52 v-8 a12 12 0 0 1 24 0 v8" fill="none" stroke="#1a1b26" stroke-width="6" stroke-linecap="round"/>
-  <circle cx="64" cy="74" r="7" fill="#7aa2f7"/>
+  <rect x="6" y="6" width="116" height="116" rx="30" fill="#1a1b26" stroke="#292e42" stroke-width="3"/>
+  <!-- a bag, and an arrow down into it: get apps -->
+  <g fill="none" stroke="url(#g)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M36 50 h56 l-5 44 a6 6 0 0 1 -6 5 h-34 a6 6 0 0 1 -6 -5 z"/>
+    <path d="M50 50 v-6 a14 14 0 0 1 28 0 v6"/>
+    <path d="M64 62 v22 M55 76 l9 9 l9 -9"/>
+  </g>
 </svg>
