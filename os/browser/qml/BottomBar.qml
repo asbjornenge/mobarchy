@@ -10,11 +10,13 @@ Rectangle {
     property real progress: 1        // loading: 0..1
     property bool canGoBack
     property int tabCount
+    property bool login              // the page asks for a login: 1Password's key
     signal back()
     signal forward()
     signal editAddress()
     signal showTabs()
     signal showMenu()
+    signal showLogins()
 
     height: 64
     color: Theme.bgDark
@@ -43,7 +45,7 @@ Rectangle {
         Rectangle {
             id: pill
             anchors.verticalCenter: parent.verticalCenter
-            width: parent.width - 3 * 52 - 3 * parent.spacing
+            width: parent.width - (bar.login ? 4 : 3) * 52 - (bar.login ? 4 : 3) * parent.spacing
             height: 46
             radius: 23
             color: pillTap.pressed ? Theme.line : Theme.panel
@@ -67,6 +69,14 @@ Rectangle {
                 }
             }
             MouseArea { id: pillTap; anchors.fill: parent; onClicked: bar.editAddress() }
+        }
+
+        BarButton {
+            visible: bar.login
+            anchors.verticalCenter: parent.verticalCenter
+            icon: "󰌋"
+            tint: Theme.accent
+            onClicked: bar.showLogins()
         }
 
         // the tabs: how many

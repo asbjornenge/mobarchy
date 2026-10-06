@@ -1,0 +1,24 @@
+# The AUR's 1password-cli PKGBUILD (maintainer: slurpee <aur@lylat.io>), aarch64 only: the
+# browser fills in logins through it (ADR 0023), unlocked by the 1Password app.
+# Build: tools/repo-build 1password-cli
+
+pkgname=1password-cli
+pkgver=2.39.0
+pkgrel=1
+pkgdesc="1Password command line tool"
+arch=('aarch64')
+url="https://app-updates.agilebits.com/product_history/CLI2"
+license=('custom')
+options=('!strip' '!emptydirs' '!debug')
+install=${pkgname}.install
+validpgpkeys=('3FEF9748469ADBE15DA7CA80AC2D62742012EA22')
+source_aarch64=("https://cache.agilebits.com/dist/1P/op2/pkg/v${pkgver}/op_linux_arm64_v${pkgver}.zip")
+sha256sums_aarch64=('829baeff1c07e055cfa132031b1d9f2282ccdf5076258e482caf2fda70aea5d0')
+
+check() {
+  gpg --verify "${srcdir}"/op.sig "${srcdir}"/op
+}
+
+package() {
+  install -Dm755 op "${pkgdir}"/usr/bin/op
+}

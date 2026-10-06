@@ -91,8 +91,10 @@ Window {
                     lastY = y
             }
             onLoadingChanged: (info) => {
-                if (info.status === WebEngineView.LoadSucceededStatus)
+                if (info.status === WebEngineView.LoadSucceededStatus) {
                     win.remember(view.url, view.title)
+                    win.checkLogin()
+                }
                 win.publish()
             }
             onTitleChanged: win.publish()
@@ -149,6 +151,53 @@ Window {
             newTab(url)
         barShown = true
     }
+    // --- logins (1Password) ---------------------------------------------------------------
+    // Whether the page in front asks for a login (a password field, or a username field of
+    // a login in two steps): checked after loads and now and then (forms appear later).
+    property bool pageHasLogin: false
+    function checkLogin() {
+        if (!current || !loginSheet.available) {
+            pageHasLogin = false
+            return
+        }
+        const view = current
+        view.runJavaScript(
+            "!!document.querySelector('input[type=password], input[autocomplete~=username], input[autocomplete~=one-time-code]')",
+            (r) => { if (view === win.current) win.pageHasLogin = !!r })
+    }
+    Timer { interval: 2500; repeat: true; running: win.active && !!win.current; onTriggered: win.checkLogin() }
+    onCurrentChanged: checkLogin()
+    readonly property string fillScript: "(function(u, p, code) {
+        const set = (el, v) => {
+            Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, v);
+            el.dispatchEvent(new Event('input', {bubbles: true}));
+            el.dispatchEvent(new Event('change', {bubbles: true}));
+        };
+        const shown = e => e.offsetParent !== null && !e.disabled && !e.readOnly;
+        const inputs = [...document.querySelectorAll('input')].filter(shown);
+        if (code !== null) {
+            const f = inputs.find(e => /one-time-code/.test(e.autocomplete) || /otp|code|token|2fa|totp|mfa/i.test(e.name + e.id)
+                                       || (e.inputMode === 'numeric' && e.type !== 'password'));
+            if (f) set(f, code);
+            return !!f;
+        }
+        const pw = inputs.find(e => e.type === 'password');
+        const texts = inputs.filter(e => /^(text|email|tel)$/.test(e.type || 'text'));
+        const user = pw ? texts.filter(e => e.compareDocumentPosition(pw) & Node.DOCUMENT_POSITION_FOLLOWING).pop()
+                        : texts.find(e => /user|mail|login|account/i.test(e.name + e.id + e.autocomplete)) || texts[0];
+        if (user && u) set(user, u);
+        if (pw && p) set(pw, p);
+        return !!(user || pw);
+    })"
+    function fillLogin(username, password) {
+        if (current)
+            current.runJavaScript(fillScript + "(" + JSON.stringify(username) + "," + JSON.stringify(password) + ", null)")
+    }
+    function fillCode(code) {
+        if (current)
+            current.runJavaScript(fillScript + "(null, null, " + JSON.stringify(code) + ")")
+    }
+
     // for the agent (org.mobarchy.Browser)
     function publish() {
         BrowserBus.titles = tabs.map(t => t.title)
@@ -192,6 +241,8 @@ Window {
         progress: win.current && win.current.loading ? Math.max(0.05, win.current.loadProgress / 100) : 1
         canGoBack: win.current ? win.current.canGoBack : false
         tabCount: win.tabs.length
+        login: win.pageHasLogin
+        onShowLogins: loginSheet.open(bar.host)
         onBack: if (win.current) win.current.goBack()
         onForward: if (win.current) win.current.goForward()
         onEditAddress: address.open()
@@ -233,6 +284,8 @@ Window {
             clip.selectAll(); clip.copy()
             toast.show(qsTr("Link copied"))
         }
+        passwords: loginSheet.available
+        onLogins: loginSheet.open(bar.host)
         onToggleDesktop: {
             win.desktopSite = !win.desktopSite
             win.applyAgent()
@@ -242,6 +295,13 @@ Window {
         onTextBigger: if (win.current) win.current.zoomFactor = Math.min(3, win.current.zoomFactor + 0.1)
     }
     TextEdit { id: clip; visible: false }
+
+    LoginSheet {
+        id: loginSheet
+        anchors.fill: parent
+        onFill: (username, password) => win.fillLogin(username, password)
+        onFillCode: (code) => win.fillCode(code)
+    }
 
     // A site asks for the camera, the microphone, the location, notifications, ...
     Item {

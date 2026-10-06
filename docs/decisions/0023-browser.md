@@ -40,9 +40,14 @@ Mobarchy gets its own browser, `mobarchy-browser` (`os/browser`):
 - **For the agent:** a D-Bus interface (`org.mobarchy.Browser`): open a URL, list tabs,
   read the current page's title, URL and text. The agent can then use the web the
   owner sees, with the owner's sessions, instead of a hidden browser.
-- **Passwords:** QtWebEngine has no browser extensions for 1Password's. Logins come from
-  1Password's own app (Linux, ADR-less; os/packages/1password) through copying, until
-  the browser offers autofill from it.
+- **Passwords: 1Password through its CLI.** QtWebEngine 6.11 loads Chrome extensions but
+  gives them no Chrome APIs (`chrome.runtime` is empty), so 1Password's extension stays blank.
+  - The browser asks `op` instead (os/packages/1password-cli), which the 1Password app
+    unlocks ("Integrate with 1Password CLI").
+  - A login page gets a key in the bar, which lists that site's logins. A tap fills in the
+    username and password. A login with a one-time code offers the code on the page that
+    follows.
+  - Nothing is stored by the browser.
 
 ## Consequences
 

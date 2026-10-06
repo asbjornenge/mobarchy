@@ -7,7 +7,7 @@
 #include <QDir>
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
-#include <QtQml/qqml.h>
+#include <QQmlContext>
 #include <QUrl>
 #include <QtWebEngineQuick/qtwebenginequickglobal.h>
 
@@ -45,9 +45,10 @@ int main(int argc, char *argv[])
                        QDBusConnection::ExportScriptableSlots);
     browser->setStartUrls(urls);
 
-    // QML's BrowserBus: the one on D-Bus
-    qmlRegisterSingletonInstance("Mobarchy.Browser", 1, 0, "BrowserBus", browser);
+    // QML's BrowserBus: the one on D-Bus (a context property: registering it into the
+    // module at run time would hide the module's own types)
     QQmlApplicationEngine engine;
+    engine.rootContext()->setContextProperty(QStringLiteral("BrowserBus"), browser);
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
                      [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("Mobarchy.Browser", "Main");

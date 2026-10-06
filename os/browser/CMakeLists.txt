@@ -13,6 +13,7 @@ set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 qt_add_qml_module(mobarchy-browser
     URI Mobarchy.Browser
     VERSION 1.0
+    SOURCES src/onepassword.cpp src/onepassword.h
     QML_FILES
         qml/Main.qml
         qml/Theme.qml
@@ -21,6 +22,7 @@ qt_add_qml_module(mobarchy-browser
         qml/TabsView.qml
         qml/MenuSheet.qml
         qml/BarButton.qml
+        qml/LoginSheet.qml
 )
 target_include_directories(mobarchy-browser PRIVATE src)
 target_link_libraries(mobarchy-browser PRIVATE Qt6::Gui Qt6::Quick Qt6::DBus Qt6::WebEngineQuick)
