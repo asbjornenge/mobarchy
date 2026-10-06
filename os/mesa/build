@@ -3,7 +3,7 @@
 # replaces the distribution's Mesa (provides/conflicts mesa, vulkan-panfrost).
 #
 #   os/mesa/build --src <mesa checkout> --out <dir> [--gallium panfrost,llvmpipe,softpipe]
-#                 [--vulkan panfrost] [--jobs N]
+#                 [--vulkan panfrost] [--jobs N] [--pkgrel N]
 #
 # Why: Arch's Mesa can lag behind what a GPU needs (comet's Mali-G715, Valhall v11, is
 # only supported on Mesa main as of 2026-10; see ADR 0008). It replaces the system Mesa
@@ -15,7 +15,7 @@
 # needs Mesa's own OpenCL compiler (mesa-clc, LLVM + libclc) at build time, which is far
 # simpler native than cross. Result: <out>/mesa-mobarchy-<version>-<n>-aarch64.pkg.tar.zst
 set -euo pipefail
-src="" out="" gallium=panfrost,llvmpipe,softpipe vulkan=panfrost jobs=12
+src="" out="" gallium=panfrost,llvmpipe,softpipe vulkan=panfrost jobs=12 pkgrel=1
 while [ $# -gt 0 ]; do
     case "$1" in
         --src) src="$(realpath "$2")"; shift 2 ;;
@@ -23,6 +23,7 @@ while [ $# -gt 0 ]; do
         --gallium) gallium="$2"; shift 2 ;;
         --vulkan) vulkan="$2"; shift 2 ;;
         --jobs) jobs="$2"; shift 2 ;;
+        --pkgrel) pkgrel="$2"; shift 2 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -59,19 +60,23 @@ docker run --rm --platform linux/arm64 -v "$src:/src:ro" -v "$out:/out" "$image"
     cat > /tmp/pkg/PKGBUILD <<'EOP'
 pkgname=mesa-mobarchy
 pkgver=PKGVER
-pkgrel=1
+pkgrel=PKGREL
 pkgdesc='Mesa from git for Mobarchy devices (Panfrost GL/Vulkan, llvmpipe fallback)'
 arch=(aarch64)
 url='https://mesa3d.org'
 license=(MIT)
-depends=(libdrm wayland expat zstd libglvnd llvm-libs spirv-tools lm_sensors libelf)
+# (libLLVM.so.<major>: another LLVM major leaves Mesa without its library, and the GPU
+# without a driver; pacman stops at the conflict instead)
+depends=(libdrm wayland expat zstd libglvnd 'llvm-libs>=LLVMMAJOR' 'llvm-libs<LLVMNEXT' spirv-tools
+         lm_sensors libelf)
 provides=(mesa=PKGVER opengl-driver vulkan-driver vulkan-panfrost=PKGVER libgbm.so)
 conflicts=(mesa vulkan-panfrost vulkan-mesa-implicit-layers)
 replaces=()
 options=(!strip !debug)
 package() { cp -a \"\$startdir/root/.\" \"\$pkgdir/\"; }
 EOP
-    sed -i \"s/PKGVER/$pkgver/g\" /tmp/pkg/PKGBUILD
+    llvm=\$(llvm-config --version | cut -d. -f1)
+    sed -i \"s/PKGVER/$pkgver/g; s/PKGREL/$pkgrel/; s/LLVMMAJOR/\$llvm/; s/LLVMNEXT/\$((llvm + 1))/\" /tmp/pkg/PKGBUILD
     chown -R builder /tmp/pkg
     su builder -c 'cd /tmp/pkg && PKGDEST=/tmp/pkg PKGEXT=.pkg.tar.zst makepkg --nodeps --noconfirm >/tmp/pkg/makepkg.log 2>&1' \
         || { tail -20 /tmp/pkg/makepkg.log >&2; exit 1; }

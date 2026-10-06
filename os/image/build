@@ -60,7 +60,8 @@ docker run --platform linux/arm64 --name "$name" -e MOBARCHY_SSH_PUBKEY="$(cat "
     grep -q "^\[mobarchy\]" /etc/pacman.conf
     grep -hv "^#" /src/os/image/packages.txt /src/os/image/packages-mobarchy.txt \
         | xargs pacman -Syu --disable-sandbox --noconfirm --needed >/dev/null
-    echo "installed from the Mobarchy repository: $(pacman -Sl mobarchy | awk "/\[installed/{print \$2}" | tr "\n" " ")"
+    pacman -Sl mobarchy | awk "/\[installed/{print \$2}" > /tmp/mobarchy-installed
+    echo "installed from the Mobarchy repository: $(tr "\n" " " < /tmp/mobarchy-installed)"
     # Where the device finds the repository from now on (or no repository).
     python3 - <<EOP
 import os, re
@@ -112,6 +113,12 @@ EOP
     systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1
     sed -i "s/^#en_US.UTF-8/en_US.UTF-8/" /etc/locale.gen && locale-gen >/dev/null && echo LANG=en_US.UTF-8 > /etc/locale.conf
     [ -x /src/devices/$device/scripts/rootfs-hook ] && /src/devices/$device/scripts/rootfs-hook
+    # The packages from the Mobarchy repository (built here, against what was current then)
+    # find every library they link to. Mesa built against an older LLVM left the GPU
+    # without a driver, and Hyprland crashing, with nothing said here.
+    broken=$(xargs -r pacman -Qlq < /tmp/mobarchy-installed | grep -v "/\$" | xargs -r -P8 -n40 sh -c \
+        "for f; do [ -f \"\$f\" ] && head -c4 \"\$f\" | grep -q ELF && ldd \"\$f\" 2>/dev/null | grep -q \"not found\" && echo \"\$f: \$(ldd \"\$f\" | grep \"not found\" | tr -s \" \" | tr \"\n\" \" \")\"; done" sh)
+    if [ -n "$broken" ]; then echo "libraries missing what they link to:"; echo "$broken"; exit 1; fi
     echo "rootfs ready"
 '
 
