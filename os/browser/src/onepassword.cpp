@@ -50,7 +50,12 @@ void OnePassword::run(const QStringList &args, std::function<void(int, const QBy
         setBusy(false);
         done(-1, {}, tr("1Password's CLI (op) isn't installed"));
     });
-    p->start(m_op, args);
+    // Through the user's service manager, not as the browser's child: the 1Password app
+    // drops op's connection when op's parent is the browser ("InvalidClientInfo" in its log;
+    // started from a shell or by systemd, op is accepted).
+    p->start(QStringLiteral("systemd-run"),
+             QStringList{QStringLiteral("--user"), QStringLiteral("--wait"), QStringLiteral("--pipe"),
+                         QStringLiteral("--quiet"), QStringLiteral("--collect"), m_op} + args);
 }
 
 bool OnePassword::matches(const QString &loginUrl, const QString &host)
