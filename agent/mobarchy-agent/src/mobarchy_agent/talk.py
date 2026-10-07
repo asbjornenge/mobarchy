@@ -40,6 +40,7 @@ START_WINDOWS = 3            # ~100 ms of speech starts a turn
 END_SILENCE_S = 0.7          # this much silence ends it
 BARGE_IN_WINDOWS = 8         # ~250 ms of speech while Frigg talks interrupts it
 PRE_ROLL_WINDOWS = 10        # kept from before the start, so the first syllable isn't lost
+WAKE_PRE_ROLL = 25           # (0.8 s) kept from before the wake phrase was known
 MAX_TURN_S = 30
 # With the wake phrase: the conversation goes back to waiting for it after this long without
 # speech, and Claude Code's session is closed after this long waiting.
@@ -502,6 +503,7 @@ class Talk:
         self.voice = voice
         self.threshold = float(os.environ.get("MOBARCHY_TALK_WAKE_THRESHOLD", "0.3"))
         self.last_active = time.monotonic()
+        self.wake_after = 0.0   # (back to waiting: not before her own voice has died away)
         self.barge_in = False
         self.trusted = False    # this conversation began on an unlocked phone
         self.vad = Vad()
@@ -526,6 +528,9 @@ class Talk:
     def set_state(self, state: str) -> None:
         if state in ("waiting", "idle"):
             self.trusted = False
+        if state == "waiting" and self.wake is not None:
+            self.wake.reset()
+            self.wake_after = time.monotonic() + 1.5
         if state != self.state:
             self.state = state
             self.out("state", state=state)
@@ -580,6 +585,9 @@ class Talk:
         turn = bytearray()
         pre: list[bytes] = []
         barge = 0
+        recent: list[bytes] = []
+        speech: list[float] = []
+        pre_keep = 0
         self.set_state("waiting" if self.wake else "listening")
         async for window in microphone():
             if self.stopping:
@@ -587,9 +595,16 @@ class Talk:
             now = time.monotonic()
             if self.state == "waiting":
                 scores = self.wake.feed(window)
-                if scores and max(scores) >= self.threshold:
+                recent = (recent + [window])[-WAKE_PRE_ROLL:]
+                # Speech in the last 1.3 s (Silero): sounds that aren't speech, Frigg's own chime
+                # among them, don't wake her.
+                speech = (speech + [self.vad.prob(window)])[-40:]
+                if scores and max(scores) >= self.threshold and max(speech) >= START_PROB \
+                        and now >= self.wake_after:
                     await self.woken()
-                    ep, turn, pre = Endpointer(), bytearray(), []
+                    # (the phrase is known ~0.5 s after it ends: what follows it may have begun)
+                    ep, turn, pre = Endpointer(), bytearray(), recent
+                    pre_keep = WAKE_PRE_ROLL
                 elif self.session.running and now - self.last_active > SESSION_IDLE_S:
                     await self.session.close()
                 continue
@@ -610,12 +625,13 @@ class Talk:
                     ep.speaking, turn = True, bytearray(b"".join(pre))
                     self.set_state("listening")
                 continue
-            pre = (pre + [window])[-PRE_ROLL_WINDOWS:]
+            pre = (pre + [window])[-max(PRE_ROLL_WINDOWS, pre_keep):]
             what = ep.step(prob)
             if ep.speaking:
                 self.last_active = now
             if what == "start":
                 turn = bytearray(b"".join(pre))
+                pre_keep = 0
             elif ep.speaking:
                 turn += window
             if what == "end":
@@ -883,7 +899,9 @@ class Enrollment:
 
     def learn_phrase(self, wakes: list[bytes], others: list[bytes]) -> None:
         from . import wake
-        verifier = wake.Verifier.train(wake.owner_windows(self.wake, wakes), wake.other_windows(self.wake, others))
+        # (against the owner's other sentences, and Frigg's own chime)
+        verifier = wake.Verifier.train(wake.owner_windows(self.wake, wakes),
+                                       wake.other_windows(self.wake, [*others, CHIME, CHIME + CHIME]))
         WAKE_PROFILE.write_text(json.dumps({"model": WAKE_MODEL, "clips": len(wakes), **verifier.to_json()}))
         WAKE_PROFILE.chmod(0o600)
 

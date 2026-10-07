@@ -99,7 +99,8 @@ waiting. The shell runs it while the owner's switch says so
 - The classifier, from synthetic voices, missed most of the owner's own "Hei Frigg". Learning
   the voice now also asks for the phrase 6 times; the phone trains a logistic regression on
   those windows against the owner's other sentences (openWakeWord's custom verifier, in
-  numpy, a few seconds), and from a classifier score of 0.01 the verifier decides. The
+  numpy, a few seconds). It scored the owner's real phrase 0.95–1.0 where the classifier
+  gave 0.001, so it wakes Frigg by itself at 0.9 twice in a row (80 ms apart). The
   threshold is 0.3 (`MOBARCHY_TALK_WAKE_THRESHOLD`): still no false wakes in 12 h.
 
 **A locked phone (phase 3): Voice Match.** "Hei Frigg" works on a locked phone too. Who

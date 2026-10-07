@@ -8,8 +8,8 @@ classifier over the last 16 embeddings (1.28 s) that scores the phrase. Audio go
 The classifier is trained on synthetic voices. The owner's own way of saying it is learnt on
 the phone, as openWakeWord's custom verifiers do: a logistic regression on the same 16
 embeddings, from the few times they said "Hei Frigg" when Frigg learnt their voice, against
-their other sentences. With it, a low score from the classifier (GATE) that the verifier
-finds to be the owner's phrase wakes Frigg.
+their other sentences. The verifier wakes Frigg on its own when it is sure, two 80 ms steps
+in a row (the classifier scored the owner's real voice ~0.001: it can't gate it).
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ CHUNK = 1280            # 80 ms
 CONTEXT = 160 * 3       # samples before a chunk the melspectrogram needs
 MEL_WINDOW = 76         # melspectrogram frames an embedding looks at
 FEATURES = "melspectrogram.onnx", "embedding_model.onnx"
-GATE = 0.01     # the classifier's score from which the verifier looks
+VERIFIED = 0.9  # the verifier's probability, twice in a row, that wakes Frigg
 
 
 def _session(path: Path):
@@ -50,6 +50,7 @@ class WakeWord:
         self.pending = np.zeros(0, dtype=np.int16)
         self.mels = np.ones((MEL_WINDOW, 32), dtype=np.float32)
         self.features: deque = deque(maxlen=self.frames)
+        self.last_verified = 0.0
 
     def feed(self, pcm: bytes) -> list[float]:
         """Scores for the whole 80 ms chunks in pcm (and what was left from before)."""
@@ -73,8 +74,11 @@ class WakeWord:
             return 0.0
         x = np.array(self.features, dtype=np.float32)[None]
         score = float(np.squeeze(self.clf.run(None, {self.clf.get_inputs()[0].name: x})[0]))
-        if self.verifier is not None and score >= GATE:
-            return max(score, self.verifier.prob(x[0]))
+        if self.verifier is not None:
+            p, before = self.verifier.prob(x[0]), self.last_verified
+            self.last_verified = p
+            if p >= VERIFIED and before >= VERIFIED:
+                return max(score, p)
         return score
 
     def windows(self, pcm: bytes) -> np.ndarray:

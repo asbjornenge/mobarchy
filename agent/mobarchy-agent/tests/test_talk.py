@@ -112,7 +112,7 @@ def test_wake_waits_talks_and_waits_again(monkeypatch):
 
         def feed(self, pcm):
             self.n += 1
-            return [0.9 if self.n == 5 else 0.0]
+            return [0.9 if self.n >= 5 else 0.0]
 
         def reset(self):
             pass
@@ -127,8 +127,11 @@ def test_wake_waits_talks_and_waits_again(monkeypatch):
             self.running = False
 
     class Vad:
-        def prob(self, window):
-            return 0.0
+        n = 0
+
+        def prob(self, window):     # (speech while she waits, then silence)
+            self.n += 1
+            return 0.9 if t.state == "waiting" else 0.0
 
     async def mic():
         while True:
@@ -153,8 +156,8 @@ def test_wake_waits_talks_and_waits_again(monkeypatch):
         t.stopping = True
         await task
 
-    asyncio.run(asyncio.wait_for(run(), 5))
-    assert states == ["waiting", "listening", "waiting"]
+    asyncio.run(asyncio.wait_for(run(), 8))
+    assert states[:3] == ["waiting", "listening", "waiting"]
 
 
 def test_frigg_goes_on_with_the_chats_session(monkeypatch, tmp_path):
