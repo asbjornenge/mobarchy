@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# Trains Frigg's wake phrase, "Hei Frigg" (ADR 0026), with openWakeWord, on a PC with an
+# NVIDIA GPU (CPU works, slowly). Needs ~40 GB in the work dir, and a few hours.
+#
+#   agent/wakeword/train <work dir> [step...]
+#
+#   steps   setup fetch voices features generate augment model (default: all, in order;
+#           each can be run again, and goes on from where it stopped)
+#
+# ELEVENLABS_API_KEY (or ~/.config/mobarchy/agent.env's) adds ~900 clips from ElevenLabs'
+# Norwegian voices to the positives; without it, the Nordic Piper voices and the English
+# generator's make them all. The model ends up in <work dir>/frigg/hei_frigg.onnx: copy it to
+# the phone's ~/.local/share/mobarchy/models/.
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+work=${1:?usage: $0 <work dir> [step...]}
+shift
+steps=${*:-setup fetch voices features generate augment model}
+mkdir -p "$work/data"
+work=$(cd "$work" && pwd)
+cd "$work"
+py=$work/.venv/bin/python
+
+OWW_COMMIT=368c03716d1e92591906a84949bc477f3a834455
+HF=https://huggingface.co/datasets
+
+setup() {
+    [ -d openWakeWord ] || git clone -q https://github.com/dscripka/openWakeWord
+    git -C openWakeWord checkout -q $OWW_COMMIT
+    [ -d piper-sample-generator ] || git clone -q https://github.com/rhasspy/piper-sample-generator
+    git -C piper-sample-generator checkout -q v2.0.0     # (train.py wants its generate_samples.py)
+    [ -f piper-sample-generator/models/en_US-libritts_r-medium.pt ] || curl -fL -o piper-sample-generator/models/en_US-libritts_r-medium.pt \
+        https://github.com/rhasspy/piper-sample-generator/releases/download/v2.0.0/en_US-libritts_r-medium.pt
+    [ -x "$py" ] || uv venv -q -p 3.10 .venv
+    VIRTUAL_ENV=$work/.venv uv pip install -q torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121
+    VIRTUAL_ENV=$work/.venv uv pip install -q -e ./openWakeWord piper-phonemize webrtcvad mutagen==1.47.0 \
+        torchinfo==1.8.0 torchmetrics==1.2.0 speechbrain==0.5.14 audiomentations==0.33.0 \
+        torch-audiomentations==0.11.0 acoustics==0.2.6 pronouncing==0.2.0 datasets==2.14.6 \
+        deep-phonemizer==0.0.19 pyyaml "numpy<2" "pyarrow<15" "setuptools<70" onnx onnxscript \
+        soundfile librosa piper-tts==1.8.0
+    "$py" -c "import openwakeword.utils as u; u.download_models(model_names=['hey_jarvis'])"
+    # The phonemizer for the near misses: DeepPhonemizer's own download is gone; NRC Canada's
+    # copy of the same checkpoint, with its module names back to the old package's (dp)
+    local g2p=openWakeWord/openwakeword/resources/en_us_cmudict_forward.pt
+    if ! unzip -l "$g2p" >/dev/null 2>&1; then
+        curl -fL -o data/g2p.pt https://huggingface.co/NRC-CNRC/en_us_cmudict_ipa_forward_g2p/resolve/main/en_us_cmudict_forward.pt
+        "$py" - "$g2p" <<'EOF'
+import sys, zipfile
+src = zipfile.ZipFile("data/g2p.pt")
+with zipfile.ZipFile(sys.argv[1], "w") as out:
+    for item in src.infolist():
+        data = src.read(item.filename)
+        out.writestr(item, data.replace(b"deep_phonemizer.", b"dp.") if item.filename.endswith(".pkl") else data)
+EOF
+    fi
+}
+
+fetch() {
+    # openWakeWord's negatives (~2,000 h of features, 16 GB) and validation set (~11 h)
+    for f in openwakeword_features_ACAV100M_2000_hrs_16bit.npy validation_set_features.npy; do
+        curl -fL -C - -o data/$f $HF/davidscripka/openwakeword_features/resolve/main/$f
+    done
+    # Room impulse responses (MIT)
+    [ -d mit_rirs ] || "$py" - <<'EOF'
+import datasets, numpy as np, os, scipy.io.wavfile
+os.makedirs("mit_rirs", exist_ok=True)
+for row in datasets.load_dataset("davidscripka/MIT_environmental_impulse_responses", split="train", streaming=True):
+    scipy.io.wavfile.write(os.path.join("mit_rirs", row["audio"]["path"].split("/")[-1]), 16000,
+                           (row["audio"]["array"] * 32767).astype(np.int16))
+EOF
+    # Background noise and music: two of AudioSet's balanced shards (~1,000 clips), at 16 kHz
+    if [ -z "$(ls audioset_16k 2>/dev/null)" ]; then
+        mkdir -p audioset_16k
+        for n in 09 10; do
+            curl -fL -C - -o data/audioset_bal_$n.parquet $HF/agkphysics/AudioSet/resolve/main/data/bal_train/$n.parquet
+        done
+        "$py" - <<'EOF'
+import glob, io, os
+import numpy as np, pyarrow.parquet as pq, soundfile as sf
+from scipy.signal import resample_poly
+for shard in sorted(glob.glob("data/audioset_bal_*.parquet")):
+    for row in pq.read_table(shard, columns=["video_id", "audio"]).to_pylist():
+        try:
+            audio, rate = sf.read(io.BytesIO(row["audio"]["bytes"]), dtype="float32", always_2d=True)
+        except Exception:
+            continue
+        audio = resample_poly(audio.mean(axis=1), 16000, rate) if rate != 16000 else audio.mean(axis=1)
+        sf.write(os.path.join("audioset_16k", row["video_id"] + ".wav"), audio, 16000, subtype="PCM_16")
+EOF
+    fi
+    # Norwegian speech (FLEURS nb_no): negatives, validation and background
+    for s in test train; do
+        [ -d data/fleurs_nb_$s ] && continue
+        curl -fL -C - -o data/fleurs_nb_$s.tar.gz $HF/google/fleurs/resolve/main/data/nb_no/audio/$s.tar.gz
+        mkdir -p data/fleurs_nb_$s && tar xzf data/fleurs_nb_$s.tar.gz -C data/fleurs_nb_$s
+    done
+}
+
+voices() {
+    if [ -z "${ELEVENLABS_API_KEY:-}" ] && [ -f ~/.config/mobarchy/agent.env ]; then
+        ELEVENLABS_API_KEY=$(sed -n 's/^ELEVENLABS_API_KEY=//p' ~/.config/mobarchy/agent.env)
+    fi
+    local eleven=0
+    [ -n "${ELEVENLABS_API_KEY:-}" ] && eleven=900
+    ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-} "$py" "$here/voices.py" "$work" --piper 4400 --elevenlabs $eleven
+}
+
+features() { "$py" "$here/features.py" "$work"; }
+generate() { "$py" openWakeWord/openwakeword/train.py --training_config "$here/hei_frigg.yml" --generate_clips; }
+augment() { "$py" openWakeWord/openwakeword/train.py --training_config "$here/hei_frigg.yml" --augment_clips; }
+model() { "$py" openWakeWord/openwakeword/train.py --training_config "$here/hei_frigg.yml" --train_model; }
+
+for step in $steps; do
+    echo "== $step"
+    $step
+done

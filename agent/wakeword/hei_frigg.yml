@@ -1,0 +1,58 @@
+# openWakeWord's training (openwakeword/train.py) for "Hei Frigg". Paths are relative to the
+# work dir that ./train runs in.
+model_name: "hei_frigg"
+# The English generator's voices (904 LibriTTS speakers); "hei" is Norwegian's [hæi]
+target_phrase:
+  - "hey frigg"
+  - "hei frigg"
+# Near misses, besides those openWakeWord makes from the phonemes
+custom_negative_phrases:
+  - "hey"
+  - "hei"
+  - "hey fridge"
+  - "hey friend"
+  - "hi friend"
+  - "hey greg"
+  - "hey rick"
+  - "hey frank"
+  - "hey friday"
+  - "hey freak"
+  - "hey frida"
+  - "hei frisk"
+  - "hei fritt"
+  - "frisk"
+  - "rigg"
+  - "brigg"
+  - "a fridge"
+# Positive clips in all: voices.py's (Nordic Piper voices, ElevenLabs) come first, the
+# generator tops up
+n_samples: 30000
+n_samples_val: 3000
+tts_batch_size: 50
+augmentation_batch_size: 16
+augmentation_rounds: 1
+piper_sample_generator_path: "./piper-sample-generator"
+output_dir: "./frigg"
+rir_paths:
+  - "./mit_rirs"
+background_paths:
+  - "./audioset_16k"
+  - "./data/fleurs_nb_train/train"
+background_paths_duplication_rate:
+  - 1
+  - 1
+# openWakeWord's ~11 h, and ~1 h of Norwegian (features.py)
+false_positive_validation_data_path: "./data/validation_nb_all.npy"
+feature_data_files:
+  "ACAV100M_sample": "./data/openwakeword_features_ACAV100M_2000_hrs_16bit.npy"
+  "norwegian": "./data/negative_nb.npy"
+batch_n_per_class:
+  "ACAV100M_sample": 1024
+  "norwegian": 256
+  "adversarial_negative": 50
+  "positive": 50
+model_type: "dnn"
+layer_size: 32
+steps: 50000
+max_negative_weight: 1500
+target_false_positives_per_hour: 0.2

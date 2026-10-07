@@ -32,7 +32,10 @@ starts it and shows it. A turn goes:
    - Other languages: OpenAI's multilingual small with the language set, ~1.3 s on comet.
    - `auto` detects the language with the multilingual model, but takes ~7 s on comet.
    - Cloud, with a key: OpenAI's transcription, every language and fast.
-3. **Think.** One Claude Code session stays open for the whole conversation, on Sonnet
+3. **Think.** Frigg goes on in the Mobarchy chat's Claude Code session (`--resume`), and
+   leaves the chat its session afterwards: what is said to one, the other knows. If the chat
+   moved on while Frigg waited, Frigg resumes it again before the next turn. The session
+   stays open for the whole conversation, on Sonnet
    (`MOBARCHY_TALK_MODEL`). On comet its first words come after ~1–3 s, the default
    model's after 5–7
    (`--input-format stream-json`, `--include-partial-messages`). The first answer comes
@@ -78,6 +81,20 @@ language Piper has no voice for.
 Measured on comet, one turn spoken as "Hva blir været i Oslo i morgen?": heard after 0.9 s;
 the first sentence ("Jeg sjekker værmeldingen for Oslo") after 5.1 s, during the web search;
 the forecast after 10.8–12.1 s. Piper takes 0.4 s a sentence, and Silero 0.1 ms a window.
+
+**The wake phrase (phase 2).** `mobarchy-agent talk --wake` waits for "Hei Frigg"
+("waiting"), then talks as from the button: the words after the phrase are the first turn.
+After 8 s without speech it waits again; Claude Code's session stays open for 10 minutes of
+waiting. The shell runs it while the owner's switch says so
+(the overlay's "Hei Frigg": always, while charging, off; `~/.config/mobarchy/frigg.ini`), on
+an unlocked phone. The status bar shows a microphone while it listens.
+
+- Detection is openWakeWord's pipeline, run with onnxruntime alone (`wake.py`; the same
+  scores as openWakeWord's own code): ~16 % of one core on comet.
+- The classifier is ours, trained by `agent/wakeword/train` on synthetic speech: the English
+  generator's 904 speakers, Nordic Piper voices, and ElevenLabs' Norwegian voices; with
+  Norwegian speech (FLEURS) among the negatives, since the owner speaks Norwegian all day.
+- A soft chime says Frigg is listening.
 
 ## Consequences
 

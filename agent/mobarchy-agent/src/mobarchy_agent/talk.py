@@ -23,6 +23,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 import urllib.request
 import wave
 from collections.abc import AsyncIterator, Callable, Iterator
@@ -40,6 +41,10 @@ END_SILENCE_S = 0.7          # this much silence ends it
 BARGE_IN_WINDOWS = 8         # ~250 ms of speech while Frigg talks interrupts it
 PRE_ROLL_WINDOWS = 10        # kept from before the start, so the first syllable isn't lost
 MAX_TURN_S = 30
+# With the wake phrase: the conversation goes back to waiting for it after this long without
+# speech, and Claude Code's session is closed after this long waiting.
+FOLLOW_UP_S = 8
+SESSION_IDLE_S = 600
 
 MODELS = Path("/usr/share/mobarchy/models")
 USER_MODELS = Path.home() / ".local/share/mobarchy/models"
@@ -361,20 +366,28 @@ def pcm_chunks(stream, rate: int, size: int = 4096) -> Iterator[tuple[bytes, int
             yield chunk[:cut], rate
 
 
-# --- the agent: one Claude Code session for the conversation ----------------------------
+# --- the agent: the Mobarchy chat's Claude Code session ----------------------------------
 
 class ClaudeSession:
-    """Claude Code with stream-json input: it stays up between turns."""
+    """Claude Code with stream-json input: it stays up between turns. It goes on with a
+    session (the chat's, resumed), and knows the id each turn leaves it at."""
 
     def __init__(self, cmd: list[str]) -> None:
         self.cmd = cmd
         self.proc: asyncio.subprocess.Process | None = None
+        self.session_id: str | None = None
 
-    async def start(self) -> None:
+    @property
+    def running(self) -> bool:
+        return self.proc is not None and self.proc.returncode is None
+
+    async def start(self, resume: str | None = None) -> None:
         env = {**os.environ, "MCP_TOOL_TIMEOUT": "600000"}
         agents.WORKDIR.mkdir(parents=True, exist_ok=True)
+        self.session_id = resume
         self.proc = await asyncio.create_subprocess_exec(
-            *self.cmd, "-p", "--input-format", "stream-json", "--include-partial-messages",
+            *self.cmd, *(["--resume", resume] if resume else []),
+            "-p", "--input-format", "stream-json", "--include-partial-messages",
             cwd=agents.WORKDIR, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL, env=env, limit=16 * 1024 * 1024)
 
@@ -385,6 +398,8 @@ class ClaudeSession:
         self.proc.stdin.write((json.dumps(msg) + "\n").encode())
         await self.proc.stdin.drain()
         async for raw in self.proc.stdout:
+            if b'"type":"result"' in raw or b'"subtype":"init"' in raw:
+                self.session_id = json.loads(raw).get("session_id") or self.session_id
             for kind, value in parse_stream_line(raw.decode(errors="replace")):
                 if kind == "end":
                     return
@@ -392,6 +407,7 @@ class ClaudeSession:
         raise RuntimeError("Claude Code stopped")
 
     async def close(self) -> None:
+        self.session_id = None
         if self.proc and self.proc.returncode is None:
             if self.proc.stdin:
                 self.proc.stdin.close()
@@ -429,10 +445,29 @@ def parse_stream_line(line: str) -> list[tuple[str, str]]:
 
 # --- the conversation -------------------------------------------------------------------
 
+def chime() -> bytes:
+    """A soft rising two-note sound for "I'm listening" (16 kHz, 0.25 s)."""
+    import numpy as np
+    out = []
+    for freq, dur in ((660, 0.11), (990, 0.14)):
+        t = np.arange(int(16000 * dur)) / 16000
+        out.append(np.sin(2 * np.pi * freq * t) * np.sin(np.pi * t / dur) ** 2)
+    return (np.concatenate(out) * 0.25 * 32767).astype(np.int16).tobytes()
+
+
+CHIME = chime()
+
+
 class Talk:
-    def __init__(self, session: ClaudeSession, out: Callable[..., None] = emit) -> None:
+    """A conversation. With a wake word it waits for the phrase ("waiting"), talks, and after
+    FOLLOW_UP_S without speech waits again; without one it talks until stopped."""
+
+    def __init__(self, session: ClaudeSession, out: Callable[..., None] = emit, wake=None) -> None:
         self.session = session
         self.out = out
+        self.wake = wake
+        self.threshold = float(os.environ.get("MOBARCHY_WAKE_THRESHOLD", "0.5"))
+        self.last_active = time.monotonic()
         self.vad = Vad()
         self.speaker = Speaker()
         self.voices = Voices()
@@ -440,7 +475,17 @@ class Talk:
         self.stopping = False
         self.speaking_task: asyncio.Task | None = None
         self.interrupted = asyncio.Event()
-        self.conv = agents.current_conversation(False)
+
+    async def join_chat(self) -> agents.Conversation:
+        """The Mobarchy chat's conversation, as it is now, and its Claude session for this
+        turn: Frigg goes on where the chat is (and the chat where Frigg left off). The
+        session is started again when the chat has moved on since (a turn, a new chat)."""
+        conv = agents.current_conversation(False)
+        chat = conv.sessions.get("claude")
+        if not self.session.running or self.session.session_id != chat:
+            await self.session.close()
+            await self.session.start(resume=chat)
+        return conv
 
     def set_state(self, state: str) -> None:
         if state != self.state:
@@ -448,7 +493,6 @@ class Talk:
             self.out("state", state=state)
 
     async def run(self) -> None:
-        await self.session.start()
         if tts() == "piper":
             # (a voice loads in ~1 s: not on the first sentence)
             for language in {talk_language(), DEFAULT_LANGUAGE}:
@@ -473,6 +517,18 @@ class Talk:
                 await self.cut_in()
             elif cmd == "interrupt":
                 await self.cut_in()
+            elif cmd == "sleep" and self.wake:       # end this conversation, wait for the phrase
+                await self.cut_in()
+                self.set_state("waiting")
+            elif cmd == "wake" and self.state == "waiting":     # as if the phrase was heard
+                await self.woken()
+
+    async def woken(self) -> None:
+        self.wake.reset()
+        self.last_active = time.monotonic()
+        self.set_state("listening")
+        await self.speaker.play(CHIME, 16000)
+        await self.speaker.drain()
 
     async def cut_in(self) -> None:
         """Stop speaking (and the rest of this answer), and listen."""
@@ -484,10 +540,23 @@ class Talk:
         turn = bytearray()
         pre: list[bytes] = []
         barge = 0
-        self.set_state("listening")
+        self.set_state("waiting" if self.wake else "listening")
         async for window in microphone():
             if self.stopping:
                 return
+            now = time.monotonic()
+            if self.state == "waiting":
+                scores = self.wake.feed(window)
+                if scores and max(scores) >= self.threshold:
+                    await self.woken()
+                    ep, turn, pre = Endpointer(), bytearray(), []
+                elif self.session.running and now - self.last_active > SESSION_IDLE_S:
+                    await self.session.close()
+                continue
+            if self.wake and self.state == "listening" and not ep.speaking \
+                    and now - self.last_active > FOLLOW_UP_S:
+                self.set_state("waiting")
+                continue
             prob = self.vad.prob(window)
             if self.state == "speaking" or self.state == "thinking":
                 # talking over Frigg: stop it, and this is the next turn
@@ -501,6 +570,8 @@ class Talk:
                 continue
             pre = (pre + [window])[-PRE_ROLL_WINDOWS:]
             what = ep.step(prob)
+            if ep.speaking:
+                self.last_active = now
             if what == "start":
                 turn = bytearray(b"".join(pre))
             elif ep.speaking:
@@ -522,34 +593,54 @@ class Talk:
             self.set_state("listening")
             return
         self.out("heard", text=text, language=language)
-        self.conv.add("user", text, "claude")
+        conv = await self.join_chat()
+        conv.add("user", text, "claude")
+        conv.save()
+        prompt = conv.bridged_prompt("claude", text)
         sentences = Sentences()
         spoken = []
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         speak = asyncio.create_task(self.speak(queue, language))
         try:
-            async for kind, value in self.session.ask(text):
-                if self.interrupted.is_set():
-                    continue    # (the rest of the answer goes unspoken)
-                if kind == "text":
-                    for s in sentences.feed(value):
-                        spoken.append(s)
-                        await queue.put(s)
-                elif kind == "tool":
-                    self.out("tool", text=value)
-                elif kind == "error":
-                    self.out("error", text=value)
+            for attempt in (1, 2):
+                answered = False
+                try:
+                    async for kind, value in self.session.ask(prompt):
+                        answered = True
+                        if self.interrupted.is_set():
+                            continue    # (the rest of the answer goes unspoken)
+                        if kind == "text":
+                            for s in sentences.feed(value):
+                                spoken.append(s)
+                                await queue.put(s)
+                        elif kind == "tool":
+                            self.out("tool", text=value)
+                        elif kind == "error":
+                            self.out("error", text=value)
+                    break
+                except RuntimeError:
+                    # (the chat's session could not be resumed: a new one, once)
+                    if answered or attempt == 2:
+                        raise
+                    await self.session.close()
+                    await self.session.start()
             if not self.interrupted.is_set():
                 for s in sentences.flush():
                     spoken.append(s)
                     await queue.put(s)
+        except Exception as e:
+            self.out("error", text=f"Claude: {e}")
         finally:
             await queue.put(None)
             await speak
             if spoken:
-                self.conv.add("assistant", " ".join(spoken), "claude")
-                self.conv.save()
-            if not self.stopping:
+                conv.add("assistant", " ".join(spoken), "claude")
+            if self.session.session_id:
+                conv.sessions["claude"] = self.session.session_id
+            conv.seen["claude"] = len(conv.turns)
+            conv.save()
+            if not self.stopping and self.state != "waiting":
+                self.last_active = time.monotonic()
                 self.set_state("listening")
 
     async def speech(self, sentence: str, language: str, previous: str) -> AsyncIterator[tuple[bytes, int]]:
@@ -597,7 +688,7 @@ class Talk:
             await self.speaker.drain()
 
 
-async def main(config: Config | None = None) -> int:
+async def main(config: Config | None = None, wake: bool = False) -> int:
     config = config or Config.load()
     exe = agents.claude_bin()
     if not exe:
@@ -609,7 +700,7 @@ async def main(config: Config | None = None) -> int:
             return 1
     # The models for the language, the first time it is spoken (a few hundred MB)
     language = talk_language()
-    need = missing(language)
+    need = missing(language, wake)
     if need:
         emit("state", state="starting")
         emit("tool", text=f"Downloading speech models ({language})")
@@ -625,7 +716,14 @@ async def main(config: Config | None = None) -> int:
     model = os.environ.get("MOBARCHY_TALK_MODEL", "sonnet")
     if model:
         cmd += ["--model", model]
-    await Talk(ClaudeSession(cmd)).run()
+    detector = None
+    if wake:
+        from .wake import WakeWord
+        if not model_path(WAKE_MODEL).exists():
+            emit("error", text=f"the wake phrase's model ({WAKE_MODEL}) is missing")
+            return 1
+        detector = WakeWord(model_path(WAKE_MODEL), model_path(WAKE_FEATURES[0]).parent)
+    await Talk(ClaudeSession(cmd), wake=detector).run()
     return 0
 
 
@@ -634,6 +732,11 @@ async def main(config: Config | None = None) -> int:
 VOICE_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 VAD_URL = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
 QUALITY = ("medium", "high", "low", "x_low")
+# The wake phrase: openWakeWord's feature models, and our classifier for "Hei Frigg"
+# (agent/wakeword trains it)
+WAKE_MODEL = "hei_frigg.onnx"
+WAKE_FEATURES = ("melspectrogram.onnx", "embedding_model.onnx")
+WAKE_URL = "https://github.com/dscripka/openWakeWord/releases/download/v0.5.1"
 
 
 def installed_voice(language: str) -> str | None:
@@ -665,10 +768,12 @@ def catalogue() -> dict:
         return json.load(r)
 
 
-def missing(language: str) -> dict[str, str]:
+def missing(language: str, wake: bool = False) -> dict[str, str]:
     """{file: url} of the models the language needs that aren't on the phone: the VAD, and
     whisper's model and a Piper voice unless a service does their job."""
     want = {} if model_path(VAD_MODEL).exists() else {VAD_MODEL: VAD_URL}
+    if wake:
+        want |= {f: f"{WAKE_URL}/{f}" for f in WAKE_FEATURES if not model_path(f).exists()}
     if stt() == "whisper":
         if FAMILY.get(language, language) == "no":
             if not voice.model_file().exists():

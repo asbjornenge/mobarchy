@@ -102,3 +102,85 @@ def test_pcm_chunks_are_whole_samples():
     import io
     out = list(talk.pcm_chunks(io.BytesIO(b"\x01" * 9), 22050, size=3))
     assert [len(a) for a, _ in out] == [2, 4, 2] and all(len(a) % 2 == 0 for a, _ in out)
+
+
+def test_wake_waits_talks_and_waits_again(monkeypatch):
+    import asyncio
+
+    class Wake:
+        n = 0
+
+        def feed(self, pcm):
+            self.n += 1
+            return [0.9 if self.n == 5 else 0.0]
+
+        def reset(self):
+            pass
+
+    class Session:
+        running = False
+
+        async def start(self):
+            self.running = True
+
+        async def close(self):
+            self.running = False
+
+    class Vad:
+        def prob(self, window):
+            return 0.0
+
+    async def mic():
+        while True:
+            yield bytes(1024)
+            await asyncio.sleep(0.002)
+
+    async def nothing(*a):
+        pass
+
+    monkeypatch.setattr(talk, "Vad", Vad)
+    monkeypatch.setattr(talk, "microphone", mic)
+    monkeypatch.setattr(talk, "FOLLOW_UP_S", 0.05)
+    monkeypatch.setattr(talk.Speaker, "play", nothing)
+    monkeypatch.setattr(talk.Speaker, "drain", nothing)
+    states = []
+    t = talk.Talk(Session(), out=lambda kind, **f: states.append(f.get("state")), wake=Wake())
+
+    async def run():
+        task = asyncio.create_task(t.listen())
+        while states.count("waiting") < 2:
+            await asyncio.sleep(0.01)
+        t.stopping = True
+        await task
+
+    asyncio.run(asyncio.wait_for(run(), 5))
+    assert states == ["waiting", "listening", "waiting"]
+
+
+def test_frigg_goes_on_with_the_chats_session(monkeypatch, tmp_path):
+    import asyncio
+    from mobarchy_agent import agents, conversations
+
+    monkeypatch.setattr(conversations, "ROOT", tmp_path)
+    conv = conversations.Conversation()
+    conv.sessions["claude"] = "chat-1"
+    monkeypatch.setattr(agents, "current_conversation", lambda new=False: conv)
+
+    class Session:
+        def __init__(self):
+            self.running, self.session_id, self.starts = False, None, []
+
+        async def start(self, resume=None):
+            self.running, self.session_id = True, resume
+            self.starts.append(resume)
+
+        async def close(self):
+            self.running, self.session_id = False, None
+
+    monkeypatch.setattr(talk, "Vad", lambda: None)
+    t = talk.Talk(Session(), out=lambda *a, **k: None)
+    asyncio.run(t.join_chat())
+    asyncio.run(t.join_chat())          # (the same: no new start)
+    conv.sessions["claude"] = "chat-2"  # the chat went on meanwhile
+    asyncio.run(t.join_chat())
+    assert t.session.starts == ["chat-1", "chat-2"]

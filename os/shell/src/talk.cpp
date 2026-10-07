@@ -17,6 +17,19 @@ Talk::Talk(QObject *parent)
         }
         emit activeChanged();
     });
+    // Waiting for the phrase is meant to go on: if it ends by itself, it starts again (later
+    // and later if it keeps failing).
+    connect(&m_proc, &QProcess::finished, this, [this](int code) {
+        if (!m_wake)
+            return;
+        m_failures = code == 0 ? 0 : m_failures + 1;
+        if (m_failures > 5)
+            return;
+        QTimer::singleShot(code == 0 ? 0 : 2000 * m_failures, this, [this] {
+            if (m_wake && !active())
+                launch();
+        });
+    });
     connect(&m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
         m_error = tr("Frigg could not start (%1)").arg(m_proc.errorString());
         emit textChanged();
@@ -34,22 +47,53 @@ Talk::~Talk()
 
 void Talk::start()
 {
-    if (active())
-        return;
     m_heard.clear();
     m_said.clear();
     m_doing.clear();
     m_error.clear();
-    m_state = QStringLiteral("starting");
     emit textChanged();
+    if (active()) {
+        if (m_state == QLatin1String("waiting"))
+            send("wake");
+        return;
+    }
+    m_state = QStringLiteral("starting");
     emit stateChanged();
-    m_proc.start(Agent::program(), {QStringLiteral("talk")});
+    launch();
+}
+
+void Talk::launch()
+{
+    QStringList args{QStringLiteral("talk")};
+    if (m_wake)
+        args << QStringLiteral("--wake");
+    m_procWake = m_wake;
+    m_proc.start(Agent::program(), args);
+}
+
+void Talk::setWake(bool wake)
+{
+    if (wake == m_wake)
+        return;
+    m_wake = wake;
+    m_failures = 0;
+    emit wakeChanged();
+    if (wake && !active())
+        launch();
+    else if (!wake && active() && !talking())
+        send("stop");
+    // (on, during a conversation without it: the next one waits for the phrase; off during
+    // one: it ends with the conversation)
 }
 
 void Talk::stop()
 {
     if (!active())
         return;
+    if (m_procWake) {
+        send("sleep");
+        return;
+    }
     send("stop");
     // (it closes Claude Code and the audio, then exits; if not, end it)
     QTimer *t = new QTimer(this);
@@ -90,6 +134,9 @@ void Talk::readEvents()
                 m_state = state;
                 emit stateChanged();
             }
+            // (the phrase was turned off during the conversation: it ends with it)
+            if (state == QLatin1String("waiting") && !m_wake)
+                send("stop");
             continue;
         }
         if (kind == QLatin1String("heard")) {

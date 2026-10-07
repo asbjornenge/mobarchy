@@ -1,17 +1,22 @@
+pragma ComponentBehavior: Bound
+
+import QtCore
 import QtQuick
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
 // Frigg (ADR 0026): the live conversation, over whatever is on the screen. An orb for what
 // Frigg is doing (listening, thinking, speaking), what was heard and what Frigg says.
-// A tap on the orb interrupts; ✕ ends the conversation.
+// A tap on the orb interrupts; ✕ ends the conversation. At the top, whether "Hei Frigg"
+// starts one: always, while charging, or not.
 LayerWindow {
     id: overlay
 
     required property Talk talk
+    required property Settings settings
     property int insetBottom: 0
 
-    shown: talk.active
+    shown: talk.talking
     color: "transparent"
     LayerShell.Window.scope: "mobarchy-talk"
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
@@ -27,6 +32,44 @@ LayerWindow {
         anchors.fill: parent
         color: "#c0000000"
         MouseArea { anchors.fill: parent }
+    }
+
+    // "Hei Frigg": always · while charging · off
+    Row {
+        anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 64 }
+        spacing: 6
+        Text {
+            anchors.verticalCenter: parent.verticalCenter
+            text: qsTr("“Hei Frigg”")
+            color: Theme.muted
+            rightPadding: 6
+            font { family: Theme.font; pixelSize: 14 }
+        }
+        Repeater {
+            model: [{ id: "always", label: qsTr("Always") }, { id: "charging", label: qsTr("Charging") },
+                    { id: "off", label: qsTr("Off") }]
+            delegate: Rectangle {
+                id: choice
+                required property var modelData
+                readonly property bool chosen: overlay.settings.wake === modelData.id
+                width: label.implicitWidth + 24
+                height: 34
+                radius: 17
+                color: chosen ? Theme.accent : "transparent"
+                border { color: chosen ? Theme.accent : Theme.muted; width: 1 }
+                Text {
+                    id: label
+                    anchors.centerIn: parent
+                    text: choice.modelData.label
+                    color: choice.chosen ? Theme.bg : Theme.fg
+                    font { family: Theme.font; pixelSize: 14 }
+                }
+                MouseArea {
+                    anchors { fill: parent; margins: -4 }
+                    onClicked: overlay.settings.wake = choice.modelData.id
+                }
+            }
+        }
     }
 
     Column {

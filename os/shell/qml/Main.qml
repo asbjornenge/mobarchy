@@ -1,3 +1,4 @@
+import QtCore
 import QtQuick
 import Mobarchy.Shell
 
@@ -7,10 +8,20 @@ QtObject {
     readonly property AppModel apps: AppModel {}
     readonly property ToplevelModel toplevels: ToplevelModel {}
     readonly property Agent agent: Agent {}
-    // Frigg, the live voice conversation (ADR 0026)
-    readonly property Talk talk: Talk {}
+    // Frigg, the live voice conversation (ADR 0026). "Hei Frigg" starts one too, when the
+    // owner has it on: always, or while charging; only on an unlocked phone for now (the
+    // lock screen is phase 3).
+    readonly property Talk talk: Talk {
+        wake: !shell.lockScreen.shown && (shell.friggSettings.wake === "always"
+              || shell.friggSettings.wake === "charging" && shell.system.charging)
+    }
+    readonly property Settings friggSettings: Settings {
+        location: StandardPaths.writableLocation(StandardPaths.GenericConfigLocation) + "/mobarchy/frigg.ini"
+        property string wake: "off"     // "always" | "charging" | "off"
+    }
     readonly property TalkOverlay talkOverlay: TalkOverlay {
         talk: shell.talk
+        settings: shell.friggSettings
         insetBottom: shell.edge.inset
     }
     readonly property Keyboard keyboard: Keyboard {}
@@ -166,6 +177,7 @@ QtObject {
         quick: shell.quick
         device: shell.device
         notifications: shell.notifications
+        listening: shell.talk.active
         turns: shell.rotation.turns
     }
     readonly property Home home: Home {
