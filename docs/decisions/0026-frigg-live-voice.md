@@ -96,6 +96,11 @@ waiting. The shell runs it while the owner's switch says so
   generator's 904 speakers, Nordic Piper voices, and ElevenLabs' Norwegian voices; with
   Norwegian speech (FLEURS) among the negatives, since the owner speaks Norwegian all day.
 - A soft chime says Frigg is listening.
+- The classifier, from synthetic voices, missed most of the owner's own "Hei Frigg". Learning
+  the voice now also asks for the phrase 6 times; the phone trains a logistic regression on
+  those windows against the owner's other sentences (openWakeWord's custom verifier, in
+  numpy, a few seconds), and from a classifier score of 0.01 the verifier decides. The
+  threshold is 0.3 (`MOBARCHY_TALK_WAKE_THRESHOLD`): still no false wakes in 12 h.
 
 **A locked phone (phase 3): Voice Match.** "Hei Frigg" works on a locked phone too. Who
 speaks decides what Frigg may do:

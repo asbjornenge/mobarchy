@@ -186,7 +186,7 @@ def test_frigg_goes_on_with_the_chats_session(monkeypatch, tmp_path):
     assert t.session.starts == ["chat-1", "chat-2"]
 
 
-def test_who_is_speaking(monkeypatch):
+def test_who_is_speaking(monkeypatch, tmp_path):
     class Voice:
         def __init__(self, score):
             self.s = score
@@ -195,6 +195,7 @@ def test_who_is_speaking(monkeypatch):
             return self.s
 
     monkeypatch.setattr(talk, "Vad", lambda: None)
+    monkeypatch.setattr(talk, "VOICE_PROFILE", tmp_path / "voice-profile.json")
     monkeypatch.setattr(talk, "phone_locked", lambda: False)
     t = talk.Talk(talk.ClaudeSession([]), guest=talk.ClaudeSession([]), voice=None)
     assert t.who(b"") == (True, None)            # unlocked: the owner
@@ -214,3 +215,16 @@ def test_voice_match_features_shape():
     f = speaker.features(np.sin(np.arange(16000) / 10).astype(np.float32))
     assert f.shape == (80, 101)
     assert abs(float(f.mean())) < 1e-3
+
+
+def test_verifier_learns_a_pattern():
+    import numpy as np
+    from mobarchy_agent import wake
+    rng = np.random.default_rng(1)
+    pos = rng.normal(1.0, 0.3, (20, 16, 96))
+    neg = rng.normal(0.0, 0.3, (200, 16, 96))
+    v = wake.Verifier.train(pos, neg)
+    assert v.prob(rng.normal(1.0, 0.3, (16, 96))) > 0.9
+    assert v.prob(rng.normal(0.0, 0.3, (16, 96))) < 0.1
+    again = wake.Verifier.from_json(v.to_json())
+    assert abs(again.prob(pos[0]) - v.prob(pos[0])) < 1e-3

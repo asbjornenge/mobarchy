@@ -500,7 +500,7 @@ class Talk:
         # session; another voice a session of its own with the harmless tools only.
         self.guest = guest
         self.voice = voice
-        self.threshold = float(os.environ.get("MOBARCHY_WAKE_THRESHOLD", "0.5"))
+        self.threshold = float(os.environ.get("MOBARCHY_TALK_WAKE_THRESHOLD", "0.3"))
         self.last_active = time.monotonic()
         self.barge_in = False
         self.trusted = False    # this conversation began on an unlocked phone
@@ -703,6 +703,13 @@ class Talk:
             return self.guest is None, None
         from .speaker import THRESHOLD
         score = self.voice.score(pcm)
+        # (the scores, to tune the threshold to the owner's voice and microphone: no audio,
+        # no text)
+        try:
+            with (VOICE_PROFILE.parent / "voice-match.log").open("a") as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} {score:.3f} {len(pcm) / RATE / 2:.1f}s\n")
+        except OSError:
+            pass
         return score is not None and score >= THRESHOLD, score
 
     async def answer_guest(self, text: str, language: str) -> None:
@@ -785,9 +792,11 @@ class Talk:
 # --- Voice Match: learning the owner's voice -------------------------------------------
 
 VOICE_PROFILE = Path.home() / ".local/share/mobarchy/voice-profile.json"
+WAKE_PROFILE = Path.home() / ".local/share/mobarchy/wake-profile.json"   # the owner's "Hei Frigg"
+WAKE_TIMES = 6
 ENROLL = {
     "no": ("Nå skal jeg lære stemmen din. Les setningen på skjermen, én om gangen.",
-           ["Hei Frigg, hva blir været i morgen?",
+           ["Hva blir været i morgen?",
             "Kan du sette på litt musikk mens jeg lager middag?",
             "Les opp den siste e-posten fra jobben.",
             "Minn meg på å ringe mamma klokka seks.",
@@ -796,9 +805,10 @@ ENROLL = {
             "Hva står i kalenderen min på fredag?",
             "Send en melding til Kari om at jeg blir litt sen."],
            "Litt til. Les den en gang til.",
-           "Ferdig! Nå kjenner jeg stemmen din."),
+           "Ferdig! Nå kjenner jeg stemmen din.",
+           "Til slutt: si «Hei Frigg», som når du vekker meg. Noen ganger."),
     "en": ("Now I'll learn your voice. Read the sentence on the screen, one at a time.",
-           ["Hey Frigg, what's the weather tomorrow?",
+           ["What's the weather tomorrow?",
             "Could you put on some music while I make dinner?",
             "Read me the latest email from work.",
             "Remind me to call mum at six o'clock.",
@@ -807,7 +817,8 @@ ENROLL = {
             "What's in my calendar on Friday?",
             "Send a message to Kari that I'll be a little late."],
            "A little more. Read it once more.",
-           "Done! Now I know your voice."),
+           "Done! Now I know your voice.",
+           "Last: say «Hei Frigg», as when you wake me. A few times."),
 }
 
 
@@ -815,8 +826,9 @@ class Enrollment:
     """Frigg reads out what to do, shows a sentence at a time ({"event": "enroll", "index",
     "count", "text"}), records the owner reading it, and keeps the mean of their voice."""
 
-    def __init__(self, voice, language: str, out: Callable[..., None] = emit) -> None:
+    def __init__(self, voice, language: str, out: Callable[..., None] = emit, wake=None) -> None:
         self.voice = voice
+        self.wake = wake        # the wake phrase's detector: learn the owner's "Hei Frigg" too
         self.language = language if FAMILY.get(language, language) in ENROLL else "en"
         self.out = out
         self.talk = Talk(ClaudeSession([]), out=out)
@@ -843,11 +855,12 @@ class Enrollment:
         return bytes(turn)
 
     async def run(self) -> None:
-        intro, sentences, again, done = ENROLL[FAMILY.get(self.language, self.language)]
+        intro, sentences, again, done, phrase = ENROLL[FAMILY.get(self.language, self.language)]
+        count = len(sentences) + (WAKE_TIMES if self.wake else 0)
         await self.say(intro)
         clips = []
         for i, sentence in enumerate(sentences):
-            self.out("enroll", index=i, count=len(sentences), text=sentence)
+            self.out("enroll", index=i, count=count, text=sentence)
             for _ in range(3):
                 pcm = await self.capture()
                 if len(pcm) >= RATE * 2 * 1.0:      # (a second of speech at least)
@@ -855,9 +868,24 @@ class Enrollment:
                     break
                 await self.say(again)
         await asyncio.to_thread(self.voice.enroll, clips)
+        if self.wake:
+            await self.say(phrase)
+            wakes = []
+            for i in range(WAKE_TIMES):
+                self.out("enroll", index=len(sentences) + i, count=count, text="Hei Frigg")
+                pcm = await self.capture()
+                if len(pcm) >= RATE * 2 * 0.3:
+                    wakes.append(pcm)
+            await asyncio.to_thread(self.learn_phrase, wakes, clips)
         self.out("enrolled", clips=len(clips))
         await self.say(done)
         self.talk.set_state("idle")
+
+    def learn_phrase(self, wakes: list[bytes], others: list[bytes]) -> None:
+        from . import wake
+        verifier = wake.Verifier.train(wake.owner_windows(self.wake, wakes), wake.other_windows(self.wake, others))
+        WAKE_PROFILE.write_text(json.dumps({"model": WAKE_MODEL, "clips": len(wakes), **verifier.to_json()}))
+        WAKE_PROFILE.chmod(0o600)
 
 
 async def main(config: Config | None = None, wake: bool = False, enroll: bool = False) -> int:
@@ -896,7 +924,11 @@ async def main(config: Config | None = None, wake: bool = False, enroll: bool = 
         if voice is None:
             emit("error", text="the Voice Match model is missing")
             return 1
-        await Enrollment(voice, language).run()
+        detector = None
+        if model_path(WAKE_MODEL).exists():
+            from .wake import WakeWord
+            detector = WakeWord(model_path(WAKE_MODEL), model_path(WAKE_FEATURES[0]).parent)
+        await Enrollment(voice, language, wake=detector).run()
         return 0
     guest_cmd, guest_env, guest_cwd = agents.claude_guest(exe, config, SYSTEM_PROMPT + GUEST_PROMPT)
     if model:
@@ -907,7 +939,15 @@ async def main(config: Config | None = None, wake: bool = False, enroll: bool = 
         if not model_path(WAKE_MODEL).exists():
             emit("error", text=f"the wake phrase's model ({WAKE_MODEL}) is missing")
             return 1
-        detector = WakeWord(model_path(WAKE_MODEL), model_path(WAKE_FEATURES[0]).parent)
+        verifier = None
+        try:
+            data = json.loads(WAKE_PROFILE.read_text())
+            if data.get("model") == WAKE_MODEL:
+                from .wake import Verifier
+                verifier = Verifier.from_json(data)
+        except (OSError, ValueError, KeyError):
+            pass
+        detector = WakeWord(model_path(WAKE_MODEL), model_path(WAKE_FEATURES[0]).parent, verifier)
     await Talk(ClaudeSession(cmd), wake=detector, guest=ClaudeSession(guest_cmd, guest_env, guest_cwd),
                voice=voice if voice and voice.owner is not None else None).run()
     return 0
