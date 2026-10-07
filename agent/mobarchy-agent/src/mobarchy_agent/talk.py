@@ -774,7 +774,9 @@ class Talk:
                         first = False
                     await self.speaker.play(audio, rate)
             except Exception as e:
-                self.out("error", text=f"could not speak: {e}")
+                # (interrupted: pw-play was stopped under the sentence, which isn't an error)
+                if not self.interrupted.is_set():
+                    self.out("error", text=f"could not speak: {e}")
             previous = sentence
         if not self.interrupted.is_set():
             await self.speaker.drain()
