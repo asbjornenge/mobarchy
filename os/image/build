@@ -116,8 +116,10 @@ EOP
     # The packages from the Mobarchy repository (built here, against what was current then)
     # find every library they link to. Mesa built against an older LLVM left the GPU
     # without a driver, and Hyprland crashing, with nothing said here.
-    broken=$(xargs -r pacman -Qlq < /tmp/mobarchy-installed | grep -v "/\$" | xargs -r -P8 -n40 sh -c \
-        "for f; do [ -f \"\$f\" ] && head -c4 \"\$f\" | grep -q ELF && ldd \"\$f\" 2>/dev/null | grep -q \"not found\" && echo \"\$f: \$(ldd \"\$f\" | grep \"not found\" | tr -s \" \" | tr \"\n\" \" \")\"; done" sh)
+    # (Plugins for Qt Designer, which only Qt Designer loads, are left out: it is not on a
+    # phone.)
+    broken=$(xargs -r pacman -Qlq < /tmp/mobarchy-installed | grep -v "/\$" | grep -v "/qt6/plugins/designer/" | xargs -r -P8 -n40 sh -c \
+        "for f; do [ -f \"\$f\" ] && head -c4 \"\$f\" | grep -q ELF && ldd \"\$f\" 2>/dev/null | grep -q \"not found\" && echo \"\$f: \$(ldd \"\$f\" | grep \"not found\" | tr -s \" \" | tr \"\n\" \" \")\"; done; true" sh)
     if [ -n "$broken" ]; then echo "libraries missing what they link to:"; echo "$broken"; exit 1; fi
     echo "rootfs ready"
 '
