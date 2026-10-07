@@ -23,6 +23,9 @@ class Talk : public QObject
     // What the owner said last, and what Frigg has said of its answer so far.
     Q_PROPERTY(QString heard READ heard NOTIFY textChanged)
     Q_PROPERTY(QString said READ said NOTIFY textChanged)
+    // Frigg uses the screen in this answer (a screenshot, a tap): the overlay keeps out of
+    // the way until she has answered.
+    Q_PROPERTY(bool usingScreen READ usingScreen NOTIFY textChanged)
     // On a locked phone: what was heard wasn't the owner's voice (Voice Match)
     Q_PROPERTY(bool guest READ guest NOTIFY textChanged)
     // What Frigg is doing (a tool), and what went wrong last.
@@ -49,6 +52,7 @@ public:
     QString heard() const { return m_heard; }
     QString said() const { return m_said; }
     bool guest() const { return m_guest; }
+    bool usingScreen() const { return m_usingScreen; }
     QString doing() const { return m_doing; }
     QString error() const { return m_error; }
     bool enrolling() const { return m_procEnroll && active(); }
@@ -81,6 +85,7 @@ private:
     QString m_state = QStringLiteral("idle");
     QString m_heard, m_said, m_doing, m_error;
     bool m_guest = false;
+    bool m_usingScreen = false;
     bool m_wake = false;
     bool m_procWake = false;    // the running process waits for the phrase
     bool m_procEnroll = false;  // it learns the owner's voice

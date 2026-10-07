@@ -17,7 +17,8 @@ LayerWindow {
     property bool locked: false
     property int insetBottom: 0
 
-    shown: talk.talking
+    // (not while Frigg uses the screen: she would see and tap her own overlay)
+    shown: talk.talking && !talk.usingScreen
     color: "transparent"
     LayerShell.Window.scope: "mobarchy-talk"
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay

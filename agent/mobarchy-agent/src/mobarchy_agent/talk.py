@@ -40,8 +40,10 @@ START_WINDOWS = 3            # ~100 ms of speech starts a turn
 END_SILENCE_S = 0.7          # this much silence ends it
 BARGE_IN_WINDOWS = 8         # ~250 ms of speech while Frigg talks interrupts it
 PRE_ROLL_WINDOWS = 10        # kept from before the start, so the first syllable isn't lost
-WAKE_PRE_ROLL = 25           # (0.8 s) kept from before the wake phrase was known
+WAKE_PRE_ROLL = 80           # (2.6 s) kept from before the wake phrase was known (and checked)
 VOICE_WAKE = 0.25            # Voice Match, on 2 s, for the owner's verifier to wake Frigg
+# What whisper writes for "Hei Frigg": a greeting, then a word in "fr"
+PHRASE = re.compile(r"\b(hei|hey|hai|hi)\b\W*fr", re.I)
 MAX_TURN_S = 30
 # With the wake phrase: the conversation goes back to waiting for it after this long without
 # speech, and Claude Code's session is closed after this long waiting.
@@ -73,6 +75,24 @@ search the web, tell the time, the battery, and play, pause or skip music. You k
 of the owner's mail, calendar, messages, files or earlier conversations, and you can't \
 change the phone: for that, the owner unlocks the phone or asks you themselves. This is a \
 spoken conversation: short plain sentences in the speaker's language, no markdown."""
+
+
+# mobarchy-mcp's tools that see or drive the screen: while Frigg uses them, the shell gets
+# her overlay out of the way (it would be in the screenshots, and take the taps).
+SCREEN_TOOLS = {"screenshot", "list_windows", "tap", "swipe", "type_text", "press_key", "launch_app",
+                "focus_window", "close_window", "clipboard_get", "clipboard_set", "take_photo",
+                "browser_open", "browser_tabs"}
+
+
+def phrase_text(pcm: bytes) -> str:
+    """Whisper's text for a short stretch (the wake phrase), in the language spoken to Frigg."""
+    with tempfile.TemporaryDirectory() as d:
+        wav = Path(d) / "phrase.wav"
+        write_wav(wav, bytes(8000) + pcm + bytes(8000))
+        language = talk_language()
+        if FAMILY.get(language, language) == "no":
+            return voice.transcribe(wav, "no")
+        return voice.transcribe_detect(wav, language if language != "auto" else "en")[0]
 
 
 def phone_locked() -> bool:
@@ -571,12 +591,17 @@ class Talk:
                 await self.woken()
 
     async def owners_phrase(self, pcm: bytes) -> bool:
-        """The owner's own verifier woke her: was it their voice? (It took heavy breathing for
-        the phrase; Voice Match gives that ~0, and the owner's "Hei Frigg" 0.35-0.5.)"""
+        """The owner's own verifier woke her: was it their voice, and the phrase? It took heavy
+        breathing for the phrase (Voice Match gives that ~0, the owner's "Hei Frigg"
+        0.35-0.5), and the owner's talk on the phone: whisper hears "Hei, Frig", "Hei,
+        Freidig", "Hei, Frank" in their phrase (~1 s on comet), and not the rest."""
         if self.voice is None or self.voice.owner is None or self.wake.source != "verifier":
             return True
         score = await asyncio.to_thread(self.voice.score, pcm)
-        return score is not None and score >= VOICE_WAKE
+        if score is None or score < VOICE_WAKE:
+            return False
+        text = await asyncio.to_thread(phrase_text, pcm)
+        return bool(PHRASE.search(text))
 
     async def woken(self) -> None:
         self.wake.reset()
@@ -690,7 +715,7 @@ class Talk:
                                 spoken.append(s)
                                 await queue.put(s)
                         elif kind == "tool":
-                            self.out("tool", text=value)
+                            self.out("tool", text=value, screen=value in SCREEN_TOOLS)
                         elif kind == "error":
                             self.out("error", text=value)
                     break
@@ -757,7 +782,7 @@ class Talk:
                     for s in sentences.feed(value):
                         await queue.put(s)
                 elif kind == "tool":
-                    self.out("tool", text=value)
+                    self.out("tool", text=value, screen=value in SCREEN_TOOLS)
             if not self.interrupted.is_set():
                 for s in sentences.flush():
                     await queue.put(s)

@@ -60,6 +60,7 @@ void Talk::start()
     m_said.clear();
     m_doing.clear();
     m_error.clear();
+    m_usingScreen = false;
     emit textChanged();
     if (active()) {
         if (m_state == QLatin1String("waiting"))
@@ -159,6 +160,13 @@ void Talk::readEvents()
             const QString state = e.value(QStringLiteral("state")).toString();
             // (what Frigg was doing, a tool or a download, is done when its state moves on;
             // "starting" comes with a download)
+            // (the answer is done: the overlay is back, to listen or to be closed)
+            if (state == QLatin1String("listening") || state == QLatin1String("waiting")) {
+                if (m_usingScreen) {
+                    m_usingScreen = false;
+                    emit textChanged();
+                }
+            }
             if (state != QLatin1String("starting") && !m_doing.isEmpty()) {
                 m_doing.clear();
                 emit textChanged();
@@ -187,6 +195,7 @@ void Talk::readEvents()
         if (kind == QLatin1String("heard")) {
             m_heard = e.value(QStringLiteral("text")).toString();
             m_guest = e.value(QStringLiteral("voice")).toString() == QLatin1String("guest");
+            m_usingScreen = false;
             m_said.clear();
             m_error.clear();
         } else if (kind == QLatin1String("said")) {
@@ -194,6 +203,8 @@ void Talk::readEvents()
                                       : m_said + QLatin1Char(' ') + e.value(QStringLiteral("text")).toString();
         } else if (kind == QLatin1String("tool")) {
             m_doing = e.value(QStringLiteral("text")).toString();
+            if (e.value(QStringLiteral("screen")).toBool())
+                m_usingScreen = true;
         } else if (kind == QLatin1String("error")) {
             m_error = e.value(QStringLiteral("text")).toString();
         } else {
