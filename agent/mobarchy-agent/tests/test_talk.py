@@ -86,3 +86,19 @@ def test_installed_voice(tmp_path, monkeypatch):
     assert talk.installed_voice("nb") == "no_NO-talesyntese-medium"
     assert talk.installed_voice("de") == "de_DE-thorsten-medium"
     assert talk.installed_voice("en") is None
+
+
+def test_services(monkeypatch):
+    for k in ("MOBARCHY_TALK_STT", "MOBARCHY_TALK_TTS", "OPENAI_API_KEY", "ELEVENLABS_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    assert (talk.stt(), talk.tts()) == ("whisper", "piper")
+    monkeypatch.setenv("MOBARCHY_TALK_TTS", "elevenlabs")
+    assert talk.tts() == "piper"   # (no key: the phone's)
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "k")
+    assert talk.tts() == "elevenlabs"
+
+
+def test_pcm_chunks_are_whole_samples():
+    import io
+    out = list(talk.pcm_chunks(io.BytesIO(b"\x01" * 9), 22050, size=3))
+    assert [len(a) for a, _ in out] == [2, 4, 2] and all(len(a) % 2 == 0 for a, _ in out)

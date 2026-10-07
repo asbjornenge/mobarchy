@@ -7,7 +7,7 @@ The first file that exists wins, and real environment variables override file va
     ~/.config/mobarchy/agent.env
     /etc/mobarchy/agent.env
 
-Secrets (ANTHROPIC_API_KEY, OPENAI_API_KEY) live only in these files, never in the repo.
+Secrets (ANTHROPIC_API_KEY, and the speech services' keys) live only in these files, never in the repo.
 """
 
 from __future__ import annotations
@@ -18,7 +18,8 @@ from pathlib import Path
 
 DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_MCP_URL = "http://127.0.0.1:8765/mcp"
-EXPORTED = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY")
+EXPORTED = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY",
+            "ELEVENLABS_API_KEY", "DEEPGRAM_API_KEY")
 
 
 def _env_files() -> list[Path]:

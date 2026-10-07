@@ -39,8 +39,8 @@ starts it and shows it. A turn goes:
    without a cold start for every turn. It has the agent's tools and rules (ADR 0010,
    0024), plus a voice brief: short spoken sentences, no markdown, the owner's language.
 4. **Speak** each sentence as soon as it is complete, while the rest is still coming.
-   Local: Piper, with a voice for the language heard (Norwegian, English, more as voices
-   are added). Cloud: OpenAI's speech, which covers every language. Playback goes into
+   Local: Piper, with a voice for the language heard. A service: ElevenLabs or OpenAI,
+   streamed, every language. Playback goes into
    the echo canceller's sink.
 5. **Interrupt.** Speech while Frigg talks stops the voice at once, and the owner's words
    become the next turn.
@@ -48,9 +48,16 @@ starts it and shows it. A turn goes:
 Each turn is also written to the agent's conversation, so it is in the home screen's
 history.
 
-**Local first, cloud as a choice.** `~/.config/mobarchy/agent.env`:
-- `MOBARCHY_TALK_SPEECH=local` (default) or `openai`, with `OPENAI_API_KEY`.
-- `MOBARCHY_TALK_LANGUAGE`, `MOBARCHY_TALK_MODEL`, `MOBARCHY_TALK_VOICE` (OpenAI's voice).
+**Local first, services as a choice.** `~/.config/mobarchy/agent.env`, each with its key:
+- `MOBARCHY_TALK_STT`: `whisper` (default, the phone) or `openai` (`OPENAI_API_KEY`).
+- `MOBARCHY_TALK_TTS`: `piper` (default, the phone), `elevenlabs` (`ELEVENLABS_API_KEY`) or
+  `openai`. ElevenLabs' Flash streams a sentence's sound as it is made: the first of it
+  reaches comet ~0.25–0.35 s after the request, against Piper's 0.4 s for a whole sentence,
+  and it sounds human, in Norwegian too.
+- `MOBARCHY_TALK_VOICE` (the service's voice: an ElevenLabs voice id, an OpenAI voice name),
+  `MOBARCHY_TALK_SPEED`, `MOBARCHY_TALK_LANGUAGE`, `MOBARCHY_TALK_MODEL`.
+- Without a key everything works on the phone. It is slower, and the voice sounds less
+  natural. A choice without its key falls back to the phone.
 
 **Models by language.** The first conversation in a language downloads what it needs:
 whisper's model for it (NB-Whisper for Norwegian, the multilingual one for the rest) and a

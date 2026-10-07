@@ -8,10 +8,11 @@ Events out, one JSON object a line: {"event": "state", "state": "listening" | "t
 is spoken), {"event": "tool", "text"}, {"event": "error", "text"}.
 Commands in, a line each: "stop" (end the conversation), "interrupt" (stop speaking, listen).
 
-Speech is the phone's (whisper.cpp, Piper) unless MOBARCHY_TALK_SPEECH=openai and an
-OPENAI_API_KEY are set (~/.config/mobarchy/agent.env): then OpenAI's, in any language. On the
-phone, the language is the system's unless MOBARCHY_TALK_LANGUAGE sets it (e.g. no, en, or
-auto to detect it, which is slow on comet).
+Speech is the phone's (whisper.cpp, Piper) unless ~/.config/mobarchy/agent.env chooses a
+service, with its key: MOBARCHY_TALK_STT=openai (OPENAI_API_KEY) for understanding,
+MOBARCHY_TALK_TTS=elevenlabs (ELEVENLABS_API_KEY) or openai for the voice; MOBARCHY_TALK_VOICE
+is the service's voice. On the phone, the language is the system's unless
+MOBARCHY_TALK_LANGUAGE sets it (e.g. no, en, or auto to detect it, which is slow on comet).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ import shutil
 import tempfile
 import urllib.request
 import wave
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 
 from . import agents, voice
@@ -225,10 +226,25 @@ class Speaker:
         self.proc = None
 
 
-# --- speech: local and OpenAI's ---------------------------------------------------------
+# --- speech: the phone's, or a service's -----------------------------------------------
 
-def cloud() -> bool:
-    return os.environ.get("MOBARCHY_TALK_SPEECH", "local") == "openai" and bool(os.environ.get("OPENAI_API_KEY"))
+STT_KEYS = {"openai": "OPENAI_API_KEY"}
+TTS_KEYS = {"openai": "OPENAI_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}
+
+
+def _service(setting: str, keys: dict[str, str], local: str) -> str:
+    chosen = os.environ.get(setting, local)
+    return chosen if chosen in keys and os.environ.get(keys[chosen]) else local
+
+
+def stt() -> str:
+    """Who understands: "whisper" (the phone) or "openai"."""
+    return _service("MOBARCHY_TALK_STT", STT_KEYS, "whisper")
+
+
+def tts() -> str:
+    """Who speaks: "piper" (the phone), "elevenlabs" or "openai"."""
+    return _service("MOBARCHY_TALK_TTS", TTS_KEYS, "piper")
 
 
 def write_wav(path: Path, pcm: bytes) -> None:
@@ -253,7 +269,7 @@ def transcribe(pcm: bytes) -> tuple[str, str]:
     with tempfile.TemporaryDirectory() as d:
         wav = Path(d) / "turn.wav"
         write_wav(wav, pcm)
-        if cloud():
+        if stt() == "openai":
             return _openai_transcribe(wav)
         # On the phone: Norwegian with NB-Whisper; another language with the multilingual
         # model. Both take ~1.5 s on comet. "auto" detects the language, but takes ~7.
@@ -302,13 +318,47 @@ class Voices:
         return audio, rate
 
 
-def openai_speech(text: str) -> tuple[bytes, int]:
+def openai_speech(text: str, language: str, previous: str = "") -> Iterator[tuple[bytes, int]]:
     req = urllib.request.Request("https://api.openai.com/v1/audio/speech", data=json.dumps({
         "model": "gpt-4o-mini-tts", "voice": os.environ.get("MOBARCHY_TALK_VOICE", "nova"),
         "input": text, "response_format": "pcm"}).encode(), headers={
         "Authorization": f"Bearer {os.environ['OPENAI_API_KEY']}", "Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=60) as r:
-        return r.read(), 24000
+        yield from pcm_chunks(r, 24000)
+
+
+# ElevenLabs: Flash (~75 ms to the first sound), streamed. A voice of the owner's choice
+# (MOBARCHY_TALK_VOICE, a voice id), else Sarah, one of ElevenLabs' own.
+ELEVENLABS_VOICE = "EXAVITQu4vr4xnSDxMaL"
+ELEVENLABS_RATE = 22050
+
+
+def elevenlabs_speech(text: str, language: str, previous: str = "") -> Iterator[tuple[bytes, int]]:
+    body = {"text": text, "model_id": os.environ.get("MOBARCHY_TALK_TTS_MODEL", "eleven_flash_v2_5"),
+            "voice_settings": {"speed": float(os.environ.get("MOBARCHY_TALK_SPEED", "1.0"))}}
+    code = FAMILY.get(language, language)
+    if re.fullmatch(r"[a-z]{2}", code):
+        body["language_code"] = code
+    if previous:
+        body["previous_text"] = previous   # (the sentences flow on, not each from scratch)
+    voice_id = os.environ.get("MOBARCHY_TALK_VOICE", ELEVENLABS_VOICE)
+    req = urllib.request.Request(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream?output_format=pcm_{ELEVENLABS_RATE}",
+        data=json.dumps(body).encode(),
+        headers={"xi-api-key": os.environ["ELEVENLABS_API_KEY"], "Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        yield from pcm_chunks(r, ELEVENLABS_RATE)
+
+
+def pcm_chunks(stream, rate: int, size: int = 4096) -> Iterator[tuple[bytes, int]]:
+    """16-bit audio from a response as it comes, whole samples at a time."""
+    rest = b""
+    while chunk := stream.read(size):
+        chunk = rest + chunk
+        cut = len(chunk) - len(chunk) % 2
+        rest = chunk[cut:]
+        if cut:
+            yield chunk[:cut], rate
 
 
 # --- the agent: one Claude Code session for the conversation ----------------------------
@@ -399,7 +449,7 @@ class Talk:
 
     async def run(self) -> None:
         await self.session.start()
-        if not cloud():
+        if tts() == "piper":
             # (a voice loads in ~1 s: not on the first sentence)
             for language in {talk_language(), DEFAULT_LANGUAGE}:
                 asyncio.get_running_loop().run_in_executor(None, self.voices.synthesize, "Hei.", language)
@@ -502,21 +552,47 @@ class Talk:
             if not self.stopping:
                 self.set_state("listening")
 
+    async def speech(self, sentence: str, language: str, previous: str) -> AsyncIterator[tuple[bytes, int]]:
+        """The sentence's audio as it is made (a service streams it; Piper makes it whole)."""
+        make = {"elevenlabs": elevenlabs_speech, "openai": openai_speech}.get(tts())
+        if make is None:
+            yield await asyncio.to_thread(self.voices.synthesize, sentence, language)
+            return
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def produce() -> None:
+            try:
+                for item in make(sentence, language, previous):
+                    loop.call_soon_threadsafe(queue.put_nowait, item)
+            except Exception as e:
+                loop.call_soon_threadsafe(queue.put_nowait, e)
+            loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        loop.run_in_executor(None, produce)
+        while (item := await queue.get()) is not None:
+            if isinstance(item, Exception):
+                raise item
+            yield item
+
     async def speak(self, queue: asyncio.Queue, language: str) -> None:
+        previous = ""
         while (sentence := await queue.get()) is not None:
             if self.interrupted.is_set():
                 continue
+            first = True
             try:
-                audio, rate = await asyncio.to_thread(
-                    openai_speech if cloud() else (lambda t: self.voices.synthesize(t, language)), sentence)
+                async for audio, rate in self.speech(sentence, language, previous):
+                    if self.interrupted.is_set():
+                        break
+                    if first:
+                        self.set_state("speaking")
+                        self.out("said", text=sentence)
+                        first = False
+                    await self.speaker.play(audio, rate)
             except Exception as e:
                 self.out("error", text=f"could not speak: {e}")
-                continue
-            if self.interrupted.is_set():
-                continue
-            self.set_state("speaking")
-            self.out("said", text=sentence)
-            await self.speaker.play(audio, rate)
+            previous = sentence
         if not self.interrupted.is_set():
             await self.speaker.drain()
 
@@ -590,16 +666,17 @@ def catalogue() -> dict:
 
 
 def missing(language: str) -> dict[str, str]:
-    """{file: url} of the models the language needs that aren't on the phone. With OpenAI's
-    speech, only the VAD."""
+    """{file: url} of the models the language needs that aren't on the phone: the VAD, and
+    whisper's model and a Piper voice unless a service does their job."""
     want = {} if model_path(VAD_MODEL).exists() else {VAD_MODEL: VAD_URL}
-    if cloud():
+    if stt() == "whisper":
+        if FAMILY.get(language, language) == "no":
+            if not voice.model_file().exists():
+                want[voice.MODEL_NAME] = voice.MODEL_URL
+        elif not voice.multi_model_file().exists():
+            want[voice.MULTI_MODEL_NAME] = voice.MULTI_MODEL_URL
+    if tts() != "piper":
         return want
-    if FAMILY.get(language, language) == "no":
-        if not voice.model_file().exists():
-            want[voice.MODEL_NAME] = voice.MODEL_URL
-    elif not voice.multi_model_file().exists():
-        want[voice.MULTI_MODEL_NAME] = voice.MULTI_MODEL_URL
     voices = [DEFAULT_LANGUAGE] + ([language] if language not in ("auto", DEFAULT_LANGUAGE) else [])
     absent = [lang for lang in voices if not installed_voice(lang)]
     if absent:
