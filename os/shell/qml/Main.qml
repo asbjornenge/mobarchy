@@ -15,6 +15,15 @@ QtObject {
               || shell.friggSettings.wake === "charging" && shell.system.charging
     }
     readonly property FriggSettings friggSettings: FriggSettings {}
+    // What was said to Frigg is in the chat's conversation: the chat shows it after each
+    // answer.
+    readonly property Connections friggToChat: Connections {
+        target: shell.talk
+        function onStateChanged() {
+            if (shell.talk.state === "listening" || shell.talk.state === "waiting" || shell.talk.state === "idle")
+                shell.agent.loadConversation()
+        }
+    }
     readonly property TalkOverlay talkOverlay: TalkOverlay {
         talk: shell.talk
         settings: shell.friggSettings
@@ -81,9 +90,10 @@ QtObject {
     // Apps that keep the screen on (a playing video) through org.freedesktop.ScreenSaver.
     readonly property Inhibitors inhibitors: Inhibitors {}
     // Screen off after a minute without input, unless an app keeps it on (Wayland idle
-    // inhibitors count too: the compositor holds the notification back).
+    // inhibitors count too: the compositor holds the notification back), or Frigg is in a
+    // conversation.
     readonly property Idle idle: Idle {
-        timeout: shell.inhibitors.active ? 0 : 60
+        timeout: shell.inhibitors.active || shell.talk.talking ? 0 : 60
         onIdleChanged: if (idle && shell.screen.on) shell.screenOff()
     }
     // A woken but untouched lock screen goes dark again soon.

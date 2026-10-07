@@ -20,8 +20,11 @@ agent with the phone's tools, the web and the owner's connectors (ADR 0010).
 JSON events out (state, heard, said, error) and commands in (stop, interrupt). The shell
 starts it and shows it. A turn goes:
 
-1. **Listen.** The microphone comes through PipeWire's echo canceller (WebRTC,
-   module-echo-cancel), so Frigg doesn't hear itself and the owner can talk over it.
+1. **Listen.** From the microphone. The owner can talk over Frigg when she can't hear
+   herself: in Bluetooth earphones (or with an echo canceller, if a device has one that
+   works). From a loudspeaker a tap on the orb interrupts her. (PipeWire's WebRTC echo
+   canceller wanted 10 ms quanta; on comet that made the speaker underrun and crackle, so it
+   is not used.)
    Silero VAD (onnxruntime) finds where speech begins and ends: about 0.7 s of silence
    ends a turn.
 2. **Understand.** Local: whisper.cpp, in the language the owner speaks: the system's
@@ -43,9 +46,8 @@ starts it and shows it. A turn goes:
    0024), plus a voice brief: short spoken sentences, no markdown, the owner's language.
 4. **Speak** each sentence as soon as it is complete, while the rest is still coming.
    Local: Piper, with a voice for the language heard. A service: ElevenLabs or OpenAI,
-   streamed, every language. Playback goes into
-   the echo canceller's sink.
-5. **Interrupt.** Speech while Frigg talks stops the voice at once, and the owner's words
+   streamed, every language.
+5. **Interrupt.** Speech while Frigg talks (where it can, see 1) stops the voice at once, and the owner's words
    become the next turn.
 
 Each turn is also written to the agent's conversation, so it is in the home screen's
@@ -120,7 +122,7 @@ owner's data, never approvals.
   and history.
 - Phase 1 needs the Claude agent; the others answer through their one-shot runs, more
   slowly.
-- The echo canceller is a PipeWire node of its own. Other sound (music) is not cancelled,
-  and Frigg should pause it while listening.
+- Without an echo canceller, talking over Frigg from the loudspeaker isn't possible, and
+  music playing confuses her: she should pause it while listening.
 - Local speech costs CPU: whisper's few seconds per turn and Piper's synthesis are the
   latency without a key.

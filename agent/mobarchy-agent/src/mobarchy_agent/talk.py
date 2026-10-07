@@ -193,9 +193,19 @@ def node_exists(name: str) -> bool:
     return f'node.name = "{name}"' in out
 
 
+def can_barge_in() -> bool:
+    """Talking over Frigg stops her when she can't hear herself: an echo canceller, or sound
+    in the ears (Bluetooth). From a loudspeaker the microphone hears her, and only a tap on
+    the orb interrupts."""
+    if node_exists("mobarchy-echo-cancel-sink"):
+        return True
+    out = os.popen("wpctl inspect @DEFAULT_AUDIO_SINK@ 2>/dev/null").read()
+    return 'node.name = "bluez_output' in out
+
+
 async def microphone() -> AsyncIterator[bytes]:
     """512-sample windows from the microphone, through the echo canceller if it is there."""
-    cmd = ["pw-record", "--rate", str(RATE), "--channels", "1", "--format", "s16", "--latency", "32ms"]
+    cmd = ["pw-record", "--raw", "--rate", str(RATE), "--channels", "1", "--format", "s16", "--latency", "32ms"]
     if node_exists("mobarchy-echo-cancel-source"):
         cmd += ["--target", "mobarchy-echo-cancel-source"]
     cmd.append("-")
@@ -223,7 +233,7 @@ class Speaker:
     async def play(self, audio: bytes, rate: int) -> None:
         if self.proc is None or self.rate != rate or self.proc.returncode is not None:
             await self.stop()
-            cmd = ["pw-play", "--rate", str(rate), "--channels", "1", "--format", "s16"]
+            cmd = ["pw-play", "--raw", "--rate", str(rate), "--channels", "1", "--format", "s16"]
             if node_exists("mobarchy-echo-cancel-sink"):
                 cmd += ["--target", "mobarchy-echo-cancel-sink"]
             cmd.append("-")
@@ -492,6 +502,8 @@ class Talk:
         self.voice = voice
         self.threshold = float(os.environ.get("MOBARCHY_WAKE_THRESHOLD", "0.5"))
         self.last_active = time.monotonic()
+        self.barge_in = False
+        self.trusted = False    # this conversation began on an unlocked phone
         self.vad = Vad()
         self.speaker = Speaker()
         self.voices = Voices()
@@ -512,6 +524,8 @@ class Talk:
         return conv
 
     def set_state(self, state: str) -> None:
+        if state in ("waiting", "idle"):
+            self.trusted = False
         if state != self.state:
             self.state = state
             self.out("state", state=state)
@@ -590,7 +604,7 @@ class Talk:
                 # talking over Frigg: stop it, and this is the next turn
                 barge = barge + 1 if prob >= START_PROB else 0
                 pre = (pre + [window])[-PRE_ROLL_WINDOWS:]
-                if barge >= BARGE_IN_WINDOWS and self.state == "speaking":
+                if barge >= BARGE_IN_WINDOWS and self.state == "speaking" and self.barge_in:
                     await self.cut_in()
                     ep = Endpointer()
                     ep.speaking, turn = True, bytearray(b"".join(pre))
@@ -611,6 +625,7 @@ class Talk:
     async def answer(self, pcm: bytes) -> None:
         self.set_state("thinking")
         self.interrupted.clear()
+        self.barge_in = await asyncio.to_thread(can_barge_in)
         try:
             text, language = await asyncio.to_thread(transcribe, pcm)
         except Exception as e:
@@ -680,6 +695,9 @@ class Talk:
         """(the owner?, Voice Match's score). On an unlocked phone (or one without a PIN) it's
         the owner; on a locked one, if the voice is theirs."""
         if not phone_locked():
+            self.trusted = True
+            return True, None
+        if self.trusted:    # (it locked itself during the conversation)
             return True, None
         if self.voice is None or self.guest is None:
             return self.guest is None, None

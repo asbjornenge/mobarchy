@@ -199,6 +199,8 @@ def test_who_is_speaking(monkeypatch):
     t = talk.Talk(talk.ClaudeSession([]), guest=talk.ClaudeSession([]), voice=None)
     assert t.who(b"") == (True, None)            # unlocked: the owner
     monkeypatch.setattr(talk, "phone_locked", lambda: True)
+    assert t.who(b"") == (True, None)            # it locked itself during the conversation
+    t.set_state("waiting")                       # a new conversation
     assert t.who(b"") == (False, None)           # locked, no voice learnt: a guest
     t.voice = Voice(0.8)
     assert t.who(b"") == (True, 0.8)

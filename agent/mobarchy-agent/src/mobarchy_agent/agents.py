@@ -546,6 +546,7 @@ def current_conversation(new: bool = False) -> Conversation:
     conv = None if new or not st.conversation else Conversation.load(st.conversation)
     if conv is None:
         conv = Conversation()
+        conv.save()     # (at once: the chat and Frigg must find the same one)
         st.conversation = conv.id
         st.save()
     return conv
