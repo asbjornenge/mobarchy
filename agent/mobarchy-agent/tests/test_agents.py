@@ -81,3 +81,17 @@ def test_task_url_names_a_new_task():
     a, b = task_url("http://127.0.0.1:8765/mcp"), task_url("http://127.0.0.1:8765/mcp")
     assert a.startswith("http://127.0.0.1:8765/mcp?task=") and a != b
     assert "&task=" in task_url("http://h/mcp?x=1")
+
+
+def test_mcp_list_names_the_owners_servers():
+    from mobarchy_agent.agents import parse_mcp_list
+    out = """Checking MCP server health…
+
+claude.ai Claude Docs: https://api.anthropic.com/v1/pages/mcp - ✔ Connected
+claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected
+claude.ai Taghub: https://mcp.taghub.net - ! Needs authentication
+mobarchy: http://127.0.0.1:8765/mcp (HTTP) - ✔ Connected
+notes: /usr/bin/notes-mcp --stdio - ✔ Connected
+"""
+    assert parse_mcp_list(out) == ["mcp__claude_ai_Claude_Docs", "mcp__claude_ai_Google_Drive",
+                                   "mcp__claude_ai_Taghub", "mcp__notes"]

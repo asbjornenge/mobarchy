@@ -14,10 +14,12 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import socket
 import sys
 import tempfile
+import time
 import uuid
 from collections.abc import AsyncIterator
 from dataclasses import asdict, dataclass, replace
@@ -140,6 +142,48 @@ def parse_claude_stream(line: str) -> tuple[list[Event], str | None]:
     return events, session
 
 
+# The owner's MCP servers in Claude Code (claude.ai connectors such as Gmail, and any they add):
+# the agent may use them. dontAsk needs a rule per server (no wildcards there); `claude mcp
+# list` names them, slowly (it checks each), so the list is kept for a while.
+CONNECTORS_CACHE = Path.home() / ".cache/mobarchy/claude-mcp-servers.json"
+CONNECTORS_MAX_AGE = 6 * 3600
+
+
+def parse_mcp_list(output: str) -> list[str]:
+    """`claude mcp list` -> the servers' tool prefixes ("claude.ai Google Drive: https://... - ✔
+    Connected" -> "mcp__claude_ai_Google_Drive"). Mobarchy's own (mobarchy) is left out."""
+    servers = []
+    for line in output.splitlines():
+        m = re.match(r"^(.+?): (?:https?://|/|\S+ ).* - ", line)
+        if not m:
+            continue
+        name = re.sub(r"[^A-Za-z0-9_-]", "_", m.group(1).strip())
+        if name != "mobarchy":
+            servers.append(f"mcp__{name}")
+    return servers
+
+
+async def _refresh_connectors(exe: str) -> list[str]:
+    code, out = await _run(exe, "mcp", "list", timeout=90)
+    servers = parse_mcp_list(out) if code == 0 else []
+    if code == 0:
+        CONNECTORS_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        CONNECTORS_CACHE.write_text(json.dumps(servers))
+    return servers
+
+
+async def claude_connectors(exe: str) -> list[str]:
+    """The owner's MCP servers' allow rules: from the cache (refreshed in the background when
+    old), or asked for now the first time."""
+    try:
+        servers = json.loads(CONNECTORS_CACHE.read_text())
+        if time.time() - CONNECTORS_CACHE.stat().st_mtime > CONNECTORS_MAX_AGE:
+            asyncio.get_running_loop().create_task(_refresh_connectors(exe))
+        return servers
+    except (OSError, ValueError):
+        return await _refresh_connectors(exe)
+
+
 async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume: str | None) -> str | None:
     exe = claude_bin()
     if not exe:
@@ -148,13 +192,14 @@ async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume
     WORKDIR.mkdir(parents=True, exist_ok=True)
     mcp = {"mcpServers": {"mobarchy": {"type": "http", "url": config.mcp_url}}}
     # The phone's tools; Claude Code's file tools for its own memory only (what it keeps
-    # about the owner across conversations); and the web (search and read pages: e.g. an
-    # image for a theme's wallpaper, ADR 0025). Everything else is denied (dontAsk).
+    # about the owner across conversations); the web (search and read pages: e.g. an image
+    # for a theme's wallpaper, ADR 0025); and the owner's own MCP servers (claude.ai
+    # connectors: Gmail, Calendar, ...). Everything else is denied (dontAsk).
     memory = "~/.claude/projects/**/memory/**"
     cmd = [exe, "-p", prompt, "--output-format", "stream-json", "--verbose",
            "--tools", "Read,Write,Edit,WebSearch,WebFetch", "--mcp-config", json.dumps(mcp),
            "--allowedTools", "mcp__mobarchy", f"Read({memory})", f"Write({memory})", f"Edit({memory})",
-           "WebSearch", "WebFetch",
+           "WebSearch", "WebFetch", *(await claude_connectors(exe)),
            "--permission-mode", "dontAsk", "--append-system-prompt", SYSTEM_PROMPT]
     if resume:
         cmd += ["--resume", resume]

@@ -48,3 +48,14 @@ shell offers a choice: "Choose your agent".
   If not, a distributed build offers `api` (and `local`) only.
 - Claude Code and Codex are proprietary and installed per user from their vendors.
 - The local agent needs a model download and is slow on CPU; it is the fallback, not the default.
+
+## Since (2026-10-07)
+
+- The `claude` agent may use the web: Claude Code's WebSearch and WebFetch. The `openai`
+  agent gets Codex's web search.
+- It may also use the owner's own MCP servers in Claude Code: claude.ai connectors (Gmail,
+  Calendar, Drive, ...) and any the owner adds. `dontAsk` needs an allow rule per server,
+  because wildcards aren't accepted there. mobarchy-agent takes the servers from
+  `claude mcp list`, cached for six hours (~/.cache/mobarchy/claude-mcp-servers.json).
+- The file tools stay limited to Claude Code's own memory, and the phone stays
+  mobarchy-mcp's.
