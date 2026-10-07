@@ -33,6 +33,22 @@ LayerWindow {
     LayerShell.Window.exclusionZone: -1
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
+    // The theme's wallpaper (ADR 0025), dimmed so that the clock and notifications stays readable.
+    Image {
+        anchors.fill: parent
+        visible: Theme.wallpaper !== ""
+        source: Theme.wallpaper
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        sourceSize.height: 1600
+    }
+    Rectangle {
+        anchors.fill: parent
+        visible: Theme.wallpaper !== ""
+        color: Theme.bgDark
+        opacity: 0.45
+    }
+
     property date now: new Date()
     Timer {
         interval: 1000

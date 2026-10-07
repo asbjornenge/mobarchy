@@ -16,6 +16,8 @@ QtObject {
     readonly property color red: source.colors.red
     readonly property color magenta: source.colors.magenta
     readonly property string font: source.font
+    // the wallpaper (lock screen, home), "" without one
+    readonly property string wallpaper: source.wallpaper
 
     // Scrolling like a phone: a flick throws the list (Qt's defaults are a desktop's, a
     // slow wheel-like glide), and the ends bounce (Flickable.DragAndOvershootBounds).

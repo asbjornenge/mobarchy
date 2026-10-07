@@ -539,7 +539,7 @@ def theme_set(theme_id: str) -> dict:
 
 @tool(Risk.ACT, "Make a theme")
 def theme_create(theme_id: str, name: str, colors: dict[str, str], font: str = "",
-                 description: str = "", activate: bool = True) -> dict:
+                 description: str = "", activate: bool = True, wallpaper: str = "") -> dict:
     """Make a theme (or replace one of the owner's) and switch to it: any style the owner asks
     for, e.g. "Pokémon", "solarized", "pink and gold".
 
@@ -549,9 +549,23 @@ def theme_create(theme_id: str, name: str, colors: dict[str, str], font: str = "
     the phone's OLED screens. It has to stay readable: text, accent and the buttons' text (bg)
     on the accent are checked for contrast, and a failed check says which pair to fix.
     font: an installed font family (empty: Mobarchy's); icons come from the Nerd Font, so a
-    Nerd Font keeps them. theme_id: lower-case, digits, dashes."""
+    Nerd Font keeps them. theme_id: lower-case, digits, dashes.
+    wallpaper (optional; the lock screen and home, dimmed for the text): an image's own URL
+    (JPEG, PNG, WebP; search the web for one that fits the style, portrait suits the phone),
+    a file on the phone (e.g. a photo in ~/Pictures/Camera), or SVG text you write (a
+    pattern in the theme's colours)."""
     try:
-        return themes.create_theme(theme_id, name, colors, font or None, description, activate)
+        return themes.create_theme(theme_id, name, colors, font or None, description, activate, wallpaper)
+    except themes.ThemeError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Theme wallpaper")
+def theme_wallpaper(theme_id: str, wallpaper: str) -> dict:
+    """Set the wallpaper of one of the owner's themes ("" removes it): an image's own URL, a
+    file on the phone, or SVG text, as for theme_create."""
+    try:
+        return themes.set_wallpaper(theme_id, wallpaper)
     except themes.ThemeError as e:
         raise ToolError(str(e)) from e
 

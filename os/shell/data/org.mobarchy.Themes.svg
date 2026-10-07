@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Mobarchy's app icons: a Tokyo Night tile, a line glyph in the accent gradient -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7aa2f7"/>
+      <stop offset="1" stop-color="#bb9af7"/>
+    </linearGradient>
+  </defs>
+  <rect x="6" y="6" width="116" height="116" rx="30" fill="#1a1b26" stroke="#292e42" stroke-width="3"/>
+  <!-- a painter's palette: themes -->
+  <g fill="none" stroke="url(#g)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M64 30 c-20 0 -36 15 -36 34 c0 19 15 34 33 34 c6 0 9 -3 9 -8 c0 -5 -4 -7 -4 -12 c0 -5 4 -8 9 -8 h8 c10 0 17 -6 17 -15 c0 -14 -16 -25 -36 -25 z"/>
+  </g>
+  <circle cx="48" cy="58" r="6" fill="#7aa2f7"/>
+  <circle cx="62" cy="45" r="6" fill="#bb9af7"/>
+  <circle cx="79" cy="48" r="6" fill="#f7768e"/>
+  <circle cx="48" cy="77" r="6" fill="#9ece6a"/>
+</svg>

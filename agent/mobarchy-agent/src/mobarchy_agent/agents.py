@@ -147,12 +147,14 @@ async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume
         return None
     WORKDIR.mkdir(parents=True, exist_ok=True)
     mcp = {"mcpServers": {"mobarchy": {"type": "http", "url": config.mcp_url}}}
-    # The phone's tools, plus Claude Code's file tools for its own memory only (what it
-    # keeps about the owner across conversations). Everything else is denied (dontAsk).
+    # The phone's tools; Claude Code's file tools for its own memory only (what it keeps
+    # about the owner across conversations); and the web (search and read pages: e.g. an
+    # image for a theme's wallpaper, ADR 0025). Everything else is denied (dontAsk).
     memory = "~/.claude/projects/**/memory/**"
     cmd = [exe, "-p", prompt, "--output-format", "stream-json", "--verbose",
-           "--tools", "Read,Write,Edit", "--mcp-config", json.dumps(mcp),
+           "--tools", "Read,Write,Edit,WebSearch,WebFetch", "--mcp-config", json.dumps(mcp),
            "--allowedTools", "mcp__mobarchy", f"Read({memory})", f"Write({memory})", f"Edit({memory})",
+           "WebSearch", "WebFetch",
            "--permission-mode", "dontAsk", "--append-system-prompt", SYSTEM_PROMPT]
     if resume:
         cmd += ["--resume", resume]
@@ -333,6 +335,8 @@ async def codex_run(prompt: str, config: Config, on_event: EventHandler, resume:
             # (a step the owner approves waits for them: up to two minutes, then root)
             "-c", "mcp_servers.mobarchy.tool_timeout_sec=600",
             "-c", 'approval_policy="never"', "-s", "read-only",
+            # (and the web: search, e.g. an image for a theme's wallpaper)
+            "-c", "tools.web_search=true",
             "-c", "instructions=" + json.dumps(SYSTEM_PROMPT)]
     cmd = [exe, "exec", *args, "resume", resume, prompt] if resume else [exe, "exec", *args, prompt]
     proc = await asyncio.create_subprocess_exec(

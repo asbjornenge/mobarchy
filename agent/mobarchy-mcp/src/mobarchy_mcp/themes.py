@@ -6,7 +6,9 @@ live. The agent lists them, switches, and makes new ones ("a Pokémon theme").
   ~/.config/mobarchy/theme                   the active one's id
 
 A new theme has to stay readable: text, accents and the buttons' text on the accent are
-checked for contrast (WCAG), and a font has to be installed."""
+checked for contrast (WCAG), and a font has to be installed. A wallpaper (lock screen, home)
+is an image next to the theme: from the web, from a file on the phone, or SVG the agent
+writes."""
 
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ import json
 import os
 import re
 import subprocess
+import urllib.request
 from pathlib import Path
 
 SYSTEM_DIR = Path("/usr/share/mobarchy/themes")
@@ -46,6 +49,7 @@ CONTRAST = [
 ]
 
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
+WALLPAPER_MAX = 25 * 1024 * 1024
 HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -97,7 +101,8 @@ def current() -> dict:
     i = current_id()
     t, own = _themes().get(i, ({}, False))
     return {"id": i, "name": t.get("name", i), "description": t.get("description", ""), "own": own,
-            "colors": t.get("colors", {}), "font": t.get("font", DEFAULT_FONT), "roles": ROLES}
+            "colors": t.get("colors", {}), "font": t.get("font", DEFAULT_FONT),
+            "wallpaper": t.get("wallpaper", ""), "roles": ROLES}
 
 
 def set_theme(theme_id: str) -> dict:
@@ -153,8 +158,75 @@ def check(colors: dict, font: str | None) -> list[str]:
     return problems
 
 
+def _image_kind(data: bytes) -> str | None:
+    if data[:3] == b"\xff\xd8\xff":
+        return "jpg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "webp"
+    if b"<svg" in data[:2048].lower():
+        return "svg"
+    return None
+
+
+def fetch_wallpaper(source: str) -> tuple[bytes, str]:
+    """The image a wallpaper source names: SVG text, an http(s) URL, or a file on the phone."""
+    source = source.strip()
+    if source.lstrip().startswith("<"):
+        data = source.encode()
+    elif source.startswith(("http://", "https://")):
+        req = urllib.request.Request(source, headers={"User-Agent": "Mozilla/5.0 (Linux; Android 15; Mobarchy)"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                data = r.read(WALLPAPER_MAX + 1)
+        except OSError as e:
+            raise ThemeError(f"could not download the wallpaper: {e}") from e
+    else:
+        path = Path(source).expanduser()
+        if not path.is_file():
+            raise ThemeError(f"wallpaper: no such file {source!r} (or give a URL, or SVG text)")
+        data = path.read_bytes()[:WALLPAPER_MAX + 1]
+    if len(data) > WALLPAPER_MAX:
+        raise ThemeError("wallpaper: larger than 25 MB")
+    kind = _image_kind(data)
+    if not kind:
+        raise ThemeError("wallpaper: not a JPEG, PNG, WebP or SVG image (a web page's URL? the "
+                         "image's own URL is needed)")
+    return data, kind
+
+
+def _store_wallpaper(theme_id: str, source: str) -> str:
+    data, kind = fetch_wallpaper(source)
+    for old in user_dir().glob(f"{theme_id}.wallpaper.*"):
+        old.unlink()
+    name = f"{theme_id}.wallpaper.{kind}"
+    path = user_dir() / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{name}.tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+    return name
+
+
+def set_wallpaper(theme_id: str, wallpaper: str) -> dict:
+    """A wallpaper for one of the owner's themes ("" removes it)."""
+    themes = _themes()
+    if theme_id not in themes or not themes[theme_id][1]:
+        raise ThemeError(f"{theme_id!r} is not one of the owner's themes (make one with theme_create)")
+    theme = dict(themes[theme_id][0])
+    if wallpaper:
+        theme["wallpaper"] = _store_wallpaper(theme_id, wallpaper)
+    else:
+        theme.pop("wallpaper", None)
+        for old in user_dir().glob(f"{theme_id}.wallpaper.*"):
+            old.unlink()
+    _write(user_dir() / f"{theme_id}.json", json.dumps(theme, indent=2, ensure_ascii=False) + "\n")
+    return {"id": theme_id, "wallpaper": theme.get("wallpaper", "")}
+
+
 def create_theme(theme_id: str, name: str, colors: dict, font: str | None = None,
-                 description: str = "", activate: bool = True) -> dict:
+                 description: str = "", activate: bool = True, wallpaper: str = "") -> dict:
     if not ID.match(theme_id):
         raise ThemeError("id: lower-case letters, digits and dashes (e.g. pokemon-pikachu)")
     if theme_id in _themes() and not _themes()[theme_id][1]:
@@ -166,10 +238,15 @@ def create_theme(theme_id: str, name: str, colors: dict, font: str | None = None
     theme = {"name": name, "description": description, "colors": colors}
     if font:
         theme["font"] = font
+    if wallpaper:
+        theme["wallpaper"] = _store_wallpaper(theme_id, wallpaper)
+    else:
+        for old in user_dir().glob(f"{theme_id}.wallpaper.*"):
+            old.unlink()
     _write(user_dir() / f"{theme_id}.json", json.dumps(theme, indent=2, ensure_ascii=False) + "\n")
     if activate:
         set_theme(theme_id)
-    return {"id": theme_id, "active": activate}
+    return {"id": theme_id, "active": activate, "wallpaper": theme.get("wallpaper", "")}
 
 
 def delete_theme(theme_id: str) -> dict:
@@ -177,6 +254,8 @@ def delete_theme(theme_id: str) -> dict:
     if theme_id not in themes or not themes[theme_id][1]:
         raise ThemeError(f"{theme_id!r} is not one of the owner's themes")
     (user_dir() / f"{theme_id}.json").unlink()
+    for old in user_dir().glob(f"{theme_id}.wallpaper.*"):
+        old.unlink()
     if current_id() == theme_id:
         set_theme(DEFAULT_ID)
     return {"deleted": theme_id, "active": current_id()}

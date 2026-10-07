@@ -23,6 +23,23 @@ Window {
     color: Theme.bg
     Component.onCompleted: show()
 
+    // The theme's wallpaper (ADR 0025), dimmed further than the lock screen's: the
+    // conversation is text to read.
+    Image {
+        anchors.fill: parent
+        visible: Theme.wallpaper !== ""
+        source: Theme.wallpaper
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: true
+        sourceSize.height: 1600
+    }
+    Rectangle {
+        anchors.fill: parent
+        visible: Theme.wallpaper !== ""
+        color: Theme.bg
+        opacity: 0.7
+    }
+
     readonly property var current: agentById(agent.active)
     readonly property bool chosen: current !== undefined && current.ready
     property bool picking: false

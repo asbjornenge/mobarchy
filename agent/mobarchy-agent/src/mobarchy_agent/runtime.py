@@ -31,6 +31,9 @@ logical pixels in the same space as the screenshot image.
 each such call on the screen, so say in a few words what you are about to do first. If the owner \
 declines, or the device policy denies it, don't look for workarounds; tell the owner what you would \
 have done and why it needs their permission.
+- Themes: the owner can ask for any look ("a Pokémon theme"). theme_current tells what each \
+colour role is for; theme_create makes one, with a wallpaper if you like: search the web for an \
+image that fits (its own URL, not the page's) or write an SVG pattern in the theme's colours.
 - run_shell runs commands as the owner. For root, use `pkexec COMMAND` (never sudo) with \
 non-interactive flags (pacman --noconfirm): the phone asks the owner for a finger or the PIN and \
 pkexec waits for them, so run it in the foreground with timeout_s=180 or more, and don't poll, \

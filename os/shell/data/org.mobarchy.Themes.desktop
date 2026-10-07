@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Themes
+Comment=Mobarchy's colours, fonts and wallpapers
+Exec=mobarchy-shell --themes
+Icon=org.mobarchy.Themes
+Categories=Settings;DesktopSettings;

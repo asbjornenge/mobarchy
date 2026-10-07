@@ -65,3 +65,35 @@ def test_delete_active_falls_back(dirs):
 def test_contrast_matches_wcag():
     assert round(themes.contrast("#000000", "#ffffff"), 1) == 21.0
     assert round(themes.contrast("#777777", "#ffffff"), 2) == 4.48
+
+
+SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="#ffcb05"/></svg>'
+
+
+def test_wallpaper_from_svg_and_file(dirs):
+    themes.create_theme("pika", "Pika", MOBARCHY, wallpaper=SVG)
+    t = json.loads((dirs / "data/mobarchy/themes/pika.json").read_text())
+    assert t["wallpaper"] == "pika.wallpaper.svg"
+    assert (dirs / "data/mobarchy/themes/pika.wallpaper.svg").read_text().startswith("<svg")
+    png = dirs / "photo.png"
+    png.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 32)
+    assert themes.set_wallpaper("pika", str(png))["wallpaper"] == "pika.wallpaper.png"
+    assert not (dirs / "data/mobarchy/themes/pika.wallpaper.svg").exists()
+    themes.set_wallpaper("pika", "")
+    assert "wallpaper" not in json.loads((dirs / "data/mobarchy/themes/pika.json").read_text())
+    assert not list((dirs / "data/mobarchy/themes").glob("pika.wallpaper.*"))
+
+
+def test_wallpaper_must_be_an_image(dirs, tmp_path):
+    page = tmp_path / "page.html"
+    page.write_text("<html><body>not an image</body></html>")
+    with pytest.raises(themes.ThemeError, match="not a JPEG"):
+        themes.create_theme("x", "X", MOBARCHY, wallpaper=str(page))
+    with pytest.raises(themes.ThemeError, match="no such file"):
+        themes.create_theme("x", "X", MOBARCHY, wallpaper="/nope.jpg")
+
+
+def test_delete_takes_the_wallpaper(dirs):
+    themes.create_theme("pika", "Pika", MOBARCHY, wallpaper=SVG)
+    themes.delete_theme("pika")
+    assert not list((dirs / "data/mobarchy/themes").glob("pika*"))
