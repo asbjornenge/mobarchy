@@ -80,7 +80,9 @@ void Talk::readEvents()
         const QString kind = e.value(QStringLiteral("event")).toString();
         if (kind == QLatin1String("state")) {
             const QString state = e.value(QStringLiteral("state")).toString();
-            if (state == QLatin1String("thinking") || state == QLatin1String("speaking")) {
+            // (what Frigg was doing, a tool or a download, is done when its state moves on;
+            // "starting" comes with a download)
+            if (state != QLatin1String("starting") && !m_doing.isEmpty()) {
                 m_doing.clear();
                 emit textChanged();
             }

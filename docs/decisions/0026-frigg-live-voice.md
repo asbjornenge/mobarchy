@@ -51,6 +51,12 @@ history.
 **Local first, cloud as a choice.** `~/.config/mobarchy/agent.env`:
 - `MOBARCHY_TALK_SPEECH=local` (default) or `openai`, with `OPENAI_API_KEY`.
 - `MOBARCHY_TALK_LANGUAGE`, `MOBARCHY_TALK_MODEL`, `MOBARCHY_TALK_VOICE` (OpenAI's voice).
+
+**Models by language.** The first conversation in a language downloads what it needs:
+whisper's model for it (NB-Whisper for Norwegian, the multilingual one for the rest) and a
+Piper voice from Piper's catalogue (ours for Norwegian and English; else one speaker, at
+the best quality). The overlay shows the download. English's voice is always there, for a
+language Piper has no voice for.
 - Without a key everything works on the phone. It is slower, and the voice sounds less
   natural.
 

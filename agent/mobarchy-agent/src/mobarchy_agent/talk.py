@@ -43,9 +43,10 @@ MAX_TURN_S = 30
 MODELS = Path("/usr/share/mobarchy/models")
 USER_MODELS = Path.home() / ".local/share/mobarchy/models"
 VAD_MODEL = "silero_vad.onnx"
-# Piper voices by language (whisper's codes); more as voices are added
-VOICES = {"en": "en_US-lessac-medium", "no": "no_NO-talesyntese-medium",
-          "nb": "no_NO-talesyntese-medium", "nn": "no_NO-talesyntese-medium"}
+# Piper voices: these where a language has several; for others, one from Piper's catalogue,
+# downloaded when the language is chosen (whisper's codes: "no", "en", "de", ...).
+VOICES = {"en": "en_US-lessac-medium", "no": "no_NO-talesyntese-medium"}
+FAMILY = {"nb": "no", "nn": "no"}
 DEFAULT_LANGUAGE = "en"
 
 VOICE_PROMPT = """
@@ -289,7 +290,9 @@ class Voices:
 
     def synthesize(self, text: str, language: str) -> tuple[bytes, int]:
         from piper import PiperVoice
-        name = VOICES.get(language, VOICES[DEFAULT_LANGUAGE])
+        name = installed_voice(language) or installed_voice(DEFAULT_LANGUAGE)
+        if not name:
+            raise RuntimeError("no voice: run `mobarchy-agent setup talk`")
         if name not in self.loaded:
             self.loaded[name] = PiperVoice.load(str(model_path(f"{name}.onnx")))
         audio, rate = b"", 22050
@@ -528,9 +531,17 @@ async def main(config: Config | None = None) -> int:
         if not shutil.which(need):
             emit("error", text=f"{need} is missing")
             return 1
-    if not model_path(VAD_MODEL).exists():
-        emit("error", text="the voice models are missing: run `mobarchy-agent setup talk`")
-        return 1
+    # The models for the language, the first time it is spoken (a few hundred MB)
+    language = talk_language()
+    need = missing(language)
+    if need:
+        emit("state", state="starting")
+        emit("tool", text=f"Downloading speech models ({language})")
+        try:
+            await asyncio.to_thread(download, need)
+        except Exception as e:
+            emit("error", text=f"could not download the speech models: {e}")
+            return 1
     config = agents.replace(config, mcp_url=agents.task_url(config.mcp_url))
     cmd = await agents.claude_command(exe, config, SYSTEM_PROMPT + VOICE_PROMPT)
     # A quick model for a spoken conversation: on comet, Sonnet's first words come in ~1-3 s,
@@ -542,26 +553,78 @@ async def main(config: Config | None = None) -> int:
     return 0
 
 
-# --- the models: the VAD and the Piper voices -------------------------------------------
+# --- the models: the VAD, whisper's and the Piper voices -------------------------------
 
 VOICE_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
-VOICE_PATHS = {"no_NO-talesyntese-medium": "no/no_NO/talesyntese/medium",
-               "en_US-lessac-medium": "en/en_US/lessac/medium"}
 VAD_URL = "https://github.com/snakers4/silero-vad/raw/master/src/silero_vad/data/silero_vad.onnx"
+QUALITY = ("medium", "high", "low", "x_low")
+
+
+def installed_voice(language: str) -> str | None:
+    """The Piper voice on the phone for a language, if there is one."""
+    family = FAMILY.get(language, language)
+    if family in VOICES and model_path(f"{VOICES[family]}.onnx").exists():
+        return VOICES[family]
+    found = sorted(p.stem for d in (MODELS, USER_MODELS) for p in d.glob(f"{family}_*.onnx"))
+    return found[0] if found else None
+
+
+def choose_voice(catalogue: dict, language: str) -> tuple[str, str] | None:
+    """(name, path in the catalogue) of a voice for the language: ours, else one speaker at
+    the best quality."""
+    family = FAMILY.get(language, language)
+    candidates = [v for v in catalogue.values() if v["language"]["family"] == family]
+    if family in VOICES:
+        candidates = [v for v in candidates if v["key"] == VOICES[family]]
+    candidates.sort(key=lambda v: (v.get("num_speakers", 1) != 1,
+                                   QUALITY.index(v["quality"]) if v["quality"] in QUALITY else 9, v["key"]))
+    if not candidates:
+        return None
+    onnx = next(f for f in candidates[0]["files"] if f.endswith(".onnx"))
+    return candidates[0]["key"], onnx.rsplit("/", 1)[0]
+
+
+def catalogue() -> dict:
+    with urllib.request.urlopen(f"{VOICE_BASE}/voices.json", timeout=60) as r:
+        return json.load(r)
+
+
+def missing(language: str) -> dict[str, str]:
+    """{file: url} of the models the language needs that aren't on the phone. With OpenAI's
+    speech, only the VAD."""
+    want = {} if model_path(VAD_MODEL).exists() else {VAD_MODEL: VAD_URL}
+    if cloud():
+        return want
+    if FAMILY.get(language, language) == "no":
+        if not voice.model_file().exists():
+            want[voice.MODEL_NAME] = voice.MODEL_URL
+    elif not voice.multi_model_file().exists():
+        want[voice.MULTI_MODEL_NAME] = voice.MULTI_MODEL_URL
+    voices = [DEFAULT_LANGUAGE] + ([language] if language not in ("auto", DEFAULT_LANGUAGE) else [])
+    absent = [lang for lang in voices if not installed_voice(lang)]
+    if absent:
+        cat = catalogue()
+        for lang in absent:
+            chosen = choose_voice(cat, lang)
+            if not chosen:
+                continue   # (no Piper voice for it: Frigg answers with the default's)
+            name, path = chosen
+            for f in (f"{name}.onnx", f"{name}.onnx.json"):
+                want[f] = f"{VOICE_BASE}/{path}/{f}"
+    return want
+
+
+def download(files: dict[str, str]) -> None:
+    import subprocess
+    USER_MODELS.mkdir(parents=True, exist_ok=True)
+    for name, url in files.items():
+        part = USER_MODELS / f"{name}.part"
+        subprocess.run(["curl", "-fsSL", "-o", str(part), url], check=True, timeout=1800)
+        part.rename(USER_MODELS / name)
 
 
 def setup() -> None:
-    """Download the VAD and the Piper voices that neither the image nor a download has."""
-    import subprocess
-    USER_MODELS.mkdir(parents=True, exist_ok=True)
-    wanted = {VAD_MODEL: VAD_URL}
-    for name, path in VOICE_PATHS.items():
-        wanted[f"{name}.onnx"] = f"{VOICE_BASE}/{path}/{name}.onnx"
-        wanted[f"{name}.onnx.json"] = f"{VOICE_BASE}/{path}/{name}.onnx.json"
-    wanted[voice.MULTI_MODEL_NAME] = voice.MULTI_MODEL_URL
-    for name, url in wanted.items():
-        if model_path(name).exists() or (name == voice.MULTI_MODEL_NAME and voice.multi_model_file().exists()):
-            continue
-        part = USER_MODELS / f"{name}.part"
-        subprocess.run(["curl", "-fsSL", "-o", str(part), url], check=True)
-        part.rename(USER_MODELS / name)
+    """Download what the language Frigg listens in needs (MOBARCHY_TALK_LANGUAGE, else the
+    system's): the VAD, whisper's model and the Piper voices."""
+    Config.load()   # (agent.env's settings)
+    download(missing(talk_language()))

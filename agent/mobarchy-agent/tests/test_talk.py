@@ -60,3 +60,29 @@ def test_whisper_text():
     from mobarchy_agent import voice
     out = "\n[00:00:00.000 --> 00:00:02.500]   Set an alarm.\n[00:00:02.500 --> 00:00:03.000]   Now.\n"
     assert voice.text_of(out) == "Set an alarm. Now."
+
+
+def _voice(key, quality, speakers=1):
+    family = key.split("_")[0]
+    path = f"{family}/{key.rsplit('-', 2)[0]}/{key.split('-')[1]}/{quality}"
+    return {"key": key, "language": {"family": family}, "quality": quality, "num_speakers": speakers,
+            "files": {f"{path}/{key}.onnx": {}, f"{path}/{key}.onnx.json": {}}}
+
+
+def test_choose_voice():
+    cat = {v["key"]: v for v in [_voice("de_DE-mls-medium", "medium", 236), _voice("de_DE-kerstin-low", "low"),
+                                 _voice("de_DE-thorsten-medium", "medium"), _voice("en_US-amy-medium", "medium"),
+                                 _voice("en_US-lessac-medium", "medium")]}
+    assert talk.choose_voice(cat, "de") == ("de_DE-thorsten-medium", "de/de_DE/thorsten/medium")
+    assert talk.choose_voice(cat, "en")[0] == "en_US-lessac-medium"
+    assert talk.choose_voice(cat, "xx") is None
+
+
+def test_installed_voice(tmp_path, monkeypatch):
+    monkeypatch.setattr(talk, "MODELS", tmp_path / "system")
+    monkeypatch.setattr(talk, "USER_MODELS", tmp_path)
+    (tmp_path / "no_NO-talesyntese-medium.onnx").touch()
+    (tmp_path / "de_DE-thorsten-medium.onnx").touch()
+    assert talk.installed_voice("nb") == "no_NO-talesyntese-medium"
+    assert talk.installed_voice("de") == "de_DE-thorsten-medium"
+    assert talk.installed_voice("en") is None
