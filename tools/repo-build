@@ -88,12 +88,26 @@ for w in "${what[@]}"; do
 done
 for p in "${adds[@]}"; do cp "$p" "$repo/"; done
 
-# The database: every package file in the directory, the newest version of each wins (-R
-# removes the files of the versions it replaces). Made afresh each time: a package rebuilt
-# with the same version kept its old checksum in an updated database.
+# The database: the newest version of each package, by pacman's version order (vercmp).
+# Older files go. (repo-add -R took the files in glob order, where 0.1-9 comes after 0.1-11,
+# and threw the newest away.) Made afresh each time: a package rebuilt with the same version
+# kept its old checksum in an updated database.
 rm -f "$repo"/mobarchy.db* "$repo"/mobarchy.files*
 image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
     echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
-docker run --rm --platform linux/arm64 -u "$(id -u):$(id -g)" -v "$repo:/repo" "$image" \
-    bash -c 'cd /repo && repo-add -q -R -n mobarchy.db.tar.zst *.pkg.tar.zst'
+docker run --rm --platform linux/arm64 -u "$(id -u):$(id -g)" -v "$repo:/repo" "$image" bash -euo pipefail -c '
+    cd /repo
+    declare -A newest
+    for f in *.pkg.tar.zst; do
+        info=$(bsdtar -xOf "$f" .PKGINFO)
+        name=$(sed -n "s/^pkgname = //p" <<<"$info")
+        ver=$(sed -n "s/^pkgver = //p" <<<"$info")
+        if [ -z "${newest[$name]:-}" ]; then newest[$name]="$ver|$f"; continue; fi
+        if [ "$(vercmp "$ver" "${newest[$name]%%|*}")" -gt 0 ]; then
+            echo "older: ${newest[$name]#*|}"; rm -f "${newest[$name]#*|}"; newest[$name]="$ver|$f"
+        else
+            echo "older: $f"; rm -f "$f"
+        fi
+    done
+    repo-add -q -n mobarchy.db.tar.zst $(for v in "${newest[@]}"; do echo "${v#*|}"; done)'
 ls "$repo"
