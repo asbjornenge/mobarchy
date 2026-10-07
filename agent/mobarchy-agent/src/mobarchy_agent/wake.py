@@ -51,6 +51,7 @@ class WakeWord:
         self.mels = np.ones((MEL_WINDOW, 32), dtype=np.float32)
         self.features: deque = deque(maxlen=self.frames)
         self.last_verified = 0.0
+        self.source = ""    # what the last score came from: "classifier" or "verifier"
 
     def feed(self, pcm: bytes) -> list[float]:
         """Scores for the whole 80 ms chunks in pcm (and what was left from before)."""
@@ -77,8 +78,10 @@ class WakeWord:
         if self.verifier is not None:
             p, before = self.verifier.prob(x[0]), self.last_verified
             self.last_verified = p
-            if p >= VERIFIED and before >= VERIFIED:
-                return max(score, p)
+            if p >= VERIFIED and before >= VERIFIED and p > score:
+                self.source = "verifier"
+                return p
+        self.source = "classifier"
         return score
 
     def windows(self, pcm: bytes) -> np.ndarray:

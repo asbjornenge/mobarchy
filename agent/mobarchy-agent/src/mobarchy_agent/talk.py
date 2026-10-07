@@ -41,6 +41,7 @@ END_SILENCE_S = 0.7          # this much silence ends it
 BARGE_IN_WINDOWS = 8         # ~250 ms of speech while Frigg talks interrupts it
 PRE_ROLL_WINDOWS = 10        # kept from before the start, so the first syllable isn't lost
 WAKE_PRE_ROLL = 25           # (0.8 s) kept from before the wake phrase was known
+VOICE_WAKE = 0.25            # Voice Match, on 2 s, for the owner's verifier to wake Frigg
 MAX_TURN_S = 30
 # With the wake phrase: the conversation goes back to waiting for it after this long without
 # speech, and Claude Code's session is closed after this long waiting.
@@ -476,13 +477,14 @@ def parse_stream_line(line: str) -> list[tuple[str, str]]:
 # --- the conversation -------------------------------------------------------------------
 
 def chime() -> bytes:
-    """A soft rising two-note sound for "I'm listening" (16 kHz, 0.25 s)."""
+    """A soft rising two-note sound for "I'm listening" (16 kHz, 0.25 s), after 0.3 s of
+    silence: a speaker that was asleep can drop the first part of what it plays."""
     import numpy as np
     out = []
     for freq, dur in ((660, 0.11), (990, 0.14)):
         t = np.arange(int(16000 * dur)) / 16000
         out.append(np.sin(2 * np.pi * freq * t) * np.sin(np.pi * t / dur) ** 2)
-    return (np.concatenate(out) * 0.25 * 32767).astype(np.int16).tobytes()
+    return bytes(int(16000 * 0.3) * 2) + (np.concatenate(out) * 0.4 * 32767).astype(np.int16).tobytes()
 
 
 CHIME = chime()
@@ -568,6 +570,14 @@ class Talk:
             elif cmd == "wake" and self.state == "waiting":     # as if the phrase was heard
                 await self.woken()
 
+    async def owners_phrase(self, pcm: bytes) -> bool:
+        """The owner's own verifier woke her: was it their voice? (It took heavy breathing for
+        the phrase; Voice Match gives that ~0, and the owner's "Hei Frigg" 0.35-0.5.)"""
+        if self.voice is None or self.voice.owner is None or self.wake.source != "verifier":
+            return True
+        score = await asyncio.to_thread(self.voice.score, pcm)
+        return score is not None and score >= VOICE_WAKE
+
     async def woken(self) -> None:
         self.wake.reset()
         self.last_active = time.monotonic()
@@ -587,6 +597,7 @@ class Talk:
         barge = 0
         recent: list[bytes] = []
         speech: list[float] = []
+        said: list[bytes] = []
         pre_keep = 0
         self.set_state("waiting" if self.wake else "listening")
         async for window in microphone():
@@ -599,8 +610,9 @@ class Talk:
                 # Speech in the last 1.3 s (Silero): sounds that aren't speech, Frigg's own chime
                 # among them, don't wake her.
                 speech = (speech + [self.vad.prob(window)])[-40:]
+                said = (said + [window])[-62:]      # (2 s)
                 if scores and max(scores) >= self.threshold and max(speech) >= START_PROB \
-                        and now >= self.wake_after:
+                        and now >= self.wake_after and await self.owners_phrase(b"".join(said)):
                     await self.woken()
                     # (the phrase is known ~0.5 s after it ends: what follows it may have begun)
                     ep, turn, pre = Endpointer(), bytearray(), recent
