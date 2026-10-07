@@ -83,6 +83,7 @@ qt_add_qml_module(mobarchy-shell
         qml/AuthSheet.qml
         qml/ThemesApp.qml
         qml/TalkOverlay.qml
+        qml/FriggSettings.qml
         qml/Home.qml
         qml/Store.qml
         qml/KeyboardPanel.qml

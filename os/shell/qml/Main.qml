@@ -1,4 +1,3 @@
-import QtCore
 import QtQuick
 import Mobarchy.Shell
 
@@ -15,10 +14,7 @@ QtObject {
         wake: shell.friggSettings.wake === "always"
               || shell.friggSettings.wake === "charging" && shell.system.charging
     }
-    readonly property Settings friggSettings: Settings {
-        location: StandardPaths.writableLocation(StandardPaths.GenericConfigLocation) + "/mobarchy/frigg.ini"
-        property string wake: "off"     // "always" | "charging" | "off"
-    }
+    readonly property FriggSettings friggSettings: FriggSettings {}
     readonly property TalkOverlay talkOverlay: TalkOverlay {
         talk: shell.talk
         settings: shell.friggSettings

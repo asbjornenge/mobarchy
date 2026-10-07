@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 
-import QtCore
 import QtQuick
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
@@ -14,7 +13,7 @@ LayerWindow {
     id: overlay
 
     required property Talk talk
-    required property Settings settings
+    required property FriggSettings settings
     property bool locked: false
     property int insetBottom: 0
 

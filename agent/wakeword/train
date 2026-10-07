@@ -109,7 +109,11 @@ voices() {
 features() { "$py" "$here/features.py" "$work"; }
 generate() { "$py" openWakeWord/openwakeword/train.py --training_config "$here/hei_frigg.yml" --generate_clips; }
 augment() { "$py" openWakeWord/openwakeword/train.py --training_config "$here/hei_frigg.yml" --augment_clips; }
-model() { "$py" openWakeWord/openwakeword/train.py --training_config "$here/hei_frigg.yml" --train_model; }
+model() {
+    # (it ends with a TensorFlow Lite copy, which needs onnx_tf; the phone runs the ONNX model)
+    "$py" openWakeWord/openwakeword/train.py --training_config "$here/hei_frigg.yml" --train_model \
+        || [ frigg/hei_frigg.onnx -nt frigg/hei_frigg/positive_features_train.npy ]
+}
 
 for step in $steps; do
     echo "== $step"
