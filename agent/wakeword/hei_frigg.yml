@@ -25,9 +25,10 @@ custom_negative_phrases:
   - "brigg"
   - "a fridge"
 # Positive clips in all: voices.py's (Nordic Piper voices, ElevenLabs) come first, the
-# generator tops up
-n_samples: 30000
-n_samples_val: 3000
+# generator tops up. (With 30,000, two thirds English, the first model knew English speakers
+# and missed Norwegian ones: 73 % against 21 % at 0.5.)
+n_samples: 18900
+n_samples_val: 2000
 tts_batch_size: 50
 augmentation_batch_size: 16
 augmentation_rounds: 1
@@ -52,7 +53,7 @@ batch_n_per_class:
   "adversarial_negative": 50
   "positive": 50
 model_type: "dnn"
-layer_size: 32
+layer_size: 64
 steps: 50000
 max_negative_weight: 1500
-target_false_positives_per_hour: 0.2
+target_false_positives_per_hour: 0.5

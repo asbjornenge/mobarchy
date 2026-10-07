@@ -7,13 +7,15 @@ import Mobarchy.Shell
 
 // Frigg (ADR 0026): the live conversation, over whatever is on the screen. An orb for what
 // Frigg is doing (listening, thinking, speaking), what was heard and what Frigg says.
-// A tap on the orb interrupts; ✕ ends the conversation. At the top, whether "Hei Frigg"
-// starts one: always, while charging, or not.
+// A tap on the orb interrupts; ✕ ends the conversation. At the top (on an unlocked phone),
+// whether "Hei Frigg" starts one: always, while charging, or not; and learning the owner's
+// voice, which then shows the sentences to read.
 LayerWindow {
     id: overlay
 
     required property Talk talk
     required property Settings settings
+    property bool locked: false
     property int insetBottom: 0
 
     shown: talk.talking
@@ -36,6 +38,8 @@ LayerWindow {
 
     // "Hei Frigg": always · while charging · off
     Row {
+        id: wakeRow
+        visible: !overlay.locked && !overlay.talk.enrolling
         anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 64 }
         spacing: 6
         Text {
@@ -72,6 +76,47 @@ LayerWindow {
         }
     }
 
+    // Voice Match: learn the owner's voice
+    Rectangle {
+        visible: wakeRow.visible
+        anchors { horizontalCenter: parent.horizontalCenter; top: wakeRow.bottom; topMargin: 14 }
+        width: learn.implicitWidth + 28
+        height: 34
+        radius: 17
+        color: "transparent"
+        border { color: Theme.muted; width: 1 }
+        Text {
+            id: learn
+            anchors.centerIn: parent
+            text: qsTr("󰍬  Learn my voice")
+            color: Theme.fg
+            font { family: Theme.font; pixelSize: 14 }
+        }
+        MouseArea {
+            anchors { fill: parent; margins: -4 }
+            onClicked: overlay.talk.enroll()
+        }
+    }
+
+    // While learning the voice: the sentence to read
+    Column {
+        visible: overlay.talk.enrolling && overlay.talk.enrollText !== ""
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 28; topMargin: 120 }
+        spacing: 16
+        Text {
+            text: qsTr("Read aloud  ·  %1 of %2").arg(overlay.talk.enrollIndex + 1).arg(overlay.talk.enrollCount)
+            color: Theme.muted
+            font { family: Theme.font; pixelSize: 14 }
+        }
+        Text {
+            width: parent.width
+            text: overlay.talk.enrollText
+            color: Theme.fg
+            wrapMode: Text.Wrap
+            font { family: Theme.font; pixelSize: 26 }
+        }
+    }
+
     Column {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom
                   margins: 28; bottomMargin: 48 + overlay.insetBottom }
@@ -91,7 +136,8 @@ LayerWindow {
         Text {
             width: parent.width
             visible: text !== ""
-            text: overlay.talk.heard ? "«" + overlay.talk.heard + "»" : ""
+            text: overlay.talk.heard ? "«" + overlay.talk.heard + "»"
+                  + (overlay.talk.guest ? "  ·  " + qsTr("not the owner's voice") : "") : ""
             color: Theme.muted
             wrapMode: Text.Wrap
             maximumLineCount: 3

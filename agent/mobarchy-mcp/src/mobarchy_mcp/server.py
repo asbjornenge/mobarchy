@@ -81,19 +81,35 @@ def locked() -> bool:
 _granted: dict[str, set[str]] = {}
 
 
-def task_of(ctx: Context | None) -> str | None:
+def _query(ctx: Context | None, key: str) -> str | None:
     try:
         request = ctx.request_context.request if ctx is not None else None
     except ValueError:
         return None
     query = getattr(request, "query_params", None)
-    return (query.get("task") if query is not None else None) or None
+    return (query.get(key) if query is not None else None) or None
+
+
+def task_of(ctx: Context | None) -> str | None:
+    return _query(ctx, "task")
+
+
+# Someone Frigg didn't recognise as the owner, on a locked phone (ADR 0026: mobarchy-agent
+# talk names them in the URL, ?voice=guest). They get these tools only: nothing personal,
+# nothing that changes the phone beyond the music.
+GUEST_TOOLS = {"battery_status", "wifi_status", "bluetooth_status", "media_status", "media_control",
+               "media_seek", "time_status", "find_timezones", "theme_list", "theme_current", "store_list"}
+
+
+def guest(ctx: Context | None) -> bool:
+    return _query(ctx, "voice") == "guest"
 
 
 def approve(name: str, title: str, arguments: dict, ctx: Context | None) -> None:
     """The owner allows this call on the screen, or it doesn't run (ADR 0024)."""
     if locked():
-        raise ToolError("the phone is locked: the owner can't be asked until they unlock it")
+        raise ToolError("the phone is locked: the owner has to unlock it (fingerprint or PIN) and "
+                        "approve this on the screen; ask them to, then try again")
     task = task_of(ctx)
     if task and name in _granted.get(task, ()):
         return
@@ -121,6 +137,9 @@ def tool(risk: Risk, title: str, screen: bool = False):
     def decorator(fn):
         @functools.wraps(fn)
         def wrapper(*args, mcp_context: Context | None = None, **kwargs):
+            if guest(mcp_context) and fn.__name__ not in GUEST_TOOLS:
+                raise ToolError("the phone is locked and this voice isn't the owner's: only the owner "
+                                "can do this, by unlocking the phone (or saying it themselves)")
             if screen and locked():
                 raise ToolError("the phone is locked: the owner has to unlock it (with the PIN) first")
             decision = policy.decide(fn.__name__, risk)

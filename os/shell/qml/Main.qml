@@ -9,11 +9,11 @@ QtObject {
     readonly property ToplevelModel toplevels: ToplevelModel {}
     readonly property Agent agent: Agent {}
     // Frigg, the live voice conversation (ADR 0026). "Hei Frigg" starts one too, when the
-    // owner has it on: always, or while charging; only on an unlocked phone for now (the
-    // lock screen is phase 3).
+    // owner has it on: always, or while charging. On a locked phone Frigg answers the owner's
+    // voice as the owner, and anyone else with the harmless tools only (Voice Match).
     readonly property Talk talk: Talk {
-        wake: !shell.lockScreen.shown && (shell.friggSettings.wake === "always"
-              || shell.friggSettings.wake === "charging" && shell.system.charging)
+        wake: shell.friggSettings.wake === "always"
+              || shell.friggSettings.wake === "charging" && shell.system.charging
     }
     readonly property Settings friggSettings: Settings {
         location: StandardPaths.writableLocation(StandardPaths.GenericConfigLocation) + "/mobarchy/frigg.ini"
@@ -22,6 +22,7 @@ QtObject {
     readonly property TalkOverlay talkOverlay: TalkOverlay {
         talk: shell.talk
         settings: shell.friggSettings
+        locked: shell.lockScreen.shown
         insetBottom: shell.edge.inset
     }
     readonly property Keyboard keyboard: Keyboard {}

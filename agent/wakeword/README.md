@@ -16,11 +16,11 @@ hours. Then copy `<work dir>/frigg/hei_frigg.onnx` to the phone's
 ## The data
 
 Positive clips (the phrase):
-- ~30,000 from openWakeWord's generator: Piper's LibriTTS-R model, mixing its 904 English
+- ~12,000 from openWakeWord's generator: Piper's LibriTTS-R model, mixing its 904 English
   speakers, saying "hey frigg" and "hei frigg".
 - ~4,400 from Nordic Piper voices (`voices.py`): Norwegian (nvcc's ten speakers,
   talesyntese), Swedish, Danish, Icelandic and German, at different speeds.
-- ~900 from 32 of ElevenLabs' Norwegian voices (Oslo, Bergen, Trøndelag, the north), with
+- ~3,300 from 32 of ElevenLabs' Norwegian voices (Oslo, Bergen, Trøndelag, the north), with
   an `ELEVENLABS_API_KEY`.
 
 openWakeWord mixes them with noise and music (two AudioSet shards), Norwegian speech, and

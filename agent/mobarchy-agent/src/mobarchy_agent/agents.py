@@ -200,6 +200,30 @@ async def claude_command(exe: str, config: Config, system_prompt: str = SYSTEM_P
             "--permission-mode", "dontAsk", "--append-system-prompt", system_prompt]
 
 
+GUEST = Path.home() / ".local/share/mobarchy/frigg-guest"
+
+
+def claude_guest(exe: str, config: Config, system_prompt: str) -> tuple[list[str], dict[str, str], Path]:
+    """Claude Code for a voice Frigg didn't recognise on a locked phone (ADR 0026): (command,
+    environment, working dir). A configuration of its own (the owner's login only: none of
+    their memory, history or MCP servers), the web, and the phone's harmless tools
+    (mobarchy-mcp checks ?voice=guest)."""
+    config_dir = GUEST / "config"
+    config_dir.mkdir(parents=True, exist_ok=True)
+    (GUEST / "work").mkdir(exist_ok=True)
+    credentials = config_dir / ".credentials.json"
+    if not credentials.is_symlink():
+        credentials.unlink(missing_ok=True)
+        credentials.symlink_to(Path.home() / ".claude/.credentials.json")
+    url = f"{config.mcp_url}{'&' if '?' in config.mcp_url else '?'}voice=guest"
+    mcp = {"mcpServers": {"mobarchy": {"type": "http", "url": url}}}
+    cmd = [exe, "--output-format", "stream-json", "--verbose",
+           "--tools", "WebSearch,WebFetch", "--mcp-config", json.dumps(mcp), "--strict-mcp-config",
+           "--allowedTools", "mcp__mobarchy", "WebSearch", "WebFetch",
+           "--permission-mode", "dontAsk", "--append-system-prompt", system_prompt]
+    return cmd, {**os.environ, "CLAUDE_CONFIG_DIR": str(config_dir)}, GUEST / "work"
+
+
 async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume: str | None) -> str | None:
     exe = claude_bin()
     if not exe:

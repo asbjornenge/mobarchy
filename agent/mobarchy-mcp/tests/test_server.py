@@ -186,3 +186,11 @@ def test_screen_tools_refuse_while_locked(tmp_path, monkeypatch):
     assert server.locked()
     monkeypatch.setenv("MOBARCHY_MCP_IGNORE_LOCK", "1")
     assert not server.locked()
+
+
+def test_a_guest_gets_the_harmless_tools_only(fakes, monkeypatch):
+    monkeypatch.setattr(server, "guest", lambda ctx: True)
+    monkeypatch.setattr(server, "policy", Policy(tools={"run_shell": Decision.ALLOW}))
+    r = call("run_shell", {"command": "echo hi"})
+    assert r.is_error and "isn't the owner's" in r.content[0].text
+    assert not call("time_status").is_error

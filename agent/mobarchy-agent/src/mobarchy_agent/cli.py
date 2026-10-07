@@ -9,7 +9,8 @@
     mobarchy-agent transcribe FILE.wav [--json] [--language no]   speech to text, on the phone
     mobarchy-agent setup voice              download the speech model
     mobarchy-agent talk [--wake]            Frigg: a live voice conversation (ADR 0026), JSON events;
-                                            --wake: waits for "Hei Frigg" between conversations
+                                            --wake: waits for "Hei Frigg" between conversations;
+                                            --enroll: learns the owner's voice (Voice Match)
     mobarchy-agent setup talk               download its voice models (VAD, Piper voices)
 
 Agents: claude (your Claude Code and Claude account), openai, local, api (API key).
@@ -179,8 +180,9 @@ def cmd_talk(argv: list[str]) -> int:
     from . import talk
     p = argparse.ArgumentParser(prog="mobarchy-agent talk")
     p.add_argument("--wake", action="store_true", help='wait for "Hei Frigg" between conversations')
+    p.add_argument("--enroll", action="store_true", help="learn the owner's voice (Voice Match)")
     args = p.parse_args(argv)
-    return asyncio.run(talk.main(wake=args.wake))
+    return asyncio.run(talk.main(wake=args.wake, enroll=args.enroll))
 
 
 def main() -> None:

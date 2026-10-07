@@ -184,3 +184,31 @@ def test_frigg_goes_on_with_the_chats_session(monkeypatch, tmp_path):
     conv.sessions["claude"] = "chat-2"  # the chat went on meanwhile
     asyncio.run(t.join_chat())
     assert t.session.starts == ["chat-1", "chat-2"]
+
+
+def test_who_is_speaking(monkeypatch):
+    class Voice:
+        def __init__(self, score):
+            self.s = score
+
+        def score(self, pcm):
+            return self.s
+
+    monkeypatch.setattr(talk, "Vad", lambda: None)
+    monkeypatch.setattr(talk, "phone_locked", lambda: False)
+    t = talk.Talk(talk.ClaudeSession([]), guest=talk.ClaudeSession([]), voice=None)
+    assert t.who(b"") == (True, None)            # unlocked: the owner
+    monkeypatch.setattr(talk, "phone_locked", lambda: True)
+    assert t.who(b"") == (False, None)           # locked, no voice learnt: a guest
+    t.voice = Voice(0.8)
+    assert t.who(b"") == (True, 0.8)
+    t.voice = Voice(0.3)
+    assert t.who(b"") == (False, 0.3)
+
+
+def test_voice_match_features_shape():
+    import numpy as np
+    from mobarchy_agent import speaker
+    f = speaker.features(np.sin(np.arange(16000) / 10).astype(np.float32))
+    assert f.shape == (80, 101)
+    assert abs(float(f.mean())) < 1e-3

@@ -87,14 +87,22 @@ def piper_clips(out: Path, cache: Path, n: int) -> None:
 
 
 def elevenlabs_clips(out: Path, n: int, start: int = 0) -> None:
+    """Three at a time (the Starter plan's concurrency)."""
+    from concurrent.futures import ThreadPoolExecutor
     key = os.environ["ELEVENLABS_API_KEY"]
+    rng = random.Random(start)
+    jobs = []
     for i in range(start, start + n):
         voice = ELEVENLABS[i % len(ELEVENLABS)]
-        body = {"text": random.choice(PHRASES), "model_id": random.choice(["eleven_flash_v2_5", "eleven_multilingual_v2"]),
-                "voice_settings": {"stability": random.uniform(0.2, 0.8), "similarity_boost": 0.75,
-                                   "style": random.uniform(0, 0.5), "speed": random.uniform(0.8, 1.15)}}
+        body = {"text": rng.choice(PHRASES), "model_id": rng.choice(["eleven_flash_v2_5", "eleven_multilingual_v2"]),
+                "voice_settings": {"stability": rng.uniform(0.2, 0.8), "similarity_boost": 0.75,
+                                   "style": rng.uniform(0, 0.5), "speed": rng.uniform(0.8, 1.15)}}
         if body["model_id"] == "eleven_flash_v2_5":
             body["language_code"] = "no"
+        jobs.append((target(out, f"elevenlabs_{voice}_{i}"), voice, body))
+
+    def make(job) -> None:
+        path, voice, body = job
         req = urllib.request.Request(
             f"https://api.elevenlabs.io/v1/text-to-speech/{voice}?output_format=pcm_16000",
             data=json.dumps(body).encode(), headers={"xi-api-key": key, "Content-Type": "application/json"})
@@ -107,7 +115,10 @@ def elevenlabs_clips(out: Path, n: int, start: int = 0) -> None:
                 if attempt == 4:
                     raise
                 time.sleep(10 * (attempt + 1))
-        save(target(out, f"elevenlabs_{voice}_{i}"), audio, 16000)
+        save(path, audio, 16000)
+
+    with ThreadPoolExecutor(3) as pool:
+        list(pool.map(make, jobs))
     print("elevenlabs", n, flush=True)
 
 

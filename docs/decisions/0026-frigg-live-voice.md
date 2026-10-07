@@ -86,8 +86,7 @@ the forecast after 10.8–12.1 s. Piper takes 0.4 s a sentence, and Silero 0.1 m
 ("waiting"), then talks as from the button: the words after the phrase are the first turn.
 After 8 s without speech it waits again; Claude Code's session stays open for 10 minutes of
 waiting. The shell runs it while the owner's switch says so
-(the overlay's "Hei Frigg": always, while charging, off; `~/.config/mobarchy/frigg.ini`), on
-an unlocked phone. The status bar shows a microphone while it listens.
+(the overlay's "Hei Frigg": always, while charging, off; `~/.config/mobarchy/frigg.ini`). The status bar shows a microphone while it listens.
 
 - Detection is openWakeWord's pipeline, run with onnxruntime alone (`wake.py`; the same
   scores as openWakeWord's own code): ~16 % of one core on comet.
@@ -95,6 +94,25 @@ an unlocked phone. The status bar shows a microphone while it listens.
   generator's 904 speakers, Nordic Piper voices, and ElevenLabs' Norwegian voices; with
   Norwegian speech (FLEURS) among the negatives, since the owner speaks Norwegian all day.
 - A soft chime says Frigg is listening.
+
+**A locked phone (phase 3): Voice Match.** "Hei Frigg" works on a locked phone too. Who
+speaks decides what Frigg may do:
+- The owner's voice: as on an unlocked phone (the chat's session, everything). What needs
+  approval (installing, sudo) still needs the phone unlocked, with a fingerprint or the PIN:
+  the tool says so, and Frigg asks the owner to unlock and tries again.
+- Another voice: a Claude Code of its own (its own configuration with the owner's login only:
+  none of their memory, history or connectors; `--strict-mcp-config`), the web, and the phone's
+  harmless tools, which mobarchy-mcp enforces (`?voice=guest`: battery, time, music, ...).
+  It doesn't see or write the owner's conversation, and starts afresh for the next guest.
+- A phone without a PIN keeps no one out anyway: everyone is the owner.
+
+Voice Match is NVIDIA NeMo's TitaNet small speaker embedding (onnxruntime, NeMo's features in
+numpy: `speaker.py`), against the mean of 8 sentences the owner reads once ("Learn my voice"
+in the overlay; `talk --enroll`). Of four models tried on 22 Norwegian voices (12 ElevenLabs,
+10 Piper; `agent/wakeword/voicematch.py`), it separated them best: at a cosine of 0.6, 0.1 %
+of other voices' sentences get in, and 1 % of the owner's are refused. CAM++ let in 70 %.
+A check takes ~60 ms on comet. It can be fooled by a recording of the owner, so it opens the
+owner's data, never approvals.
 
 ## Consequences
 

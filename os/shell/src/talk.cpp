@@ -20,6 +20,15 @@ Talk::Talk(QObject *parent)
     // Waiting for the phrase is meant to go on: if it ends by itself, it starts again (later
     // and later if it keeps failing).
     connect(&m_proc, &QProcess::finished, this, [this](int code) {
+        if (m_procEnroll) {
+            m_procEnroll = false;
+            emit enrollChanged();
+        }
+        if (m_enrollNext) {
+            m_enrollNext = false;
+            launch(true);
+            return;
+        }
         if (!m_wake)
             return;
         m_failures = code == 0 ? 0 : m_failures + 1;
@@ -62,13 +71,37 @@ void Talk::start()
     launch();
 }
 
-void Talk::launch()
+void Talk::launch(bool enroll)
 {
     QStringList args{QStringLiteral("talk")};
-    if (m_wake)
+    if (enroll)
+        args << QStringLiteral("--enroll");
+    else if (m_wake)
         args << QStringLiteral("--wake");
-    m_procWake = m_wake;
+    m_procWake = m_wake && !enroll;
+    m_procEnroll = enroll;
     m_proc.start(Agent::program(), args);
+    emit enrollChanged();
+}
+
+void Talk::enroll()
+{
+    m_heard.clear();
+    m_said.clear();
+    m_doing.clear();
+    m_error.clear();
+    m_enrollText.clear();
+    m_enrollIndex = m_enrollCount = 0;
+    emit textChanged();
+    m_state = QStringLiteral("starting");
+    emit stateChanged();
+    if (active()) {
+        // (the phrase's listener first stops: it would hear the sentences)
+        m_enrollNext = true;
+        send("stop");
+        return;
+    }
+    launch(true);
 }
 
 void Talk::setWake(bool wake)
@@ -139,8 +172,21 @@ void Talk::readEvents()
                 send("stop");
             continue;
         }
+        if (kind == QLatin1String("enroll")) {
+            m_enrollText = e.value(QStringLiteral("text")).toString();
+            m_enrollIndex = e.value(QStringLiteral("index")).toInt();
+            m_enrollCount = e.value(QStringLiteral("count")).toInt();
+            emit enrollChanged();
+            continue;
+        }
+        if (kind == QLatin1String("enrolled")) {
+            m_enrollText.clear();
+            emit enrollChanged();
+            continue;
+        }
         if (kind == QLatin1String("heard")) {
             m_heard = e.value(QStringLiteral("text")).toString();
+            m_guest = e.value(QStringLiteral("voice")).toString() == QLatin1String("guest");
             m_said.clear();
             m_error.clear();
         } else if (kind == QLatin1String("said")) {

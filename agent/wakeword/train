@@ -7,7 +7,7 @@
 #   steps   setup fetch voices features generate augment model (default: all, in order;
 #           each can be run again, and goes on from where it stopped)
 #
-# ELEVENLABS_API_KEY (or ~/.config/mobarchy/agent.env's) adds ~900 clips from ElevenLabs'
+# ELEVENLABS_API_KEY (or ~/.config/mobarchy/agent.env's) adds ~3,300 clips from ElevenLabs'
 # Norwegian voices to the positives; without it, the Nordic Piper voices and the English
 # generator's make them all. The model ends up in <work dir>/frigg/hei_frigg.onnx: copy it to
 # the phone's ~/.local/share/mobarchy/models/.
@@ -102,7 +102,7 @@ voices() {
         ELEVENLABS_API_KEY=$(sed -n 's/^ELEVENLABS_API_KEY=//p' ~/.config/mobarchy/agent.env)
     fi
     local eleven=0
-    [ -n "${ELEVENLABS_API_KEY:-}" ] && eleven=900
+    [ -n "${ELEVENLABS_API_KEY:-}" ] && eleven=3300
     ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-} "$py" "$here/voices.py" "$work" --piper 4400 --elevenlabs $eleven
 }
 
