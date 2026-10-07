@@ -44,3 +44,19 @@ def test_blocks_are_not_glued():
     stop = '{"type":"stream_event","event":{"type":"content_block_stop"}}'
     out = s.feed("Jeg sjekker") + s.feed(talk.parse_stream_line(stop)[0][1]) + s.feed("været nå. ")
     assert out == ["Jeg sjekker været nå."]
+
+
+def test_language(monkeypatch):
+    monkeypatch.delenv("MOBARCHY_TALK_LANGUAGE", raising=False)
+    monkeypatch.setenv("LANG", "nb_NO.UTF-8")
+    assert talk.talk_language() == "nb"
+    monkeypatch.setenv("LANG", "C")
+    assert talk.talk_language() == "en"
+    monkeypatch.setenv("MOBARCHY_TALK_LANGUAGE", "no")
+    assert talk.talk_language() == "no"
+
+
+def test_whisper_text():
+    from mobarchy_agent import voice
+    out = "\n[00:00:00.000 --> 00:00:02.500]   Set an alarm.\n[00:00:02.500 --> 00:00:03.000]   Now.\n"
+    assert voice.text_of(out) == "Set an alarm. Now."

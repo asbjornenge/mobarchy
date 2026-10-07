@@ -24,13 +24,13 @@ starts it and shows it. A turn goes:
    module-echo-cancel), so Frigg doesn't hear itself and the owner can talk over it.
    Silero VAD (onnxruntime) finds where speech begins and ends: about 0.7 s of silence
    ends a turn.
-2. **Understand.** Local: whisper.cpp.
-   - Norwegian, the default: NB-Whisper with the language set. That takes ~2 s on comet,
-     with good text.
-   - Another language, or detection (`MOBARCHY_TALK_LANGUAGE=en` or `auto`): OpenAI's
-     multilingual small. It is slow on comet (~10 s) and weaker in Norwegian. NB-Whisper
-     can't do this job: it writes Norwegian whatever is spoken, and with detection it
-     looped on a phrase.
+2. **Understand.** Local: whisper.cpp, in the language the owner speaks: the system's
+   (`LANG`), or `MOBARCHY_TALK_LANGUAGE` (e.g. `no`, `en`). English is the default.
+   - Norwegian: NB-Whisper with the language set, ~1.5–2 s on comet. OpenAI's multilingual
+     model writes poor Norwegian, and NB-Whisper can't do other languages: it writes
+     Norwegian whatever is spoken, and with detection it looped on a phrase.
+   - Other languages: OpenAI's multilingual small with the language set, ~1.3 s on comet.
+   - `auto` detects the language with the multilingual model, but takes ~7 s on comet.
    - Cloud, with a key: OpenAI's transcription, every language and fast.
 3. **Think.** One Claude Code session stays open for the whole conversation, on Sonnet
    (`MOBARCHY_TALK_MODEL`). On comet its first words come after ~1–3 s, the default
@@ -50,6 +50,7 @@ history.
 
 **Local first, cloud as a choice.** `~/.config/mobarchy/agent.env`:
 - `MOBARCHY_TALK_SPEECH=local` (default) or `openai`, with `OPENAI_API_KEY`.
+- `MOBARCHY_TALK_LANGUAGE`, `MOBARCHY_TALK_MODEL`, `MOBARCHY_TALK_VOICE` (OpenAI's voice).
 - Without a key everything works on the phone. It is slower, and the voice sounds less
   natural.
 

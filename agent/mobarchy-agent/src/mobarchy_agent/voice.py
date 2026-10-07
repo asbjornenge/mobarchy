@@ -58,6 +58,13 @@ def loudest(samples, rate: int) -> float:
     return best
 
 
+def text_of(out: str) -> str:
+    """The text of whisper-cli's segments ("[00:00:00.000 --> 00:00:02.500]   text").
+    (With timestamps on, the decoder ends a short clip; with -nt the multilingual model
+    repeats it, "What time is it? What time is it?", and takes seconds longer.)"""
+    return " ".join(" ".join(re.sub(r"^\[[^]]*\]", "", line) for line in out.splitlines()).split())
+
+
 def transcribe(path: Path, language: str = "no") -> str:
     exe = whisper_bin()
     if not exe:
@@ -72,16 +79,17 @@ def transcribe(path: Path, language: str = "no") -> str:
     if seconds < 0.3 or loudest(samples, rate) < SPEECH_RMS:
         return ""
     r = subprocess.run([exe, "-m", str(model), "-f", str(path), "-l", language,
-                        "-t", str(THREADS), "-ac", str(audio_ctx(seconds)), "-mc", "0", "-nt", "-np"],
+                        "-t", str(THREADS), "-ac", str(audio_ctx(seconds)), "-mc", "0", "-np"],
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "whisper failed")
-    return " ".join(r.stdout.split())
+    return text_of(r.stdout)
 
 
 # OpenAI's multilingual Whisper (small): other languages than Norwegian, and detecting the
 # language. NB-Whisper writes Norwegian whatever is spoken (it turns English into Norwegian).
-# On comet it takes ~10 s for a sentence where NB-Whisper with -l no takes ~2.
+# On comet a sentence takes ~1.5 s with the language set, as with NB-Whisper, but ~7 s when it
+# has to detect the language.
 MULTI_MODEL_NAME = "ggml-small-q5_1.bin"
 MULTI_MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
 
@@ -108,12 +116,12 @@ def transcribe_detect(path: Path, language: str = "auto") -> tuple[str, str]:
         return "", language if language != "auto" else "no"
     # (-mc 0: no text carried from window to window; with it whisper can loop on a phrase)
     r = subprocess.run([exe, "-m", str(model), "-f", str(path), "-l", language,
-                        "-t", str(THREADS), "-ac", str(audio_ctx(seconds)), "-mc", "0", "-nt", "-np"],
+                        "-t", str(THREADS), "-ac", str(audio_ctx(seconds)), "-mc", "0", "-np"],
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "whisper failed")
     m = re.search(r"auto-detected language: (\w+)", r.stderr)
-    return " ".join(r.stdout.split()), (m.group(1) if m else language if language != "auto" else "no")
+    return text_of(r.stdout), (m.group(1) if m else language if language != "auto" else "no")
 
 
 def setup() -> None:

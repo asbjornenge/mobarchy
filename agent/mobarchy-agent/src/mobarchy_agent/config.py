@@ -7,7 +7,7 @@ The first file that exists wins, and real environment variables override file va
     ~/.config/mobarchy/agent.env
     /etc/mobarchy/agent.env
 
-Secrets (ANTHROPIC_API_KEY) live only in these files, never in the repo.
+Secrets (ANTHROPIC_API_KEY, OPENAI_API_KEY) live only in these files, never in the repo.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from pathlib import Path
 
 DEFAULT_MODEL = "claude-opus-5"
 DEFAULT_MCP_URL = "http://127.0.0.1:8765/mcp"
+EXPORTED = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "OPENAI_API_KEY")
 
 
 def _env_files() -> list[Path]:
@@ -61,10 +62,11 @@ class Config:
                 values = _read_env_file(f)
                 source = str(f)
                 break
-        # Credentials go to the SDK through the process environment.
-        for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL"):
-            if key in values and key not in os.environ:
-                os.environ[key] = values[key]
+        # Credentials go to the SDK through the process environment, and Frigg's settings
+        # (ADR 0026) to `talk`.
+        for key in values:
+            if key in EXPORTED or key.startswith("MOBARCHY_TALK_"):
+                os.environ.setdefault(key, values[key])
 
         def get(key: str, default: str) -> str:
             return os.environ.get(key, values.get(key, default))

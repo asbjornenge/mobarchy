@@ -10,8 +10,8 @@ Commands in, a line each: "stop" (end the conversation), "interrupt" (stop speak
 
 Speech is the phone's (whisper.cpp, Piper) unless MOBARCHY_TALK_SPEECH=openai and an
 OPENAI_API_KEY are set (~/.config/mobarchy/agent.env): then OpenAI's, in any language. On the
-phone, Norwegian is fast (NB-Whisper); MOBARCHY_TALK_LANGUAGE=en (or auto) uses the
-multilingual model, which is slow on comet.
+phone, the language is the system's unless MOBARCHY_TALK_LANGUAGE sets it (e.g. no, en, or
+auto to detect it, which is slow on comet).
 """
 
 from __future__ import annotations
@@ -44,9 +44,9 @@ MODELS = Path("/usr/share/mobarchy/models")
 USER_MODELS = Path.home() / ".local/share/mobarchy/models"
 VAD_MODEL = "silero_vad.onnx"
 # Piper voices by language (whisper's codes); more as voices are added
-VOICES = {"no": "no_NO-talesyntese-medium", "nn": "no_NO-talesyntese-medium",
-          "en": "en_US-lessac-medium"}
-DEFAULT_LANGUAGE = "no"
+VOICES = {"en": "en_US-lessac-medium", "no": "no_NO-talesyntese-medium",
+          "nb": "no_NO-talesyntese-medium", "nn": "no_NO-talesyntese-medium"}
+DEFAULT_LANGUAGE = "en"
 
 VOICE_PROMPT = """
 You are Frigg, the voice of this phone. This is a spoken conversation: what you write is \
@@ -238,6 +238,15 @@ def write_wav(path: Path, pcm: bytes) -> None:
         w.writeframes(pcm)
 
 
+def talk_language() -> str:
+    """The language spoken to Frigg on the phone: MOBARCHY_TALK_LANGUAGE (a code, or "auto"),
+    else the system's (LANG), else English."""
+    if os.environ.get("MOBARCHY_TALK_LANGUAGE"):
+        return os.environ["MOBARCHY_TALK_LANGUAGE"]
+    code = os.environ.get("LANG", "").split("_")[0].split(".")[0].lower()
+    return code if re.fullmatch(r"[a-z]{2}", code) else "en"
+
+
 def transcribe(pcm: bytes) -> tuple[str, str]:
     """(text, language)."""
     with tempfile.TemporaryDirectory() as d:
@@ -245,10 +254,10 @@ def transcribe(pcm: bytes) -> tuple[str, str]:
         write_wav(wav, pcm)
         if cloud():
             return _openai_transcribe(wav)
-        # On the phone: Norwegian with NB-Whisper (fast, good); another language, or "auto",
-        # with the multilingual model (slow on comet). MOBARCHY_TALK_LANGUAGE, default no.
-        language = os.environ.get("MOBARCHY_TALK_LANGUAGE", "no")
-        if language in ("no", "nb"):
+        # On the phone: Norwegian with NB-Whisper; another language with the multilingual
+        # model. Both take ~1.5 s on comet. "auto" detects the language, but takes ~7.
+        language = talk_language()
+        if language in ("no", "nb", "nn"):
             return voice.transcribe(wav, "no"), "no"
         return voice.transcribe_detect(wav, language)
 
@@ -389,7 +398,7 @@ class Talk:
         await self.session.start()
         if not cloud():
             # (a voice loads in ~1 s: not on the first sentence)
-            for language in ("no", "en"):
+            for language in {talk_language(), DEFAULT_LANGUAGE}:
                 asyncio.get_running_loop().run_in_executor(None, self.voices.synthesize, "Hei.", language)
         commands = asyncio.create_task(self.read_commands())
         try:
