@@ -54,6 +54,7 @@ qt_add_qml_module(mobarchy-shell
         src/screenpower.cpp src/screenpower.h
         src/wifi.cpp src/wifi.h
         src/systemstatus.cpp src/systemstatus.h
+        src/talk.cpp src/talk.h
         src/themesource.cpp src/themesource.h
         src/toplevels.cpp src/toplevels.h
         src/touchguard.cpp src/touchguard.h
@@ -81,6 +82,7 @@ qt_add_qml_module(mobarchy-shell
         qml/ApprovalSheet.qml
         qml/AuthSheet.qml
         qml/ThemesApp.qml
+        qml/TalkOverlay.qml
         qml/Home.qml
         qml/Store.qml
         qml/KeyboardPanel.qml

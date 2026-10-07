@@ -184,23 +184,29 @@ async def claude_connectors(exe: str) -> list[str]:
         return await _refresh_connectors(exe)
 
 
-async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume: str | None) -> str | None:
-    exe = claude_bin()
-    if not exe:
-        await _emit(on_event, Event("error", "Claude Code is not installed. Choose Claude to set it up."))
-        return None
-    WORKDIR.mkdir(parents=True, exist_ok=True)
+async def claude_command(exe: str, config: Config, system_prompt: str = SYSTEM_PROMPT) -> list[str]:
+    """Claude Code as the phone's agent, up to its prompt (`-p PROMPT`, or stream-json input
+    for a conversation that stays open: Frigg, ADR 0026)."""
     mcp = {"mcpServers": {"mobarchy": {"type": "http", "url": config.mcp_url}}}
     # The phone's tools; Claude Code's file tools for its own memory only (what it keeps
     # about the owner across conversations); the web (search and read pages: e.g. an image
     # for a theme's wallpaper, ADR 0025); and the owner's own MCP servers (claude.ai
     # connectors: Gmail, Calendar, ...). Everything else is denied (dontAsk).
     memory = "~/.claude/projects/**/memory/**"
-    cmd = [exe, "-p", prompt, "--output-format", "stream-json", "--verbose",
-           "--tools", "Read,Write,Edit,WebSearch,WebFetch", "--mcp-config", json.dumps(mcp),
-           "--allowedTools", "mcp__mobarchy", f"Read({memory})", f"Write({memory})", f"Edit({memory})",
-           "WebSearch", "WebFetch", *(await claude_connectors(exe)),
-           "--permission-mode", "dontAsk", "--append-system-prompt", SYSTEM_PROMPT]
+    return [exe, "--output-format", "stream-json", "--verbose",
+            "--tools", "Read,Write,Edit,WebSearch,WebFetch", "--mcp-config", json.dumps(mcp),
+            "--allowedTools", "mcp__mobarchy", f"Read({memory})", f"Write({memory})", f"Edit({memory})",
+            "WebSearch", "WebFetch", *(await claude_connectors(exe)),
+            "--permission-mode", "dontAsk", "--append-system-prompt", system_prompt]
+
+
+async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume: str | None) -> str | None:
+    exe = claude_bin()
+    if not exe:
+        await _emit(on_event, Event("error", "Claude Code is not installed. Choose Claude to set it up."))
+        return None
+    WORKDIR.mkdir(parents=True, exist_ok=True)
+    cmd = [*await claude_command(exe, config), "-p", prompt]
     if resume:
         cmd += ["--resume", resume]
     # (a step the owner approves waits for them: up to two minutes, then root)

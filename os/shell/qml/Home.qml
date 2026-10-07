@@ -14,6 +14,7 @@ Window {
     id: home
 
     required property Agent agent
+    required property Talk talk
     required property Keyboard keyboard
     // Text selected in the conversation: the shell's Copy button offers it.
     signal copyOffered(string text)
@@ -597,6 +598,12 @@ Window {
                     voice.start()
                     break
                 }
+            }
+            // Holding the microphone: talk with Frigg, live (ADR 0026); a tap dictates.
+            onPressAndHold: if (mode === "talk") {
+                ask.focus = false
+                home.keyboard.visible = false
+                home.talk.start()
             }
             Text {
                 anchors.centerIn: parent

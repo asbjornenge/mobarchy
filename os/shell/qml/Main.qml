@@ -7,6 +7,12 @@ QtObject {
     readonly property AppModel apps: AppModel {}
     readonly property ToplevelModel toplevels: ToplevelModel {}
     readonly property Agent agent: Agent {}
+    // Frigg, the live voice conversation (ADR 0026)
+    readonly property Talk talk: Talk {}
+    readonly property TalkOverlay talkOverlay: TalkOverlay {
+        talk: shell.talk
+        insetBottom: shell.edge.inset
+    }
     readonly property Keyboard keyboard: Keyboard {}
     readonly property Clipboard clipboard: Clipboard {}
     readonly property CopyBar copyBar: CopyBar { clipboard: shell.clipboard }
@@ -164,6 +170,7 @@ QtObject {
     }
     readonly property Home home: Home {
         agent: shell.agent
+        talk: shell.talk
         keyboard: shell.keyboard
         onCopyOffered: (text) => shell.copyBar.offer(text)
     }

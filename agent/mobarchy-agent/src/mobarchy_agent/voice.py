@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import array
 import math
+import re
 import shutil
 import subprocess
 import wave
@@ -71,11 +72,48 @@ def transcribe(path: Path, language: str = "no") -> str:
     if seconds < 0.3 or loudest(samples, rate) < SPEECH_RMS:
         return ""
     r = subprocess.run([exe, "-m", str(model), "-f", str(path), "-l", language,
-                        "-t", str(THREADS), "-ac", str(audio_ctx(seconds)), "-nt", "-np"],
+                        "-t", str(THREADS), "-ac", str(audio_ctx(seconds)), "-mc", "0", "-nt", "-np"],
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "whisper failed")
     return " ".join(r.stdout.split())
+
+
+# OpenAI's multilingual Whisper (small): other languages than Norwegian, and detecting the
+# language. NB-Whisper writes Norwegian whatever is spoken (it turns English into Norwegian).
+# On comet it takes ~10 s for a sentence where NB-Whisper with -l no takes ~2.
+MULTI_MODEL_NAME = "ggml-small-q5_1.bin"
+MULTI_MODEL_URL = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin"
+
+
+def multi_model_file() -> Path:
+    system = Path("/usr/share/mobarchy/models") / MULTI_MODEL_NAME
+    return system if system.exists() else MODELS / MULTI_MODEL_NAME
+
+
+def transcribe_detect(path: Path, language: str = "auto") -> tuple[str, str]:
+    """Speech in any language: (text, the language heard, e.g. "no", "en"). language: a code,
+    or "auto" to detect it. Uses the multilingual model."""
+    exe = whisper_bin()
+    if not exe:
+        raise RuntimeError("whisper.cpp (whisper-cli) is not installed")
+    model = multi_model_file()
+    if not model.exists():
+        raise RuntimeError("the multilingual speech model is missing: run `mobarchy-agent setup talk`")
+    with wave.open(str(path)) as w:
+        rate = w.getframerate()
+        samples = array.array("h", w.readframes(w.getnframes()))
+    seconds = len(samples) / rate
+    if seconds < 0.3 or loudest(samples, rate) < SPEECH_RMS:
+        return "", language if language != "auto" else "no"
+    # (-mc 0: no text carried from window to window; with it whisper can loop on a phrase)
+    r = subprocess.run([exe, "-m", str(model), "-f", str(path), "-l", language,
+                        "-t", str(THREADS), "-ac", str(audio_ctx(seconds)), "-mc", "0", "-nt", "-np"],
+                       capture_output=True, text=True, timeout=120)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr.strip().splitlines()[-1] if r.stderr.strip() else "whisper failed")
+    m = re.search(r"auto-detected language: (\w+)", r.stderr)
+    return " ".join(r.stdout.split()), (m.group(1) if m else language if language != "auto" else "no")
 
 
 def setup() -> None:

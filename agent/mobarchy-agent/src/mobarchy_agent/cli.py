@@ -8,6 +8,8 @@
     mobarchy-agent conversation new|open ID|show [ID] [--json]
     mobarchy-agent transcribe FILE.wav [--json] [--language no]   speech to text, on the phone
     mobarchy-agent setup voice              download the speech model
+    mobarchy-agent talk                     Frigg: a live voice conversation (ADR 0026), JSON events
+    mobarchy-agent setup talk               download its voice models (VAD, Piper voices)
 
 Agents: claude (your Claude Code and Claude account), openai, local, api (API key).
 """
@@ -72,11 +74,15 @@ def cmd_use(argv: list[str]) -> int:
 
 def cmd_setup(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="mobarchy-agent setup")
-    p.add_argument("agent", choices=["claude", "openai", "local", "api", "voice"])
+    p.add_argument("agent", choices=["claude", "openai", "local", "api", "voice", "talk"])
     p.add_argument("--json", action="store_true")
     args = p.parse_args(argv)
     if args.agent == "voice":
         voice.setup()
+        return 0
+    if args.agent == "talk":
+        from . import talk
+        talk.setup()
         return 0
     show, failed = _printer(args.json)
     ok = asyncio.run(agents.setup(args.agent, show))
@@ -168,11 +174,17 @@ def cmd_transcribe(argv: list[str]) -> int:
     return 0
 
 
+def cmd_talk(argv: list[str]) -> int:
+    from . import talk
+    argparse.ArgumentParser(prog="mobarchy-agent talk").parse_args(argv)
+    return asyncio.run(talk.main())
+
+
 def main() -> None:
     argv = sys.argv[1:]
     commands = {"agents": cmd_agents, "use": cmd_use, "setup": cmd_setup,
                 "conversations": cmd_conversations, "conversation": cmd_conversation,
-                "transcribe": cmd_transcribe}
+                "transcribe": cmd_transcribe, "talk": cmd_talk}
     if argv and argv[0] in commands:
         sys.exit(commands[argv[0]](argv[1:]))
     sys.exit(cmd_task(argv))
