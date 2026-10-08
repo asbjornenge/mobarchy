@@ -296,6 +296,7 @@ if [ "$early" != '$' ]; then
 fi
 
 diagnose_usb() {  # log USB state; with DIAG_TIMEOUT, reboot to bootloader if no host shows up
+    # (only when there is no root to switch to: a phone away from a PC must still boot)
     local udc st i=0
     [ -n "$DIAG_TIMEOUT" ] || return 0
     udc=${USB_UDC:-$(ls /sys/class/udc 2>/dev/null | head -n1)}
@@ -321,8 +322,8 @@ diagnose_usb() {  # log USB state; with DIAG_TIMEOUT, reboot to bootloader if no
     reboot-to bootloader
 }
 
-diagnose_usb
 switch_to_root
+diagnose_usb
 
 # Leave a trace of how far we got for the next boot (pstore) and for the host.
 log "debug init ready"
