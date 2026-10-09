@@ -168,6 +168,9 @@ def apex_manifest(path):
     return name, version
 
 
+CAPEX = {"com.google.android.tethering"}
+
+
 def decompressed(apex):
     """A compressed APEX (a zip holding original_apex) as its decompressed copy, made once
     under /var/lib/mobarchy/android/apex, as apexd keeps them in /data/apex/decompressed."""
@@ -195,7 +198,14 @@ def mount_apexes():
     a fresh /apex (for apexd to fill); our init.rc binds /mnt/apex onto it."""
     infos = []
     for part in ("system", "system_ext", "vendor", "product"):
-        for shipped in sorted(glob.glob(str(ROOT / part / "apex" / "*.apex"))):
+        shipped_ones = glob.glob(str(ROOT / part / "apex" / "*.apex"))
+        # Compressed ones (.capex) only where the container needs their libraries: since
+        # cp3a, libandroid.so (the camera and sensor bridges link it) needs tethering's
+        # libcom.android.tethering.connectivity_native.so. (Their init scripts aren't read
+        # here: no apexd, no perform_apex_config.)
+        shipped_ones += [c for c in glob.glob(str(ROOT / part / "apex" / "*.capex"))
+                         if Path(c).name.split(".capex")[0] in CAPEX]
+        for shipped in sorted(shipped_ones):
             apex = decompressed(shipped)
             with zipfile.ZipFile(apex) as z:
                 try:
