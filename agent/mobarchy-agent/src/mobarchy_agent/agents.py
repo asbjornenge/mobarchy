@@ -327,8 +327,10 @@ async def _login(proc: asyncio.subprocess.Process, on_event: EventHandler, url_m
                     else next((w for w in line.split() if w.startswith(url_marker)), "")
                 if url:
                     await _emit(on_event, Event("url", url))
-            elif wants_code and "paste code" in line.lower():
-                await _emit(on_event, Event("code", "If the login page shows a code, paste it here."))
+                    # (Claude Code's "Paste code here if prompted > " has no newline: it never
+                    # comes as a line. Its login page shows the code to paste.)
+                    if wants_code:
+                        await _emit(on_event, Event("code", "If the login page shows a code, paste it here."))
         return await proc.wait()
 
     try:
