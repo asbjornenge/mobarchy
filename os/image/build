@@ -2,7 +2,7 @@
 # Build the Mobarchy aarch64 rootfs image (Arch Linux ARM + Mobarchy stack) for a device.
 #
 #   os/image/build --device <codename> --base <ArchLinuxARM-aarch64-latest.tar.gz> --out <dir>
-#                  --repo <Mobarchy package repository> [--repo-url URL]
+#                  --repo <Mobarchy package repository> [--repo-url URL [--repo-credentials FILE]]
 #                  [--size 8G] [--extra NAME=DIR ...]
 #
 # Runs pacman inside an arm64 container (needs qemu-user binfmt on the host). The
@@ -14,12 +14,15 @@
 # so its packages win (patched ones too), and packages-mobarchy.txt is installed from it.
 # --repo-url is where devices find that repository later (pacman -Syu); without it, the
 # image has no [mobarchy] section and takes Mobarchy updates only from new images.
+# --repo-credentials is a file with MOBARCHY_REPO_USER= and MOBARCHY_REPO_PASSWORD= (kept
+# outside the repo) for a repository behind basic auth: they go in the image's
+# /etc/pacman.d/mobarchy-server (root:wheel 640), not in pacman.conf.
 #
 # Access: ssh as "mob" with the key ~/.config/mobarchy/device_ed25519 (created on first
 # build, kept outside the repo).
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
-device="" base="" out="" repo="" repo_url="" size=8G extra=()
+device="" base="" out="" repo="" repo_url="" repo_auth="" size=8G extra=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --device) device="$2"; shift 2 ;;
@@ -28,6 +31,7 @@ while [ $# -gt 0 ]; do
         --size) size="$2"; shift 2 ;;
         --repo) repo="$(realpath "$2")"; shift 2 ;;
         --repo-url) repo_url="$2"; shift 2 ;;
+        --repo-credentials) repo_auth=$(. "$2" && echo "$MOBARCHY_REPO_USER:$MOBARCHY_REPO_PASSWORD"); shift 2 ;;
         --extra) extra+=(-v "$(realpath "${2#*=}"):/extra/${2%%=*}:ro"); shift 2 ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
@@ -48,7 +52,7 @@ pubkey_file="$HOME/.config/mobarchy/device_ed25519.pub"
 mkdir -p "$(dirname "$pubkey_file")"
 [ -f "$pubkey_file" ] || ssh-keygen -q -t ed25519 -N "" -C mobarchy-device -f "${pubkey_file%.pub}"
 docker run --platform linux/arm64 --name "$name" -e MOBARCHY_SSH_PUBKEY="$(cat "$pubkey_file")" \
-    -e REPO_URL="$repo_url" -v "$repo_root:/src:ro" -v "$repo:/extra/mobarchy-repo:ro" "${extra[@]}" \
+    -e REPO_URL="$repo_url" -e REPO_AUTH="$repo_auth" -v "$repo_root:/src:ro" -v "$repo:/extra/mobarchy-repo:ro" "${extra[@]}" \
     "$base_img" /bin/bash -euo pipefail -c '
     device='"$device"'
     pacman-key --init >/dev/null && pacman-key --populate archlinuxarm >/dev/null
@@ -64,10 +68,19 @@ docker run --platform linux/arm64 --name "$name" -e MOBARCHY_SSH_PUBKEY="$(cat "
     echo "installed from the Mobarchy repository: $(tr "\n" " " < /tmp/mobarchy-installed)"
     # Where the device finds the repository from now on (or no repository).
     python3 - <<EOP
-import os, re
+import grp, os, re
 c = open("/etc/pacman.conf").read()
 url = os.environ.get("REPO_URL", "")
+auth = os.environ.get("REPO_AUTH", "")
 section = f"[mobarchy]\nSigLevel = Optional TrustAll\nServer = {url}\n\n" if url else ""
+if url and auth:
+    # (the password in a file of its own, not in the world-readable pacman.conf)
+    scheme, rest = url.split("://", 1)
+    with open("/etc/pacman.d/mobarchy-server", "w") as f:
+        f.write(f"Server = {scheme}://{auth}@{rest}\n")
+    os.chmod("/etc/pacman.d/mobarchy-server", 0o640)
+    os.chown("/etc/pacman.d/mobarchy-server", 0, grp.getgrnam("wheel").gr_gid)
+    section = "[mobarchy]\nSigLevel = Optional TrustAll\nInclude = /etc/pacman.d/mobarchy-server\n\n"
 c = re.sub(r"\[mobarchy\]\n(?:[^\[\n].*\n)*\n?", section, c, count=1)
 open("/etc/pacman.conf", "w").write(c)
 EOP

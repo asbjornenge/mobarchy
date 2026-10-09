@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Publish Mobarchy's package repository (tools/repo-build's directory) to where phones get it:
+# a server's /srv/mobarchy-repo, served (internal, ZeroTier, with basic auth) at
+# https://repo.example.com/mobarchy/<arch>/ by the swarm stack mobarchy-repo
+# (a web server's stack).
+#
+#   tools/repo-publish --repo <dir>        e.g. <T7>/mobarchy/repo/aarch64
+#
+# Only packages and the database go (not makepkg's logs); what was removed here goes there too.
+set -euo pipefail
+repo=""
+while [ $# -gt 0 ]; do
+    case "$1" in --repo) repo="$(realpath "$2")"; shift 2 ;; *) echo "unknown argument: $1" >&2; exit 2 ;; esac
+done
+[ -n "$repo" ] && [ -f "$repo/mobarchy.db" ] || { echo "usage: $0 --repo <dir with mobarchy.db>" >&2; exit 2; }
+arch=$(basename "$repo")
+dest=${MOBARCHY_REPO_DEST:-host:/srv/mobarchy-repo}
+ssh "${dest%%:*}" "mkdir -p '${dest#*:}/$arch'"
+rsync -a --delete --copy-links --include='*.pkg.tar.zst' --include='*.pkg.tar.zst.sig' \
+    --include='mobarchy.db*' --include='mobarchy.files*' --exclude='*' "$repo/" "$dest/$arch/"
+echo "published $(ls "$repo"/*.pkg.tar.zst | wc -l) packages to $dest/$arch"
