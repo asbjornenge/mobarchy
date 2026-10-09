@@ -24,8 +24,11 @@ def test_best_icon_prefers_large_raster():
 
 def test_slug_and_entry():
     assert webapps.slug("Yr – været!") == "yr-v-ret"
-    entry = webapps.desktop_entry("Yr", "https://www.yr.no/", "/icons/yr.png")
-    assert "Exec=chromium --app=https://www.yr.no/" in entry and "Icon=/icons/yr.png" in entry
+    entry = webapps.desktop_entry("Yr", "https://www.yr.no/", "/icons/yr.png", "mobarchy-webapp-yr")
+    assert "Exec=mobarchy-browser --app=https://www.yr.no/ --app-id=mobarchy-webapp-yr" in entry
+    assert "StartupWMClass=mobarchy-webapp-yr" in entry and "Icon=/icons/yr.png" in entry
+    entry = webapps.desktop_entry("Yr", "https://www.yr.no/", "/icons/yr.png", "mobarchy-webapp-yr", "chromium")
+    assert "Exec=chromium --app=https://www.yr.no/" in entry and "StartupWMClass=chrome-www.yr.no__-Default" in entry
 
 
 def test_wm_class():

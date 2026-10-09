@@ -8,6 +8,7 @@ Item {
     property real textScale: 1
     property bool passwords          // 1Password is there
     signal logins()
+    signal addToHome()
     signal forward()
     signal reload()
     signal newTab()
@@ -47,6 +48,8 @@ Item {
                         onClicked: { menu.close(); menu.toggleDesktop() } }
             BarButton { width: 72; icon: "A−"; label: qsTr("Smaller"); onClicked: menu.textSmaller() }
             BarButton { width: 72; icon: "A+"; label: qsTr("Bigger"); onClicked: menu.textBigger() }
+            BarButton { width: 72; icon: "󰜚"; label: qsTr("Home screen")
+                        onClicked: { menu.close(); menu.addToHome() } }
             BarButton { width: 72; visible: menu.passwords; icon: "󰌋"; label: qsTr("1Password")
                         onClicked: { menu.close(); menu.logins() } }
             Item {

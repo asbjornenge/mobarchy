@@ -16,6 +16,7 @@ qt_add_qml_module(mobarchy-browser
     SOURCES src/onepassword.cpp src/onepassword.h src/themesource.cpp src/themesource.h
     QML_FILES
         qml/Main.qml
+        qml/WebApp.qml
         qml/Theme.qml
         qml/BottomBar.qml
         qml/AddressSheet.qml

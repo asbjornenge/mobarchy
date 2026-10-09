@@ -1,5 +1,7 @@
-"""Web apps on the home screen: a website opened as its own app (Chromium's app mode: its
-own window, no browser bar), with its name and icon from the site's web app manifest.
+"""Web apps on the home screen: a website opened as its own app (its own window, no browser
+bar), with its name and icon from the site's web app manifest. Mobarchy's browser runs them
+(mobarchy-browser --app: its own profile, the phone's user agent); Chromium's app mode is
+there for a site that needs it (browser="chromium").
 
 Each is a desktop entry in the user's applications directory, which the shell's app list
 watches; its icon goes next to it. (Chromium's own "Install app" makes the same kind of
@@ -8,8 +10,11 @@ entry, chrome-<id>-Default.desktop.)
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
+import shutil
+import sys
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
@@ -107,16 +112,24 @@ def wm_class(url: str) -> str:
     return "chrome-" + (f"{u.hostname}_{u.path or '/'}").replace("/", "_") + "-Default"
 
 
-def desktop_entry(name: str, url: str, icon: str) -> str:
+def desktop_entry(name: str, url: str, icon: str, key: str, browser: str = "mobarchy") -> str:
+    """Mobarchy's browser names the app's window by its entry (StartupWMClass = the key);
+    Chromium by the URL."""
+    if browser == "chromium":
+        exec_, wm = f"chromium --app={url}", wm_class(url)
+    else:
+        exec_, wm = f"mobarchy-browser --app={url} --app-id={key}", key
     return ("[Desktop Entry]\nType=Application\n"
             f"Name={name}\nComment=Web app: {url}\n"
-            f"Exec=chromium --app={url}\n"
-            f"Icon={icon}\nStartupWMClass={wm_class(url)}\nCategories=Network;WebApp;\n")
+            f"Exec={exec_}\n"
+            f"Icon={icon}\nStartupWMClass={wm}\nCategories=Network;WebApp;\n")
 
 
-def add(url: str, name: str = "", keep_url: bool = False) -> dict:
+def add(url: str, name: str = "", keep_url: bool = False, browser: str = "") -> dict:
     """keep_url: start at url, not where the site's manifest says (the store's curated
-    URLs: some manifests start at a sign-in page that only works with a redirect's state)."""
+    URLs: some manifests start at a sign-in page that only works with a redirect's state).
+    browser: "mobarchy" (default, where it is installed) or "chromium"."""
+    browser = browser or ("mobarchy" if shutil.which("mobarchy-browser") else "chromium")
     if not urllib.parse.urlparse(url).scheme:
         url = "https://" + url
     info = describe(url)
@@ -137,8 +150,8 @@ def add(url: str, name: str = "", keep_url: bool = False) -> dict:
         except OSError:
             pass
     APPS.mkdir(parents=True, exist_ok=True)
-    (APPS / f"{key}.desktop").write_text(desktop_entry(name, info["url"], icon))
-    return {"app_id": key, "name": name, "url": info["url"], "icon": icon}
+    (APPS / f"{key}.desktop").write_text(desktop_entry(name, info["url"], icon, key, browser))
+    return {"app_id": key, "name": name, "url": info["url"], "icon": icon, "browser": browser}
 
 
 def listed() -> list[dict]:
@@ -158,3 +171,29 @@ def remove(app_id: str) -> str:
     for icon in ICONS.glob(f"{app_id}.*"):
         icon.unlink()
     return f"removed {app_id}"
+
+
+def main() -> None:
+    """mobarchy-webapp add URL [--name NAME] [--chromium] | list | remove APP_ID: for the
+    browser's "Add to home screen"; the last line printed is for people (the name)."""
+    p = argparse.ArgumentParser(prog="mobarchy-webapp")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    a = sub.add_parser("add")
+    a.add_argument("url")
+    a.add_argument("--name", default="")
+    a.add_argument("--chromium", action="store_true")
+    sub.add_parser("list")
+    sub.add_parser("remove").add_argument("app_id")
+    args = p.parse_args()
+    try:
+        if args.cmd == "add":
+            r = add(args.url, args.name, browser="chromium" if args.chromium else "")
+            print(json.dumps(r))
+            print(r["name"])
+        elif args.cmd == "list":
+            print(json.dumps(listed()))
+        else:
+            print(remove(args.app_id))
+    except (OSError, ValueError) as e:
+        print(str(e))
+        sys.exit(1)

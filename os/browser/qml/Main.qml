@@ -220,6 +220,9 @@ Window {
     }
     Connections {
         target: BrowserBus
+        function onWebAppAdded(ok, message) {
+            toast.show(ok ? qsTr("On the home screen: %1").arg(message) : qsTr("Could not add it: %1").arg(message))
+        }
         function onOpenRequested(url) {
             win.newTab(url)
             win.raise()
@@ -309,6 +312,12 @@ Window {
         }
         passwords: loginSheet.available
         onLogins: loginSheet.open(bar.host)
+        onAddToHome: {
+            if (!win.current || !win.current.url.toString().startsWith("http"))
+                return
+            toast.show(qsTr("Adding to the home screen …"))
+            BrowserBus.addWebApp(win.current.url.toString(), "")
+        }
         onToggleDesktop: {
             win.desktopSite = !win.desktopSite
             win.applyAgent()

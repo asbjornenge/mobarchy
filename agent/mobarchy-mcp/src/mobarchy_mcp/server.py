@@ -510,11 +510,13 @@ def store_remove(id: str) -> dict:
 
 
 @tool(Risk.ACT, "Add a web app to the home screen")
-def add_web_app(url: str, name: str = "") -> dict:
-    """Put a website on the home screen as its own app (own window, no browser bar), with
-    the name and icon from its web app manifest. name overrides the site's name."""
+def add_web_app(url: str, name: str = "", chromium: bool = False) -> dict:
+    """Put a website on the home screen as its own app (own window, no browser bar, the
+    phone's site), with the name and icon from its web app manifest. name overrides the
+    site's name. It runs in Mobarchy's browser; chromium=true runs it in Chromium instead
+    (for a site Mobarchy's browser can't play or show)."""
     try:
-        return webapps.add(url, name)
+        return webapps.add(url, name, browser="chromium" if chromium else "")
     except (OSError, ValueError) as e:
         raise ToolError(f"could not add {url}: {e}") from e
 

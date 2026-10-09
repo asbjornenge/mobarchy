@@ -12,6 +12,7 @@ dependencies = [
 mobarchy-mcp = "mobarchy_mcp.server:main"
 mobarchy-mcp-call = "mobarchy_mcp.client:main"
 mobarchy-store = "mobarchy_mcp.store:main"
+mobarchy-webapp = "mobarchy_mcp.webapps:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

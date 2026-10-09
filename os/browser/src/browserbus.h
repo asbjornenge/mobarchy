@@ -23,6 +23,8 @@ public:
     // The URLs given on the command line, for the first window.
     Q_INVOKABLE QStringList startUrls() const { return m_start; }
     void setStartUrls(const QStringList &urls) { m_start = urls; }
+    // Puts the page on the home screen as a web app (mobarchy-webapp add): webAppAdded after.
+    Q_INVOKABLE void addWebApp(const QString &url, const QString &name);
 
 public slots:
     // Opens the URL in a new tab and shows the browser.
@@ -36,6 +38,7 @@ public slots:
 signals:
     void openRequested(const QString &url);
     void showRequested();
+    void webAppAdded(bool ok, const QString &message);
 
 private:
     QStringList m_titles, m_urls, m_start;
