@@ -1,5 +1,6 @@
 #include "apps.h"
 
+#include <QDir>
 #include <QDirIterator>
 #include <QFile>
 #include <QLocale>
@@ -196,4 +197,32 @@ QString AppModel::nameForAppId(const QString &appId) const
 {
     const DesktopEntry *e = forAppId(appId);
     return e ? e->name : appId;
+}
+
+bool AppModel::isWebApp(const QString &appId) const
+{
+    const QString id = appId.endsWith(QLatin1String(".desktop")) ? appId.chopped(8) : appId;
+    if (!id.startsWith(QLatin1String("mobarchy-webapp-"))
+        && !(id.startsWith(QLatin1String("chrome-")) && id.endsWith(QLatin1String("-Default"))))
+        return false;
+    const DesktopEntry *e = forAppId(id);
+    const QString home = QStandardPaths::writableLocation(QStandardPaths::ApplicationsLocation);
+    return e && e->path.startsWith(home + QLatin1Char('/'));
+}
+
+bool AppModel::removeWebApp(const QString &appId)
+{
+    if (!isWebApp(appId))
+        return false;
+    const QString id = appId.endsWith(QLatin1String(".desktop")) ? appId.chopped(8) : appId;
+    const DesktopEntry *e = forAppId(id);
+    const QString path = e->path;
+    const QString data = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+    // the icon mobarchy-webapp saved for it, and the profile Mobarchy's browser keeps for it
+    const QDir icons(data + QStringLiteral("/mobarchy/webapp-icons"));
+    for (const QString &icon : icons.entryList({id + QStringLiteral(".*")}, QDir::Files))
+        QFile::remove(icons.filePath(icon));
+    if (id.startsWith(QLatin1String("mobarchy-webapp-")))
+        QDir(data + QStringLiteral("/mobarchy/mobarchy-browser/QtWebEngine/app-") + id).removeRecursively();
+    return QFile::remove(path);   // (the watcher reloads the list)
 }

@@ -227,11 +227,12 @@ Sheet {
             }
         }
     
-        // (offerNewWindow)
+        // (offerNewWindow) A new window; for a web app, removing it too.
         Rectangle {
             id: newWindow
             property string appId
             property string name
+            readonly property bool webApp: appId !== "" && drawer.apps.isWebApp(appId)
             visible: false
             z: 10
             width: newRow.implicitWidth + 36; height: 52; radius: 26
@@ -253,6 +254,31 @@ Sheet {
                     newWindow.visible = false
                     drawer.apps.launch(newWindow.appId)
                     drawer.close()
+                }
+            }
+            Rectangle {
+                visible: newWindow.webApp
+                anchors { top: parent.bottom; topMargin: 8; horizontalCenter: parent.horizontalCenter }
+                width: removeRow.implicitWidth + 36; height: 52; radius: 26
+                color: removeTap.pressed ? Theme.line : Theme.panel
+                border.color: Theme.red
+                Row {
+                    id: removeRow
+                    anchors.centerIn: parent
+                    spacing: 10
+                    Text { text: "󰆴"; color: Theme.red; font { family: Theme.font; pixelSize: 18 }
+                           anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: qsTr("Remove %1").arg(newWindow.name); color: Theme.fg
+                           font { family: Theme.font; pixelSize: 14 }
+                           anchors.verticalCenter: parent.verticalCenter }
+                }
+                MouseArea {
+                    id: removeTap
+                    anchors.fill: parent
+                    onClicked: {
+                        newWindow.visible = false
+                        drawer.apps.removeWebApp(newWindow.appId)
+                    }
                 }
             }
         }

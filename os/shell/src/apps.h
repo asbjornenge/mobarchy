@@ -30,6 +30,11 @@ public:
     // StartupWMClass.
     Q_INVOKABLE QStringList windowIds(const QString &appId) const;
     Q_INVOKABLE QString nameForAppId(const QString &appId) const;
+    // A web app put on the home screen (Mobarchy's browser's or Chromium's "Add to home
+    // screen", the agent's add_web_app): one the owner can remove.
+    Q_INVOKABLE bool isWebApp(const QString &appId) const;
+    // Removes it: its entry, its icon, and (Mobarchy's browser's) its own profile.
+    Q_INVOKABLE bool removeWebApp(const QString &appId);
 
 private:
     void reload();
