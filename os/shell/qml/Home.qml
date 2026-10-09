@@ -78,6 +78,10 @@ Window {
             if ((kind === "done" && !text) || kind === "code")
                 return
             feed.append({ who: kind === "text" ? "mobarchy" : kind, body: text })
+            // A login page (setting up an agent): the browser opens it at once; the link
+            // stays in the chat, to open it again.
+            if (kind === "url")
+                home.agent.openUrl(text)
         }
     }
 
@@ -344,7 +348,7 @@ Window {
                 TapHandler { onTapped: msg.select(card.prefix.length, msg.length) }
             }
 
-            // A link from the agent (e.g. the login page if the browser did not open).
+            // A link from the agent (the login page, which also opened by itself).
             MouseArea {
                 anchors.fill: parent
                 visible: card.who === "url"
