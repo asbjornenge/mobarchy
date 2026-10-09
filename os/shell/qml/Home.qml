@@ -471,6 +471,19 @@ Window {
                 font { family: Theme.font; pixelSize: 12 }
             }
         }
+        // Log out of the account (to log in as someone else, or to try the login again)
+        Text {
+            visible: agentCard.info.ready && (agentCard.info.id === "claude" || agentCard.info.id === "openai")
+            anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
+            text: qsTr("Log out")
+            color: Theme.muted
+            font { family: Theme.font; pixelSize: 12; underline: true }
+            MouseArea {
+                anchors { fill: parent; margins: -12 }
+                enabled: !home.agent.running
+                onClicked: home.agent.logout(agentCard.info.id)
+            }
+        }
     }
 
     // First run: in the middle of the screen. Later: as a list under the chip.

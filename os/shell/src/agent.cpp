@@ -51,6 +51,16 @@ void Agent::start(const QStringList &args)
     m_proc.start(program(), args);
 }
 
+void Agent::logout(const QString &id)
+{
+    auto *proc = new QProcess(this);
+    connect(proc, &QProcess::finished, this, [this, proc] {
+        proc->deleteLater();
+        refresh();
+    });
+    proc->start(program(), {QStringLiteral("logout"), id});
+}
+
 void Agent::choose(const QString &id)
 {
     if (running())

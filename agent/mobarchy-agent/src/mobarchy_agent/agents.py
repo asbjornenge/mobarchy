@@ -524,6 +524,24 @@ async def statuses(config: Config) -> list[Status]:
     ]
 
 
+async def logout(agent: str, on_event: EventHandler) -> bool:
+    """Log out of a cloud agent's account on the phone (Claude Code's or Codex's own login)."""
+    exe = {"claude": claude_bin, "openai": codex_bin}.get(agent)
+    path = exe() if exe else None
+    if not path:
+        await _emit(on_event, Event("error", f"There is no login to leave for {agent}."))
+        return False
+    args = ["auth", "logout"] if agent == "claude" else ["logout"]
+    proc = await asyncio.create_subprocess_exec(path, *args, stdout=asyncio.subprocess.PIPE,
+                                                stderr=asyncio.subprocess.STDOUT)
+    out, _ = await proc.communicate()
+    if proc.returncode != 0:
+        await _emit(on_event, Event("error", out.decode(errors="replace").strip() or "logout failed"))
+        return False
+    await _emit(on_event, Event("done", "Logged out."))
+    return True
+
+
 async def setup(agent: str, on_event: EventHandler) -> bool:
     if agent == "claude":
         ok = await claude_setup(on_event)

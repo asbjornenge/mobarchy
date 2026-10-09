@@ -40,6 +40,8 @@ public:
     Q_INVOKABLE void refresh();
     // Make this agent the active one; if it is not ready, set it up (install, log in).
     Q_INVOKABLE void choose(const QString &id);
+    // log out of a cloud agent's account (Claude Code's, Codex's)
+    Q_INVOKABLE void logout(const QString &id);
     // Conversations (kept by mobarchy-agent, whichever agent answered).
     Q_INVOKABLE void newConversation();
     Q_INVOKABLE void openConversation(const QString &id);

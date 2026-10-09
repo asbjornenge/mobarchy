@@ -74,6 +74,16 @@ def cmd_use(argv: list[str]) -> int:
     return 0
 
 
+def cmd_logout(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(prog="mobarchy-agent logout")
+    p.add_argument("agent", choices=["claude", "openai"])
+    p.add_argument("--json", action="store_true")
+    args = p.parse_args(argv)
+    show, failed = _printer(args.json)
+    ok = asyncio.run(agents.logout(args.agent, show))
+    return 0 if ok and not failed() else 1
+
+
 def cmd_setup(argv: list[str]) -> int:
     p = argparse.ArgumentParser(prog="mobarchy-agent setup")
     p.add_argument("agent", choices=["claude", "openai", "local", "api", "voice", "talk"])
@@ -187,7 +197,7 @@ def cmd_talk(argv: list[str]) -> int:
 
 def main() -> None:
     argv = sys.argv[1:]
-    commands = {"agents": cmd_agents, "use": cmd_use, "setup": cmd_setup,
+    commands = {"agents": cmd_agents, "use": cmd_use, "setup": cmd_setup, "logout": cmd_logout,
                 "conversations": cmd_conversations, "conversation": cmd_conversation,
                 "transcribe": cmd_transcribe, "talk": cmd_talk}
     if argv and argv[0] in commands:
