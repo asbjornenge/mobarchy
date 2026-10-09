@@ -168,9 +168,6 @@ def apex_manifest(path):
     return name, version
 
 
-CAPEX = {"com.google.android.tethering"}
-
-
 def decompressed(apex):
     """A compressed APEX (a zip holding original_apex) as its decompressed copy, made once
     under /var/lib/mobarchy/android/apex, as apexd keeps them in /data/apex/decompressed."""
@@ -198,13 +195,14 @@ def mount_apexes():
     a fresh /apex (for apexd to fill); our init.rc binds /mnt/apex onto it."""
     infos = []
     for part in ("system", "system_ext", "vendor", "product"):
-        shipped_ones = glob.glob(str(ROOT / part / "apex" / "*.apex"))
-        # Compressed ones (.capex) only where the container needs their libraries: since
-        # cp3a, libandroid.so (the camera and sensor bridges link it) needs tethering's
-        # libcom.android.tethering.connectivity_native.so. (Their init scripts aren't read
-        # here: no apexd, no perform_apex_config.)
-        shipped_ones += [c for c in glob.glob(str(ROOT / part / "apex" / "*.capex"))
-                         if Path(c).name.split(".capex")[0] in CAPEX]
+        # Compressed ones (.capex) too, as apexd activates them: since cp3a most modules
+        # are compressed, among them tethering (libandroid.so needs its
+        # libcom.android.tethering.connectivity_native.so: the camera and sensor bridges),
+        # media.swcodec (the software codecs, which cameraserver's codec list waits for) and
+        # neuralnetworks (modem_ml_svc_sit). Their init scripts aren't read here (no apexd,
+        # no perform_apex_config): nothing starts that our init.rc doesn't start.
+        shipped_ones = glob.glob(str(ROOT / part / "apex" / "*.apex")) \
+            + glob.glob(str(ROOT / part / "apex" / "*.capex"))
         for shipped in sorted(shipped_ones):
             apex = decompressed(shipped)
             with zipfile.ZipFile(apex) as z:
