@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.21)
 # C: the protocol code from wayland-scanner.
 project(mobarchy-shell VERSION 0.1 LANGUAGES C CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Gui GuiPrivate Quick DBus WaylandClient Multimedia Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Gui GuiPrivate Quick DBus Network WaylandClient Multimedia Test)
 find_package(PolkitQt6-1 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PAM REQUIRED IMPORTED_TARGET pam)
@@ -55,6 +55,7 @@ qt_add_qml_module(mobarchy-shell
         src/wifi.cpp src/wifi.h
         src/systemstatus.cpp src/systemstatus.h
         src/talk.cpp src/talk.h
+        src/portal.cpp src/portal.h
         src/themesource.cpp src/themesource.h
         src/toplevels.cpp src/toplevels.h
         src/touchguard.cpp src/touchguard.h
@@ -104,7 +105,7 @@ qt6_generate_wayland_protocol_client_sources(mobarchy-shell
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-data-control-unstable-v1.xml)
 target_include_directories(mobarchy-shell PRIVATE src)
 target_link_libraries(mobarchy-shell PRIVATE
-    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::WaylandClient Qt6::Multimedia
+    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::Network Qt6::WaylandClient Qt6::Multimedia
     PolkitQt6-1::Agent
     PkgConfig::PIPEWIRE PkgConfig::PULSE PkgConfig::PAM PkgConfig::XCRYPT PkgConfig::XKBCOMMON)
 
@@ -134,3 +135,6 @@ add_test(NAME icontheme COMMAND tst_icontheme)
 # qmllint over the module: missing properties, wrong types, unqualified access.
 add_test(NAME qmllint COMMAND ${CMAKE_COMMAND} --build ${CMAKE_BINARY_DIR} --target mobarchy-shell_qmllint)
 set_tests_properties(qmllint PROPERTIES FAIL_REGULAR_EXPRESSION "Warning:;Error:")
+qt_add_executable(tst_portal tests/tst_portal.cpp src/portal.cpp src/portal.h)
+target_link_libraries(tst_portal PRIVATE Qt6::Network Qt6::Qml Qt6::Test)
+add_test(NAME portal COMMAND tst_portal)

@@ -43,6 +43,43 @@ QtObject {
     readonly property Power power: Power {}
     readonly property Device device: Device {}
     readonly property Wifi wifi: Wifi {}
+    // A Wi-Fi network's login page (a captive portal: cafés, airports): the browser opens it
+    // (after the unlock, if locked), and a notification does too until signed in.
+    property int portalNote: 0
+    property bool portalPending: false
+    readonly property Portal portal: Portal {
+        network: shell.wifi.state === "COMPLETED" ? shell.wifi.ssid : ""
+        onPortalChanged: {
+            if (portal) {
+                shell.portalNote = shell.notifications.post(qsTr("Sign in to %1").arg(network),
+                        qsTr("This Wi-Fi network wants you to sign in. Tap to open its page."))
+                shell.portalPending = shell.lockScreen.shown
+                if (!shell.portalPending)
+                    Qt.openUrlExternally(url)
+            } else {
+                if (shell.portalNote)
+                    shell.notifications.dismiss(shell.portalNote)
+                shell.portalNote = 0
+                shell.portalPending = false
+            }
+        }
+    }
+    readonly property Connections portalTapped: Connections {
+        target: shell.notifications
+        function onInvoked(id, action) {
+            if (id === shell.portalNote && shell.portal.portal)
+                Qt.openUrlExternally(shell.portal.url)
+        }
+    }
+    readonly property Connections portalUnlock: Connections {
+        target: shell.lockScreen
+        function onShownChanged() {
+            if (!shell.lockScreen.shown && shell.portalPending) {
+                shell.portalPending = false
+                Qt.openUrlExternally(shell.portal.url)
+            }
+        }
+    }
     readonly property Rfkill rfkill: Rfkill {}
     readonly property Bluetooth bluetooth: Bluetooth {}
     readonly property MediaPlayers media: MediaPlayers {}

@@ -135,8 +135,14 @@ void Notifications::invoke(uint id, const QString &action)
     if (row < 0)
         return;
     emit m_adaptor->ActionInvoked(id, action);
+    emit invoked(id, action);
     if (!m_items.at(row).resident)
         remove(id, Dismissed);
+}
+
+uint Notifications::post(const QString &summary, const QString &body, const QString &icon)
+{
+    return notify(QStringLiteral("Mobarchy"), 0, icon, summary, body, {QStringLiteral("default"), QString()}, {}, -1);
 }
 
 void Notifications::clear()

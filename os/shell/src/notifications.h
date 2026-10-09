@@ -34,6 +34,8 @@ public:
     Q_INVOKABLE void dismiss(uint id);
     Q_INVOKABLE void invoke(uint id, const QString &action);
     Q_INVOKABLE void clear();
+    // The shell's own notification (no app behind it): invoked() says when it is tapped.
+    Q_INVOKABLE uint post(const QString &summary, const QString &body, const QString &icon = {});
     // For banners: the notification with this id, as a map (empty if gone).
     Q_INVOKABLE QVariantMap get(uint id) const;
 
@@ -46,6 +48,8 @@ signals:
     void countChanged();
     // A new or updated notification, for the banner.
     void posted(uint id);
+    // A notification's action was invoked (tapped: "default").
+    void invoked(uint id, const QString &action);
 
 private:
     struct Item {
