@@ -56,6 +56,7 @@ qt_add_qml_module(mobarchy-shell
         src/systemstatus.cpp src/systemstatus.h
         src/talk.cpp src/talk.h
         src/portal.cpp src/portal.h
+        src/windowcapture.cpp src/windowcapture.h
         src/themesource.cpp src/themesource.h
         src/toplevels.cpp src/toplevels.h
         src/touchguard.cpp src/touchguard.h
@@ -84,6 +85,7 @@ qt_add_qml_module(mobarchy-shell
         qml/AuthSheet.qml
         qml/ThemesApp.qml
         qml/TalkOverlay.qml
+        qml/AppSwitcher.qml
         qml/FriggSettings.qml
         qml/Home.qml
         qml/Store.qml
@@ -102,7 +104,10 @@ qt6_generate_wayland_protocol_client_sources(mobarchy-shell
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-idle-notify-v1.xml
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/input-method-unstable-v2.xml
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/virtual-keyboard-unstable-v1.xml
-        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-data-control-unstable-v1.xml)
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/wlr-data-control-unstable-v1.xml
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-foreign-toplevel-list-v1.xml
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-image-capture-source-v1.xml
+        ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-image-copy-capture-v1.xml)
 target_include_directories(mobarchy-shell PRIVATE src)
 target_link_libraries(mobarchy-shell PRIVATE
     core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::Network Qt6::WaylandClient Qt6::Multimedia

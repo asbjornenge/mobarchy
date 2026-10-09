@@ -487,6 +487,8 @@ def cmd_swipe(args) -> None:
         y = round(args.y1 + (args.y2 - args.y1) * t)
         time.sleep(args.duration / 1000 / steps)
         send_touch(q, "move", x, y, tid)
+    if args.hold:
+        time.sleep(args.hold / 1000)   # (the finger rests before it lifts: swipe up and hold)
     send_touch(q, "up", args.x2, args.y2, tid)
     q.close()
 
@@ -562,6 +564,7 @@ def main() -> None:
     for a in ("x1", "y1", "x2", "y2"):
         s.add_argument(a, type=int)
     s.add_argument("--duration", type=int, default=300, help="milliseconds")
+    s.add_argument("--hold", type=int, default=0, help="milliseconds at the end before lifting")
     s.set_defaults(func=cmd_swipe)
 
     s = sub.add_parser("key", help="press a key combo by QEMU qcode (e.g. meta_l-ret)")

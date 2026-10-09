@@ -188,6 +188,7 @@ QtObject {
 
     function goHome() {
         drawer.close()
+        switcher.close()
         quick.close()
         keyboard.visible = false
         if (!home.visible)
@@ -293,8 +294,14 @@ QtObject {
         inset: shell.device.inset(shell.inUse, "right", shell.rotation.turns)
     }
     // (the bottom inset belongs to the edge: a swipe can start on it)
+    readonly property AppSwitcher switcher: AppSwitcher {
+        toplevels: shell.toplevels
+        apps: shell.apps
+        insetBottom: shell.edge.inset
+    }
     readonly property Edge edge: Edge {
         drawer: shell.drawer
+        switcher: shell.switcher
         keyboard: shell.keyboard
         inset: shell.device.inset(shell.inUse, "bottom", shell.rotation.turns)
         onHome: shell.goHome()

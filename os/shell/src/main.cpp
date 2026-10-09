@@ -4,6 +4,7 @@
 //   mobarchy-shell --camera   the camera (ADR 0018), an app of its own
 //   mobarchy-shell --themes   the themes (ADR 0025), an app of its own
 #include "iconprovider.h"
+#include "windowcapture.h"
 
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
@@ -37,6 +38,7 @@ int main(int argc, char *argv[])
     app.setQuitOnLastWindowClosed(own != nullptr);
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("windows"), new WindowImages);
     engine.addImageProvider(QStringLiteral("icon"), new IconProvider(qEnvironmentVariable(
         "MOBARCHY_ICON_THEME", QStringLiteral("Adwaita"))));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app,
