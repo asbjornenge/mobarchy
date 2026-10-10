@@ -199,6 +199,10 @@ LayerWindow {
             // Where a card's left edge is on the screen, q steps to the left of the middle
             // (negative: to the right). The view lays them out evenly; each is moved there.
             readonly property real middleLeft: width * 0.29
+            // Further back, smaller: a carousel, the older ones behind (as iOS)
+            function sizeAt(q) {
+                return 1 - 0.07 * Math.max(0, Math.min(3, q))
+            }
             function leftEdge(q) {
                 if (q <= 0)
                     return middleLeft - q * width * 0.60   // the next: just in sight on the right
@@ -232,8 +236,9 @@ LayerWindow {
                 // How far the card is to the left of the middle, in steps (the view is
                 // mirrored: its x runs right to left on the screen).
                 readonly property real q: (x + width / 2 - row.contentX - row.width / 2) / row.step
-                offset: row.leftEdge(q) - (row.width / 2 - q * row.step - width / 2)
+                // (smaller the further back: left edge where leftEdge() says, at that size)
                 depth: q
+                offset: row.leftEdge(q) + width * row.sizeAt(q) / 2 - (row.width / 2 - q * row.step)
             }
             // "Close all": to the left of the oldest, once that one is in the middle
             footer: Item {
@@ -363,6 +368,7 @@ LayerWindow {
         Item {
             id: body
             width: card.width; height: card.height
+            scale: card.slides ? 1 - 0.07 * Math.max(0, Math.min(3, card.depth)) : 1
             x: card.offset + (card.slides && card.index > 0 ? -(1 - switcher.openness) * switcher.width * 0.8 : 0)
             opacity: 1 - Math.min(1, Math.max(0, -y / (card.height * 0.6)))
 
@@ -425,6 +431,15 @@ LayerWindow {
                     sourceSize: Qt.size(192, 192)
                     source: "image://icon/" + switcher.apps.iconForAppId(card.appId)
                 }
+            }
+            // further back, darker (over the picture, not in its layer: that would be drawn
+            // again for every step)
+            Rectangle {
+                anchors.fill: frame
+                radius: frame.radius
+                color: "black"
+                visible: opacity > 0
+                opacity: 0.18 * Math.max(0, Math.min(2, card.depth))
             }
 
             DragHandler {
