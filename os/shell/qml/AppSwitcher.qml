@@ -36,6 +36,12 @@ LayerWindow {
     property real openness: 0
     property bool following: false
     property real finger: 0       // px the finger is above the bottom edge
+    // While the finger holds it, the cards peek in from the left (the first a little more as
+    // the finger goes up); let go, they glide into place, the first in the middle.
+    // (how far off to the left, 0..1 of a peek: a fraction, as the window may not have its
+    // width yet when the gesture begins)
+    property real away: 0
+    readonly property real peek: width * 0.62
 
     // --- the gesture (Edge.qml) ----------------------------------------------------------
     function begin(distance) {
@@ -43,6 +49,7 @@ LayerWindow {
         capture.captureAll()
         following = true
         shown = true
+        away = 1
         toFront()
         haptics.click()
         follow(distance)
@@ -50,6 +57,7 @@ LayerWindow {
     function follow(distance) {
         finger = distance
         openness = Math.max(0, Math.min(1, (distance - 40) / 220))
+        away = 1 - 0.3 * openness
     }
     // let go: up (or a flick up) stays, back down (or a flick down) cancels
     function release(velocity) {
@@ -68,10 +76,16 @@ LayerWindow {
         }
         settle.to = 1
         settle.restart()
+        glide.to = 0
+        glide.restart()
     }
     function close() {
         settle.to = 0
         settle.restart()
+        if (following || away !== 0) {
+            glide.to = 1
+            glide.restart()
+        }
     }
     // the app in use in the middle (once the surface has its size)
     function toFront() {
@@ -85,6 +99,10 @@ LayerWindow {
         close()
     }
 
+    NumberAnimation {
+        id: glide
+        target: switcher; property: "away"; duration: 320; easing.type: Easing.OutCubic
+    }
     NumberAnimation {
         id: settle
         target: switcher; property: "openness"; duration: 220; easing.type: Easing.OutCubic
@@ -122,8 +140,10 @@ LayerWindow {
         ListView {
             id: row
             visible: !switcher.wide
-            anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
-                      verticalCenterOffset: -20 }
+            // (anchored on the left with a margin, so the view itself moves)
+            anchors { left: parent.left; verticalCenter: parent.verticalCenter
+                      verticalCenterOffset: -20; leftMargin: -switcher.away * switcher.peek }
+            width: parent.width
             height: parent.height * 0.70
             orientation: ListView.Horizontal
             // Newest on the right: the view mirrored (and each card mirrored back). (A
