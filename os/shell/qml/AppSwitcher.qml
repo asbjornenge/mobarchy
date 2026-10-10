@@ -43,7 +43,7 @@ LayerWindow {
     // (how far off to the left, 0..1, 1 out of sight: a fraction, as the window may not have
     // its width yet when the gesture begins)
     property real away: 0
-    readonly property real peek: width * 0.9
+    readonly property real peek: width
     // (while the finger holds it, it eases after the finger, so it slides in rather than
     // jumping to where the finger already is)
     Behavior on away {
@@ -178,8 +178,9 @@ LayerWindow {
             font { family: Theme.font; pixelSize: 16 }
         }
 
-        // The cards, newest on the right (on top), older ones to the left, each half over
-        // the next. "Close all" after the oldest.
+        // The cards, newest on the right (on top), the one in use a little right of the
+        // middle, older ones to the left, stacked closer the older they are (a few in
+        // sight). "Close all" after the oldest.
         ListView {
             id: row
             visible: !switcher.wide
@@ -192,9 +193,21 @@ LayerWindow {
             // Newest on the right: the view mirrored (and each card mirrored back). (A
             // right-to-left ListView doesn't keep its margins at the start.)
             transform: Scale { origin.x: row.width / 2; xScale: -1 }
-            readonly property real cardWidth: switcher.width * 0.70
-            spacing: -cardWidth * 0.22
+            readonly property real cardWidth: switcher.width * 0.62
+            spacing: -cardWidth * 0.25
             readonly property real step: cardWidth + spacing
+            // Where a card's left edge is on the screen, q steps to the left of the middle
+            // (negative: to the right). The view lays them out evenly; each is moved there.
+            readonly property real middleLeft: width * 0.29
+            function leftEdge(q) {
+                if (q <= 0)
+                    return middleLeft - q * width * 0.60   // the next: just in sight on the right
+                if (q <= 1)
+                    return middleLeft + (width * 0.12 - middleLeft) * q
+                if (q <= 2)
+                    return width * (0.12 - 0.08 * (q - 1))
+                return width * (0.04 - 0.04 * (q - 2))     // then under the one before
+            }
             leftMargin: (width - cardWidth) / 2
             rightMargin: (width - cardWidth) / 2
             snapMode: ListView.SnapToItem
@@ -206,6 +219,9 @@ LayerWindow {
             rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             flickDeceleration: Theme.flickDeceleration
             cacheBuffer: cardWidth * 2
+            // (the stacked ones are outside where the view would lay them: shown all the same)
+            displayMarginBeginning: width
+            displayMarginEnd: width
             model: switcher.toplevels
             delegate: Card {
                 width: row.cardWidth
@@ -213,22 +229,28 @@ LayerWindow {
                 z: -index
                 slides: true
                 transform: Scale { origin.x: row.cardWidth / 2; xScale: -1 }
-                // The one in the middle stands out: the next (newer, over it) moves aside,
-                // the ones before it (under it) close up. From how far the card is from the
-                // middle, in steps; on the screen, + is to the right (the view is mirrored).
-                readonly property real place: -(x + width / 2 - row.contentX - row.width / 2) / row.step
-                offset: place > 0 ? row.cardWidth * 0.18 * Math.min(1, place)
-                                  : -place * row.step * 0.25
+                // How far the card is to the left of the middle, in steps (the view is
+                // mirrored: its x runs right to left on the screen).
+                readonly property real q: (x + width / 2 - row.contentX - row.width / 2) / row.step
+                offset: row.leftEdge(q) - (row.width / 2 - q * row.step - width / 2)
+                depth: q
             }
+            // "Close all": to the left of the oldest, once that one is in the middle
             footer: Item {
-                width: closeAll.width + 60 - row.spacing
+                id: footer
+                width: 1
                 height: row.height
                 z: -1000
-                CloseAll {
-                    id: closeAll
+                // (as the cards: steps to the left of the middle, and the screen's x)
+                readonly property real q: (x - row.contentX - row.width / 2) / row.step
+                readonly property real seen: row.width / 2 - q * row.step
+                readonly property real wanted: row.middleLeft / 2 - Math.max(0, q - 1) * row.width * 0.5
+                opacity: Math.max(0, Math.min(1, (1.8 - q) / 0.8))
+                transform: Translate { x: footer.seen - footer.wanted }
+                CloseAllRound {
+                    id: closeRound
                     anchors.centerIn: parent
-                    anchors.horizontalCenterOffset: -row.spacing / 2
-                    transform: Scale { origin.x: closeAll.width / 2; xScale: -1 }
+                    transform: Scale { origin.x: closeRound.width / 2; xScale: -1 }
                 }
             }
         }
@@ -292,6 +314,36 @@ LayerWindow {
         }
     }
 
+    // (the same, small: in the strip left of the cards)
+    component CloseAllRound: Column {
+        spacing: 6
+        Rectangle {
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 52; height: 52; radius: 26
+            color: roundTap.pressed ? Theme.line : Theme.panel
+            border.color: Theme.line
+            Text {
+                anchors.centerIn: parent
+                text: "󰅙"; color: Theme.fg
+                font { family: Theme.font; pixelSize: 22 }
+            }
+            MouseArea {
+                id: roundTap
+                anchors { fill: parent; margins: -8 }
+                onClicked: {
+                    for (let i = switcher.toplevels.count - 1; i >= 0; i--)
+                        switcher.toplevels.close(i)
+                    switcher.close()
+                }
+            }
+        }
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: qsTr("Close all"); color: Theme.muted
+            font { family: Theme.font; pixelSize: 11 }
+        }
+    }
+
     // One open window: its app above a picture of it. Tap: go to it; up: close it.
     component Card: Item {
         id: card
@@ -304,8 +356,10 @@ LayerWindow {
 
         // the apps before the one in use come in from the left as the switcher comes up
         property bool slides: false
-        // (px to the right, on the screen: the row's spread)
+        // (px to the right, on the screen: the row's spread; and how far under the middle
+        // one it is, in steps: its name goes, then its icon, where the next one is too close)
         property real offset: 0
+        property real depth: 0
         Item {
             id: body
             width: card.width; height: card.height
@@ -319,6 +373,7 @@ LayerWindow {
                 spacing: 10
                 Image {
                     anchors.verticalCenter: parent.verticalCenter
+                    opacity: 1 - Math.max(0, Math.min(1, card.depth - 1.8))
                     width: 26; height: 26
                     sourceSize: Qt.size(52, 52)
                     asynchronous: true
@@ -326,6 +381,7 @@ LayerWindow {
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
+                    opacity: 1 - Math.max(0, Math.min(1, (card.depth - 0.3) / 0.4))
                     width: body.width * 0.55
                     text: switcher.apps.nameForAppId(card.appId) || card.title || card.appId
                     elide: Text.ElideRight
