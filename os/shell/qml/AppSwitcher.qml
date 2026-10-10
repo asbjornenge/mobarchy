@@ -145,6 +145,7 @@ LayerWindow {
                 width: row.cardWidth
                 height: row.height
                 z: -index
+                slides: true
                 transform: Scale { origin.x: row.cardWidth / 2; xScale: -1 }
             }
             footer: Item {
@@ -229,9 +230,12 @@ LayerWindow {
         readonly property string picture: "image://windows/" + encodeURIComponent(appId) + "/"
                                           + encodeURIComponent(title) + "?" + capture.generation
 
+        // the apps before the one in use come in from the left as the switcher comes up
+        property bool slides: false
         Item {
             id: body
             width: card.width; height: card.height
+            x: card.slides && card.index > 0 ? -(1 - switcher.openness) * switcher.width * 0.8 : 0
             opacity: 1 - Math.min(1, Math.max(0, -y / (card.height * 0.6)))
 
             Row {
@@ -277,14 +281,16 @@ LayerWindow {
                     anchors.fill: parent
                     fillMode: Image.PreserveAspectCrop
                     verticalAlignment: Image.AlignTop
-                    asynchronous: true
+                    // (in memory already: at once, so a newer picture replaces the last one
+                    // without a blank in between)
+                    asynchronous: false
                     cache: false
                     source: card.picture
                 }
-                // no picture yet (or none to be had): the app's icon
+                // no pictures to be had (a compositor without the protocols): the app's icon
                 Image {
                     anchors.centerIn: parent
-                    visible: shot.status !== Image.Ready || shot.implicitWidth <= 1
+                    visible: !capture.supported
                     width: 96; height: 96
                     sourceSize: Qt.size(192, 192)
                     source: "image://icon/" + switcher.apps.iconForAppId(card.appId)
