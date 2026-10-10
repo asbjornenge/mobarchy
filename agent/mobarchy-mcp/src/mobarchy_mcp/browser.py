@@ -5,6 +5,7 @@ are open."""
 from __future__ import annotations
 
 import json
+import secrets
 import subprocess
 from urllib.parse import urlparse
 
@@ -41,7 +42,10 @@ def open_url(url: str) -> str:
     try:
         _call("Open", "s", url)
     except BrowserError:
-        subprocess.Popen(["systemd-run", "--user", "--collect", "--quiet", "mobarchy-browser", url],
+        # (named as the shell names the apps it starts: app-mobarchy-*, which have a memory cap)
+        unit = f"app-mobarchy-org.mobarchy.Browser-{secrets.token_hex(4)}.service"
+        subprocess.Popen(["systemd-run", "--user", "--collect", "--quiet", f"--unit={unit}",
+                          "mobarchy-browser", url],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     return url
 
