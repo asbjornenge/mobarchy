@@ -49,6 +49,8 @@ hook = "..."          # turns the screen in use: called with normal, left-up, bo
 [haptics]             # optional: the click the shell plays on buttons, as a force-feedback
 click_bank = 0        # custom effect (the actuator's own waveform: bank, index); without
 click_index = 2       # it, a short buzz
+tick_bank = 0         # the lighter tick when a gesture takes hold (the app switcher);
+tick_index = 9        # without it, a shorter, weaker buzz (or the click's waveform)
 ```
 
 Fields will be added as the porting work needs them. Keep this document in sync.

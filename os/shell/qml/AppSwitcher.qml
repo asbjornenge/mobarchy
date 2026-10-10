@@ -36,28 +36,41 @@ LayerWindow {
     property real openness: 0
     property bool following: false
     property real finger: 0       // px the finger is above the bottom edge
-    // While the finger holds it, the cards peek in from the left (the first a little more as
-    // the finger goes up); let go, they glide into place, the first in the middle.
-    // (how far off to the left, 0..1 of a peek: a fraction, as the window may not have its
-    // width yet when the gesture begins)
+    // While the finger holds it, the cards slide in from beyond the left edge, the first only
+    // a little way in; let go, they glide into place, the first in the middle.
+    // (how far off to the left, 0..1, 1 out of sight: a fraction, as the window may not have
+    // its width yet when the gesture begins)
     property real away: 0
-    readonly property real peek: width * 0.62
+    readonly property real peek: width * 0.9
+    // (while the finger holds it, it eases after the finger, so it slides in rather than
+    // jumping to where the finger already is)
+    Behavior on away {
+        enabled: switcher.following
+        NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+    }
+    Behavior on openness {
+        enabled: switcher.following
+        NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
+    }
 
     // --- the gesture (Edge.qml) ----------------------------------------------------------
     function begin(distance) {
         settle.stop()
+        glide.stop()
         capture.captureAll()
-        following = true
-        shown = true
+        openness = 0
         away = 1
+        shown = true
+        following = true
         toFront()
-        haptics.click()
+        haptics.tick()
         follow(distance)
     }
     function follow(distance) {
         finger = distance
-        openness = Math.max(0, Math.min(1, (distance - 40) / 220))
-        away = 1 - 0.3 * openness
+        const o = Math.max(0, Math.min(1, (distance - 40) / 220))
+        openness = o
+        away = 1 - 0.5 * o
     }
     // let go: up (or a flick up) stays, back down (or a flick down) cancels
     function release(velocity) {
