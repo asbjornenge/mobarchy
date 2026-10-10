@@ -20,9 +20,11 @@ QtObject {
     readonly property string wallpaper: source.wallpaper
 
     // Scrolling like a phone: a flick throws the list (Qt's defaults are a desktop's, a
-    // slow wheel-like glide), and the ends bounce (Flickable.DragAndOvershootBounds).
+    // slow wheel-like glide), and the ends are firm: a finger can pull past one (Qt halves
+    // the pull), a flick stops at it (Qt's overshoot, up to 150 px, is loose on a phone).
     readonly property real flickVelocity: 9000      // logical px/s
     readonly property real flickDeceleration: 1400  // logical px/s²
-    // How long an end takes to settle back after a bounce: Qt's default snaps back.
-    readonly property int reboundDuration: 550
+    readonly property int boundsBehavior: Flickable.DragOverBounds
+    // How long an end takes to settle back after it was pulled past.
+    readonly property int reboundDuration: 280
 }

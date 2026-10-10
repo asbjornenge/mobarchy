@@ -72,6 +72,7 @@ Sheet {
         // --- installed apps -------------------------------------------------------------
         GridView {
             maximumFlickVelocity: Theme.flickVelocity
+            boundsBehavior: Theme.boundsBehavior
             flickDeceleration: Theme.flickDeceleration
             rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             id: grid

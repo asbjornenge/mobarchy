@@ -20,8 +20,9 @@ Window {
     Flickable {
         anchors.fill: parent
         contentHeight: column.implicitHeight + 48
-        boundsBehavior: Flickable.DragAndOvershootBounds
+        boundsBehavior: Theme.boundsBehavior
         maximumFlickVelocity: Theme.flickVelocity
+        rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
         flickDeceleration: Theme.flickDeceleration
 
         Column {

@@ -612,7 +612,7 @@ Sheet {
                             spacing: 8
                             currentIndex: -1  // see Home.qml
                             highlightFollowsCurrentItem: false
-                            boundsBehavior: Flickable.DragAndOvershootBounds
+                            boundsBehavior: Theme.boundsBehavior
                             model: quick.notifications
                             delegate: Rectangle {
                                 id: note
@@ -812,7 +812,7 @@ Sheet {
                         spacing: 6
                         currentIndex: -1  // see Home.qml
                         highlightFollowsCurrentItem: false
-                        boundsBehavior: Flickable.DragAndOvershootBounds
+                        boundsBehavior: Theme.boundsBehavior
                         model: quick.wifi.networks
                         delegate: Rectangle {
                             id: net
@@ -1003,7 +1003,7 @@ Sheet {
                         spacing: 6
                         currentIndex: -1  // see Home.qml
                         highlightFollowsCurrentItem: false
-                        boundsBehavior: Flickable.DragAndOvershootBounds
+                        boundsBehavior: Theme.boundsBehavior
                         model: bluetoothPage.rows
                         delegate: Item {
                             id: dev

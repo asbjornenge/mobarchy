@@ -201,6 +201,7 @@ Window {
     // --- the conversation ------------------------------------------------------------------
     ListView {
         maximumFlickVelocity: Theme.flickVelocity
+        boundsBehavior: Theme.boundsBehavior
         flickDeceleration: Theme.flickDeceleration
         rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
         id: list
@@ -386,6 +387,7 @@ Window {
         }
         ListView {
             maximumFlickVelocity: Theme.flickVelocity
+            boundsBehavior: Theme.boundsBehavior
             flickDeceleration: Theme.flickDeceleration
             rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             anchors { left: parent.left; right: parent.right; top: historyTitle.bottom; bottom: parent.bottom

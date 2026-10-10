@@ -58,6 +58,7 @@ LayerWindow {
         onBegan: {
             edge.switching = false
             edge.distance = 0
+            edge.switcher.prepare(edge)
             edge.drawer.beginDrag()
         }
         onMoved: (distance) => {

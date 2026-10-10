@@ -11,7 +11,9 @@ import Mobarchy.Shell
 // "Close all" waits at the far end.
 //
 // From the bottom edge (Edge.qml): swipe up and hold. It comes up under the finger (the bar
-// with it), the screen behind blurred (Hyprland's layer rule); back down cancels it, and let
+// with it), the screen behind blurred (a picture of it, taken as the finger touched the edge,
+// blurred once: a compositor's blur is worked out again for every frame, and halved the frame
+// rate as the cards moved); back down cancels it, and let
 // go it settles with the app in use in the middle. In a wide screen (the unfolded inner one)
 // the cards are a grid.
 LayerWindow {
@@ -54,6 +56,10 @@ LayerWindow {
     }
 
     // --- the gesture (Edge.qml) ----------------------------------------------------------
+    // A finger on the edge: the screen as it is, before anything comes up over it.
+    function prepare(window) {
+        capture.captureScreen(window)
+    }
     function begin(distance) {
         settle.stop()
         glide.stop()
@@ -124,8 +130,32 @@ LayerWindow {
 
     WindowCapture { id: capture }
 
-    // The screen behind, blurred by Hyprland (layerrule: mobarchy-switcher, blur) through this
-    // tint.
+    // The screen behind, blurred, through a tint
+    Item {
+        anchors.fill: parent
+        opacity: Math.min(1, switcher.openness * 2)
+        // (blurred once, into a texture of its own: then each frame only draws it)
+        layer.enabled: true
+        Image {
+            id: screenShot
+            anchors.fill: parent
+            visible: false
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: false
+            cache: false
+            source: capture.screenGeneration > 0 ? "image://windows/screen?" + capture.screenGeneration : ""
+        }
+        MultiEffect {
+            anchors.fill: parent
+            source: screenShot
+            visible: screenShot.status === Image.Ready
+            autoPaddingEnabled: false
+            blurEnabled: true
+            blur: 1.0
+            blurMax: 48
+            saturation: 0.15
+        }
+    }
     Rectangle {
         anchors.fill: parent
         color: Theme.bgDark
@@ -164,6 +194,7 @@ LayerWindow {
             transform: Scale { origin.x: row.width / 2; xScale: -1 }
             readonly property real cardWidth: switcher.width * 0.70
             spacing: -cardWidth * 0.22
+            readonly property real step: cardWidth + spacing
             leftMargin: (width - cardWidth) / 2
             rightMargin: (width - cardWidth) / 2
             snapMode: ListView.SnapToItem
@@ -171,6 +202,8 @@ LayerWindow {
             preferredHighlightBegin: leftMargin
             preferredHighlightEnd: leftMargin + cardWidth
             maximumFlickVelocity: Theme.flickVelocity
+            boundsBehavior: Theme.boundsBehavior
+            rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             flickDeceleration: Theme.flickDeceleration
             cacheBuffer: cardWidth * 2
             model: switcher.toplevels
@@ -180,6 +213,12 @@ LayerWindow {
                 z: -index
                 slides: true
                 transform: Scale { origin.x: row.cardWidth / 2; xScale: -1 }
+                // The one in the middle stands out: the next (newer, over it) moves aside,
+                // the ones before it (under it) close up. From how far the card is from the
+                // middle, in steps; on the screen, + is to the right (the view is mirrored).
+                readonly property real place: -(x + width / 2 - row.contentX - row.width / 2) / row.step
+                offset: place > 0 ? row.cardWidth * 0.18 * Math.min(1, place)
+                                  : -place * row.step * 0.25
             }
             footer: Item {
                 width: closeAll.width + 60 - row.spacing
@@ -265,10 +304,12 @@ LayerWindow {
 
         // the apps before the one in use come in from the left as the switcher comes up
         property bool slides: false
+        // (px to the right, on the screen: the row's spread)
+        property real offset: 0
         Item {
             id: body
             width: card.width; height: card.height
-            x: card.slides && card.index > 0 ? -(1 - switcher.openness) * switcher.width * 0.8 : 0
+            x: card.offset + (card.slides && card.index > 0 ? -(1 - switcher.openness) * switcher.width * 0.8 : 0)
             opacity: 1 - Math.min(1, Math.max(0, -y / (card.height * 0.6)))
 
             Row {

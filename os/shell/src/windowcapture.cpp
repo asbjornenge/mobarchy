@@ -1,7 +1,10 @@
 #include "windowcapture.h"
 
 #include <QGuiApplication>
+#include <QScreen>
+#include <QTransform>
 #include <QUrl>
+#include <QWindow>
 
 #include <sys/mman.h>
 #include <unistd.h>
@@ -12,6 +15,18 @@ WindowCapture *WindowCapture::s_instance = nullptr;
 namespace {
 // The width a picture is kept at: a card is a fraction of the screen.
 constexpr int PictureWidth = 540;
+// A screen's, for a blurred background
+constexpr int ScreenWidth = 360;
+
+// The buffer as it is shown: the compositor gave its transform (wl_output.transform: n
+// quarter turns counter-clockwise, 4-7 flipped as well); undone.
+QImage untransformed(const QImage &image, uint32_t transform)
+{
+    if (transform == WL_OUTPUT_TRANSFORM_NORMAL)
+        return image;
+    QImage out = image.transformed(QTransform().rotate(90.0 * (transform % 4)));
+    return transform >= WL_OUTPUT_TRANSFORM_FLIPPED ? out.flipped(Qt::Horizontal) : out;
+}
 }
 
 void ExtToplevelList::ext_foreign_toplevel_list_v1_toplevel(struct ::ext_foreign_toplevel_handle_v1 *handle)
@@ -30,10 +45,12 @@ class CaptureFrame : public QtWayland::ext_image_copy_capture_frame_v1
 {
 public:
     std::function<void(bool)> done;
+    uint32_t transform = WL_OUTPUT_TRANSFORM_NORMAL;
     explicit CaptureFrame(struct ::ext_image_copy_capture_frame_v1 *f) : QtWayland::ext_image_copy_capture_frame_v1(f) {}
     ~CaptureFrame() override { destroy(); }
 
 protected:
+    void ext_image_copy_capture_frame_v1_transform(uint32_t t) override { transform = t; }
     void ext_image_copy_capture_frame_v1_ready() override { done(true); }
     void ext_image_copy_capture_frame_v1_failed(uint32_t) override { done(false); }
 };
@@ -41,9 +58,11 @@ protected:
 class CaptureJob : public QtWayland::ext_image_copy_capture_session_v1
 {
 public:
+    // width: the picture's (at most); a fast scaling where it will be blurred anyway
     CaptureJob(WindowCapture *owner, const QString &key, struct ::ext_image_copy_capture_session_v1 *s,
-               struct ::ext_image_capture_source_v1 *source)
-        : QtWayland::ext_image_copy_capture_session_v1(s), m_owner(owner), m_key(key), m_source(source) {}
+               struct ::ext_image_capture_source_v1 *source, int width = PictureWidth, bool fast = false)
+        : QtWayland::ext_image_copy_capture_session_v1(s), m_owner(owner), m_key(key), m_source(source),
+          m_pictureWidth(width), m_fast(fast) {}
 
     ~CaptureJob() override
     {
@@ -106,7 +125,9 @@ private:
             if (ok) {
                 const QImage raw(static_cast<const uchar *>(m_data), m_width, m_height, stride,
                                  m_format == WL_SHM_FORMAT_ARGB8888 ? QImage::Format_ARGB32 : QImage::Format_RGB32);
-                image = raw.scaledToWidth(qMin(PictureWidth, m_width), Qt::SmoothTransformation);
+                image = untransformed(raw.scaledToWidth(qMin(m_pictureWidth, m_width),
+                                                        m_fast ? Qt::FastTransformation : Qt::SmoothTransformation),
+                                      m_frame->transform);
             }
             m_owner->finished(this, m_key, image);
         };
@@ -119,6 +140,8 @@ private:
     WindowCapture *m_owner;
     QString m_key;
     struct ::ext_image_capture_source_v1 *m_source;
+    int m_pictureWidth;
+    bool m_fast;
     int m_width = 0, m_height = 0, m_format = -1;
     size_t m_bytes = 0;
     void *m_data = nullptr;
@@ -142,12 +165,14 @@ struct RegistryListener {
 static const wl_registry_listener registryListener = {RegistryListener::global, RegistryListener::remove};
 
 WindowCapture::WindowCapture(QObject *parent)
-    : QObject(parent), m_list(new ExtToplevelList), m_sources(new CaptureSources), m_copy(new CopyCapture)
+    : QObject(parent), m_list(new ExtToplevelList), m_sources(new CaptureSources), m_copy(new CopyCapture),
+      m_outputs(new OutputSources)
 {
     s_instance = this;
     m_list->setParent(this);
     m_sources->setParent(this);
     m_copy->setParent(this);
+    m_outputs->setParent(this);
     for (QWaylandClientExtension *e : {static_cast<QWaylandClientExtension *>(m_list),
                                        static_cast<QWaylandClientExtension *>(m_sources),
                                        static_cast<QWaylandClientExtension *>(m_copy)})
@@ -161,6 +186,7 @@ WindowCapture::WindowCapture(QObject *parent)
 WindowCapture::~WindowCapture()
 {
     qDeleteAll(m_jobs);
+    delete m_screenJob;
     if (m_shm)
         wl_shm_destroy(m_shm);
     if (m_registry)
@@ -185,9 +211,23 @@ void WindowCapture::captureAll()
     }
 }
 
+void WindowCapture::captureScreen(QWindow *window)
+{
+    if (m_screenJob || !window || !window->screen() || !m_outputs->isActive() || !m_copy->isActive())
+        return;
+    auto *screen = window->screen()->nativeInterface<QNativeInterface::QWaylandScreen>();
+    if (!screen || !screen->output())
+        return;
+    auto *source = m_outputs->create_source(screen->output());
+    m_screenJob = new CaptureJob(this, screenKey(), m_copy->create_session(source, 0), source, ScreenWidth, true);
+}
+
 void WindowCapture::finished(CaptureJob *job, const QString &key, const QImage &image)
 {
     m_jobs.removeOne(job);
+    const bool screen = job == m_screenJob;
+    if (screen)
+        m_screenJob = nullptr;
     // (not from inside the job's own callback)
     QMetaObject::invokeMethod(this, [job] { delete job; }, Qt::QueuedConnection);
     if (image.isNull())
@@ -196,8 +236,13 @@ void WindowCapture::finished(CaptureJob *job, const QString &key, const QImage &
         QMutexLocker locker(&m_lock);
         m_pictures.insert(key, image);
     }
-    m_generation++;
-    emit captured();
+    if (screen) {
+        m_screenGeneration++;
+        emit screenCaptured();
+    } else {
+        m_generation++;
+        emit captured();
+    }
 }
 
 QImage WindowCapture::picture(const QString &key) const
@@ -210,7 +255,7 @@ QImage WindowImages::requestImage(const QString &id, QSize *size, const QSize &r
 {
     // <app ID>/<title>?<generation>, each part percent-encoded
     const QString path = id.section(QLatin1Char('?'), 0, 0);
-    const QString key = QUrl::fromPercentEncoding(path.section(QLatin1Char('/'), 0, 0).toUtf8())
+    const QString key = path == WindowCapture::screenKey() ? path : QUrl::fromPercentEncoding(path.section(QLatin1Char('/'), 0, 0).toUtf8())
                         + QLatin1Char('\n') + QUrl::fromPercentEncoding(path.section(QLatin1Char('/'), 1).toUtf8());
     QImage image = WindowCapture::instance() ? WindowCapture::instance()->picture(key) : QImage();
     if (image.isNull())

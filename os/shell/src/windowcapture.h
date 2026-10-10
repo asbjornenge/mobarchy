@@ -5,6 +5,11 @@
 // The switcher lists windows from wlr-foreign-toplevel-management (it can switch and close);
 // this list is another protocol's, so a picture is found by the window's app ID and title.
 // QML asks for image://windows/<app ID>/<title>?<generation>.
+//
+// And a picture of a whole screen (ext_output_image_capture_source_manager_v1), for the
+// switcher's background, blurred once in the shell: image://windows/screen?<generation>.
+// (A compositor's blur behind the switcher is worked out again for every frame it draws,
+// which halved the frame rate as the cards moved.)
 #pragma once
 
 #include "qwayland-ext-foreign-toplevel-list-v1.h"
@@ -17,6 +22,7 @@
 #include <QObject>
 #include <QQuickImageProvider>
 #include <QtQml/qqmlregistration.h>
+#include <QWindow>
 #include <QtWaylandClient/QWaylandClientExtension>
 
 struct wl_shm;
@@ -66,6 +72,15 @@ public:
     CaptureSources() : QWaylandClientExtensionTemplate(1) {}
 };
 
+class OutputSources : public QWaylandClientExtensionTemplate<OutputSources>,
+                      public QtWayland::ext_output_image_capture_source_manager_v1
+{
+    Q_OBJECT
+
+public:
+    OutputSources() : QWaylandClientExtensionTemplate(1) {}
+};
+
 class CopyCapture : public QWaylandClientExtensionTemplate<CopyCapture>,
                     public QtWayland::ext_image_copy_capture_manager_v1
 {
@@ -83,6 +98,8 @@ class WindowCapture : public QObject
     QML_ELEMENT
     // Bumped when a picture is new: in an Image's source, it makes QML ask again.
     Q_PROPERTY(int generation READ generation NOTIFY captured)
+    // (and the screen's)
+    Q_PROPERTY(int screenGeneration READ screenGeneration NOTIFY screenCaptured)
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
 
 public:
@@ -91,9 +108,14 @@ public:
     static WindowCapture *instance() { return s_instance; }
 
     int generation() const { return m_generation; }
+    int screenGeneration() const { return m_screenGeneration; }
     bool supported() const;
     // Takes a picture of every open window (each comes in as it's ready).
     Q_INVOKABLE void captureAll();
+    // Takes a picture of the screen the window is on (smaller: it is for a blurred
+    // background).
+    Q_INVOKABLE void captureScreen(QWindow *window);
+    static QString screenKey() { return QStringLiteral("screen"); }
     QImage picture(const QString &key) const;
 
     // (CaptureJob)
@@ -103,6 +125,7 @@ public:
 
 signals:
     void captured();
+    void screenCaptured();
     void supportedChanged();
 
 private:
@@ -110,12 +133,15 @@ private:
     ExtToplevelList *m_list;
     CaptureSources *m_sources;
     CopyCapture *m_copy;
+    OutputSources *m_outputs;
+    CaptureJob *m_screenJob = nullptr;
     wl_registry *m_registry = nullptr;
     wl_shm *m_shm = nullptr;
     QList<CaptureJob *> m_jobs;
     mutable QMutex m_lock;      // (the image provider asks from QML's image thread)
     QHash<QString, QImage> m_pictures;
     int m_generation = 0;
+    int m_screenGeneration = 0;
     friend struct RegistryListener;
 };
 

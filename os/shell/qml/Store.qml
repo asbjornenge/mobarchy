@@ -146,7 +146,7 @@ Window {
                 clip: true
                 currentIndex: -1
                 highlightFollowsCurrentItem: false
-                boundsBehavior: Flickable.DragAndOvershootBounds
+                boundsBehavior: Theme.boundsBehavior
                 model: [{ id: "", name: qsTr("All") }].concat(store.categories)
                 delegate: Rectangle {
                     id: chip
@@ -187,7 +187,7 @@ Window {
             spacing: 8
             currentIndex: -1
             highlightFollowsCurrentItem: false
-            boundsBehavior: Flickable.DragAndOvershootBounds
+            boundsBehavior: Theme.boundsBehavior
             model: filtered
             footer: Item { width: 1; height: 24 }
             delegate: Rectangle {
@@ -278,7 +278,7 @@ Window {
         visible: app !== null
         contentHeight: details.implicitHeight + 40
         clip: true
-        boundsBehavior: Flickable.DragAndOvershootBounds
+        boundsBehavior: Theme.boundsBehavior
         onVisibleChanged: contentY = 0
 
         Column {
@@ -379,6 +379,7 @@ Window {
             }
             ListView {
                 maximumFlickVelocity: Theme.flickVelocity
+                boundsBehavior: Theme.boundsBehavior
                 flickDeceleration: Theme.flickDeceleration
                 rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
                 width: parent.width

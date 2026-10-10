@@ -256,7 +256,7 @@ LayerWindow {
             spacing: kb.gap
             flickDeceleration: Theme.flickDeceleration
             maximumFlickVelocity: Theme.flickVelocity
-            boundsBehavior: Flickable.DragAndOvershootBounds
+            boundsBehavior: Theme.boundsBehavior
             rebound: Transition {
                 NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic }
             }
@@ -608,7 +608,8 @@ LayerWindow {
             clip: true
             flickDeceleration: Theme.flickDeceleration
             maximumFlickVelocity: Theme.flickVelocity
-            boundsBehavior: Flickable.DragAndOvershootBounds
+            rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
+            boundsBehavior: Theme.boundsBehavior
             // the recently used first, then Unicode's groups
             model: (emojiSettings.recent.length ? [{name: "recent", emoji: emojiSettings.recent}] : [])
                    .concat(kb.emojiGroups)
