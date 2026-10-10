@@ -455,7 +455,11 @@ LayerWindow {
                         back.start()
                 }
             }
-            TapHandler { onTapped: switcher.go(card.index) }
+            // (taking the press: else every card under the finger, stacked, takes the tap too)
+            TapHandler {
+                gesturePolicy: TapHandler.ReleaseWithinBounds
+                onTapped: switcher.go(card.index)
+            }
             NumberAnimation { id: back; target: body; property: "y"; to: 0; duration: 160; easing.type: Easing.OutCubic }
             SequentialAnimation {
                 id: throwAway

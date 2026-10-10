@@ -182,6 +182,7 @@ QHash<int, QByteArray> ToplevelModel::roleNames() const
 
 void ToplevelModel::activate(int row)
 {
+    qCDebug(lcToplevels) << "activate" << row << m_rows.value(row);
     if (row >= 0 && row < m_rows.size())
         activateToplevel(m_rows.at(row));
 }
