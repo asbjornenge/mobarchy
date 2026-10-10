@@ -46,7 +46,9 @@ LayerWindow {
         id: hold
         interval: 220
         onTriggered: {
-            if (edge.distance < 70 || edge.distance > 0.45 * Screen.height)
+            // (against the drawer's height, which is up under the finger: Screen.height can be
+            // a placeholder's, left from an output change, a fold)
+            if (edge.distance < 70 || edge.distance > 0.45 * edge.drawer.height)
                 return
             edge.switching = true
             edge.switcher.begin(edge.distance)
