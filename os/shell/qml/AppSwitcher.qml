@@ -5,15 +5,21 @@ import QtQuick.Effects
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
-// The open apps, as cards with a picture of each window (WindowCapture): swipe through them,
-// tap one to go to it, swipe one up to close it. From the bottom edge: swipe up and hold
-// (Edge.qml). In a tall screen the cards are a row to swipe through; in a wide one (the
-// unfolded inner screen) a grid.
+// The open apps, as cards with a picture of each window (WindowCapture), as on iOS and
+// Android: the app in use in front, the ones used before it behind, to the left, a little
+// over each other; swipe right through them, tap one to go to it, swipe one up to close it.
+// "Close all" waits at the far end.
+//
+// From the bottom edge (Edge.qml): swipe up and hold. It comes up under the finger (the bar
+// with it), the screen behind blurred (Hyprland's layer rule); back down cancels it, and let
+// go it settles with the app in use in the middle. In a wide screen (the unfolded inner one)
+// the cards are a grid.
 LayerWindow {
     id: switcher
 
     required property ToplevelModel toplevels
     required property AppModel apps
+    required property Haptics haptics
     property int insetBottom: 0
 
     shown: false
@@ -26,20 +32,53 @@ LayerWindow {
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     readonly property bool wide: width > height * 0.85
+    // 0 = gone, 1 = up; while the finger holds it, it follows the finger
     property real openness: 0
+    property bool following: false
+    property real finger: 0       // px the finger is above the bottom edge
+
+    // --- the gesture (Edge.qml) ----------------------------------------------------------
+    function begin(distance) {
+        settle.stop()
+        capture.captureAll()
+        following = true
+        shown = true
+        toFront()
+        haptics.click()
+        follow(distance)
+    }
+    function follow(distance) {
+        finger = distance
+        openness = Math.max(0, Math.min(1, (distance - 40) / 220))
+    }
+    // let go: up (or a flick up) stays, back down (or a flick down) cancels
+    function release(velocity) {
+        following = false
+        if (velocity < -0.4 || (velocity < 0.4 && openness < 0.35))
+            close()
+        else
+            open()
+    }
 
     function open() {
-        if (shown)
-            return
-        capture.captureAll()
-        row.positionViewAtBeginning()
-        shown = true
-        fade.to = 1
-        fade.restart()
+        if (!shown) {
+            capture.captureAll()
+            shown = true
+            toFront()
+        }
+        settle.to = 1
+        settle.restart()
     }
     function close() {
-        fade.to = 0
-        fade.restart()
+        settle.to = 0
+        settle.restart()
+    }
+    // the app in use in the middle (once the surface has its size)
+    function toFront() {
+        Qt.callLater(() => {
+            row.currentIndex = 0
+            row.positionViewAtIndex(0, ListView.Center)
+        })
     }
     function go(index) {
         toplevels.activate(index)
@@ -47,25 +86,28 @@ LayerWindow {
     }
 
     NumberAnimation {
-        id: fade
-        target: switcher; property: "openness"; duration: 180; easing.type: Easing.OutCubic
+        id: settle
+        target: switcher; property: "openness"; duration: 220; easing.type: Easing.OutCubic
         onFinished: if (switcher.openness === 0) switcher.shown = false
     }
 
     WindowCapture { id: capture }
 
+    // The screen behind, blurred by Hyprland (layerrule: mobarchy-switcher, blur) through this
+    // tint.
     Rectangle {
         anchors.fill: parent
         color: Theme.bgDark
-        opacity: 0.97 * switcher.openness
-        // a tap beside the cards: back to where it was
+        opacity: 0.55 * switcher.openness
         MouseArea { anchors.fill: parent; onClicked: switcher.close() }
     }
 
     Item {
+        id: content
         anchors.fill: parent
-        opacity: switcher.openness
-        scale: 0.94 + 0.06 * switcher.openness
+        opacity: Math.min(1, switcher.openness * 1.6)
+        // (from the app's own size down to the cards', as the finger goes up)
+        scale: 1.25 - 0.25 * switcher.openness
 
         Text {
             anchors.centerIn: parent
@@ -75,16 +117,20 @@ LayerWindow {
             font { family: Theme.font; pixelSize: 16 }
         }
 
-        // the cards: a row, or in a wide screen a grid
+        // The cards, newest on the right (on top), older ones to the left, each half over
+        // the next. "Close all" after the oldest.
         ListView {
             id: row
             visible: !switcher.wide
             anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
-                      verticalCenterOffset: -24 }
-            height: parent.height * 0.72
+                      verticalCenterOffset: -20 }
+            height: parent.height * 0.70
             orientation: ListView.Horizontal
-            spacing: 22
-            readonly property real cardWidth: switcher.width * 0.66
+            // Newest on the right: the view mirrored (and each card mirrored back). (A
+            // right-to-left ListView doesn't keep its margins at the start.)
+            transform: Scale { origin.x: row.width / 2; xScale: -1 }
+            readonly property real cardWidth: switcher.width * 0.70
+            spacing: -cardWidth * 0.22
             leftMargin: (width - cardWidth) / 2
             rightMargin: (width - cardWidth) / 2
             snapMode: ListView.SnapToItem
@@ -92,10 +138,25 @@ LayerWindow {
             preferredHighlightBegin: leftMargin
             preferredHighlightEnd: leftMargin + cardWidth
             maximumFlickVelocity: Theme.flickVelocity
+            flickDeceleration: Theme.flickDeceleration
+            cacheBuffer: cardWidth * 2
             model: switcher.toplevels
             delegate: Card {
                 width: row.cardWidth
                 height: row.height
+                z: -index
+                transform: Scale { origin.x: row.cardWidth / 2; xScale: -1 }
+            }
+            footer: Item {
+                width: closeAll.width + 60 - row.spacing
+                height: row.height
+                z: -1000
+                CloseAll {
+                    id: closeAll
+                    anchors.centerIn: parent
+                    anchors.horizontalCenterOffset: -row.spacing / 2
+                    transform: Scale { origin.x: closeAll.width / 2; xScale: -1 }
+                }
             }
         }
         GridView {
@@ -118,33 +179,42 @@ LayerWindow {
                     index: cell.index; title: cell.title; appId: cell.appId; activated: cell.activated
                 }
             }
-        }
-
-        // Close all
-        Rectangle {
-            visible: switcher.toplevels.count > 0
-            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom
-                      bottomMargin: 40 + switcher.insetBottom }
-            width: closeAllRow.implicitWidth + 36; height: 48; radius: 24
-            color: closeAllTap.pressed ? Theme.line : Theme.panel
-            border.color: Theme.line
-            Row {
-                id: closeAllRow
-                anchors.centerIn: parent
-                spacing: 10
-                Text { text: "󰅙"; color: Theme.muted; font { family: Theme.font; pixelSize: 18 }
-                       anchors.verticalCenter: parent.verticalCenter }
-                Text { text: qsTr("Close all"); color: Theme.fg; font { family: Theme.font; pixelSize: 14 }
-                       anchors.verticalCenter: parent.verticalCenter }
+            footer: Item {
+                width: grid.width; height: 96
+                CloseAll { anchors.centerIn: parent }
             }
-            MouseArea {
-                id: closeAllTap
-                anchors.fill: parent
-                onClicked: {
-                    for (let i = switcher.toplevels.count - 1; i >= 0; i--)
-                        switcher.toplevels.close(i)
-                    switcher.close()
-                }
+        }
+    }
+
+    // The bar, under the finger while it holds the switcher (Edge.qml's, picked up)
+    Rectangle {
+        visible: switcher.following
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: switcher.height - switcher.insetBottom - 16 - switcher.finger
+        width: 140; height: 5; radius: 2.5
+        color: Theme.accent
+    }
+
+    component CloseAll: Rectangle {
+        width: closeAllRow.implicitWidth + 36; height: 48; radius: 24
+        color: closeAllTap.pressed ? Theme.line : Theme.panel
+        border.color: Theme.line
+        Row {
+            id: closeAllRow
+            anchors.centerIn: parent
+            spacing: 10
+            Text { text: "󰅙"; color: Theme.muted; font { family: Theme.font; pixelSize: 18 }
+                   anchors.verticalCenter: parent.verticalCenter }
+            Text { text: qsTr("Close all"); color: Theme.fg; font { family: Theme.font; pixelSize: 14 }
+                   anchors.verticalCenter: parent.verticalCenter }
+        }
+        MouseArea {
+            id: closeAllTap
+            anchors.fill: parent
+            onClicked: {
+                for (let i = switcher.toplevels.count - 1; i >= 0; i--)
+                    switcher.toplevels.close(i)
+                switcher.close()
             }
         }
     }
@@ -178,7 +248,7 @@ LayerWindow {
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    width: body.width - 40
+                    width: body.width * 0.55
                     text: switcher.apps.nameForAppId(card.appId) || card.title || card.appId
                     elide: Text.ElideRight
                     color: Theme.fg
@@ -188,13 +258,16 @@ LayerWindow {
             Rectangle {
                 id: frame
                 anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: parent.bottom; topMargin: 6 }
-                radius: 18
+                radius: 22
                 color: Theme.panel
-                border.color: card.activated ? Theme.accent : Theme.line
+                border.color: Theme.line
                 // (rounded corners for the picture too: clip only cuts rectangles)
                 layer.enabled: true
                 layer.effect: MultiEffect {
                     maskEnabled: true
+                    shadowEnabled: true
+                    shadowBlur: 0.6
+                    shadowOpacity: 0.5
                     maskSource: ShaderEffectSource {
                         sourceItem: Rectangle { width: frame.width; height: frame.height; radius: frame.radius }
                     }
@@ -202,7 +275,6 @@ LayerWindow {
                 Image {
                     id: shot
                     anchors.fill: parent
-                    anchors.margins: 1
                     fillMode: Image.PreserveAspectCrop
                     verticalAlignment: Image.AlignTop
                     asynchronous: true
@@ -220,7 +292,6 @@ LayerWindow {
             }
 
             DragHandler {
-                id: swipe
                 target: body
                 xAxis.enabled: false
                 yAxis.maximum: 0

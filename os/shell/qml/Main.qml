@@ -297,6 +297,7 @@ QtObject {
     readonly property AppSwitcher switcher: AppSwitcher {
         toplevels: shell.toplevels
         apps: shell.apps
+        haptics: shell.haptics
         insetBottom: shell.edge.inset
     }
     readonly property Edge edge: Edge {

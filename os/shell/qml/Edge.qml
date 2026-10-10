@@ -48,7 +48,7 @@ LayerWindow {
                 return
             edge.switching = true
             edge.drawer.snap(false)
-            edge.switcher.open()
+            edge.switcher.begin(edge.distance)
         }
     }
     EdgeGesture {
@@ -60,8 +60,10 @@ LayerWindow {
             edge.drawer.beginDrag()
         }
         onMoved: (distance) => {
-            if (edge.switching)
+            if (edge.switching) {
+                edge.switcher.follow(distance)
                 return
+            }
             if (Math.abs(distance - edge.distance) > 6)
                 hold.restart()
             edge.distance = distance
@@ -69,7 +71,9 @@ LayerWindow {
         }
         onEnded: (velocity) => {
             hold.stop()
-            if (!edge.switching)
+            if (edge.switching)
+                edge.switcher.release(velocity)
+            else
                 edge.drawer.endDrag(velocity)
         }
         onTapped: if (!edge.keyboard.visible) edge.home()
