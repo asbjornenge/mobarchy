@@ -15,12 +15,15 @@ LayerWindow {
     // How far the finger travels for 0 -> 1.
     property real travel: height > 0 ? height : Screen.height
     property real dragStart: 0
+    // A finger has it.
+    property bool dragging: false
 
     // Emitted when the sheet starts to come in.
     signal opening()
 
     function beginDrag() {
         settle.stop()
+        dragging = true
         dragStart = shown ? openness : 0
         if (!shown) {
             shown = true
@@ -36,6 +39,7 @@ LayerWindow {
         snap(velocity > 0.4 || (velocity > -0.4 && openness > (dragStart > 0.5 ? 0.7 : 0.3)))
     }
     function snap(open) {
+        dragging = false
         settle.to = open ? 1 : 0
         settle.restart()
     }

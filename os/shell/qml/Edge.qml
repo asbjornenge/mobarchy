@@ -33,6 +33,8 @@ LayerWindow {
         anchors { horizontalCenter: parent.horizontalCenter; verticalCenter: parent.top; verticalCenterOffset: 16 }
         width: 140; height: 5; radius: 2.5
         color: gesture.pressed ? Theme.accent : Theme.muted
+        // (picked up: the drawer's handle and the switcher carry it under the finger)
+        visible: !edge.drawer.shown && !edge.switcher.shown
     }
 
     // The finger keeps its grab on this surface while it moves up over the drawer.
@@ -47,7 +49,6 @@ LayerWindow {
             if (edge.distance < 70 || edge.distance > 0.45 * Screen.height)
                 return
             edge.switching = true
-            edge.drawer.snap(false)
             edge.switcher.begin(edge.distance)
         }
     }
@@ -60,6 +61,8 @@ LayerWindow {
             edge.drawer.beginDrag()
         }
         onMoved: (distance) => {
+            // (the drawer stays under the finger, behind the switcher, until it lets go)
+            edge.drawer.dragTo(distance)
             if (edge.switching) {
                 edge.switcher.follow(distance)
                 return
@@ -67,13 +70,13 @@ LayerWindow {
             if (Math.abs(distance - edge.distance) > 6)
                 hold.restart()
             edge.distance = distance
-            edge.drawer.dragTo(distance)
         }
         onEnded: (velocity) => {
             hold.stop()
-            if (edge.switching)
+            if (edge.switching) {
                 edge.switcher.release(velocity)
-            else
+                edge.drawer.snap(false)
+            } else
                 edge.drawer.endDrag(velocity)
         }
         onTapped: if (!edge.keyboard.visible) edge.home()

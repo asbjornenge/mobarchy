@@ -60,10 +60,12 @@ Sheet {
             onEnded: (velocity) => drawer.endDrag(velocity)
             onTapped: drawer.close()
 
+            // (where the edge's bar is, and as it is: the same bar, picked up. The drawer
+            // ends at the edge's top, the edge's exclusive zone)
             Rectangle {
-                anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 12 }
-                width: 44; height: 5; radius: 2.5
-                color: Theme.muted
+                anchors { horizontalCenter: parent.horizontalCenter; verticalCenter: parent.top; verticalCenterOffset: 16 }
+                width: 140; height: 5; radius: 2.5
+                color: drawer.dragging || handle.pressed ? Theme.accent : Theme.muted
             }
         }
 

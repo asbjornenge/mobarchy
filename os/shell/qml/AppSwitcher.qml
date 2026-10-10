@@ -224,7 +224,7 @@ LayerWindow {
     Rectangle {
         visible: switcher.following
         anchors.horizontalCenter: parent.horizontalCenter
-        y: switcher.height - switcher.insetBottom - 16 - switcher.finger
+        y: switcher.height - switcher.insetBottom - 16 - switcher.finger - height / 2
         width: 140; height: 5; radius: 2.5
         color: Theme.accent
     }
