@@ -11,6 +11,8 @@ LayerWindow {
     required property Notifications notifications
     // the microphone is on for Frigg (waiting for "Hei Frigg", or talking)
     property bool listening: false
+    // an alarm is set (Alarms.nextAlarm valid)
+    property bool alarmSet: false
 
     // The bar starts at the very top edge, where a swipe starts, and covers the strip the
     // device keeps clear (camera cutout, corners: device.toml top_inset). Its content sits
@@ -66,7 +68,7 @@ LayerWindow {
     }
     Text {
         anchors { right: parent.right; rightMargin: 16; verticalCenter: row.verticalCenter }
-        text: (bar.listening ? "󰍬   " : "") + bar.wifiIcon + "   " + bar.batteryIcon + (bar.system.battery >= 0 ? " " + bar.system.battery + "%" : "")
+        text: (bar.listening ? "󰍬   " : "") + (bar.alarmSet ? "󰀠   " : "") + bar.wifiIcon + "   " + bar.batteryIcon + (bar.system.battery >= 0 ? " " + bar.system.battery + "%" : "")
         color: Theme.fg
         font { family: Theme.font; pixelSize: 13 }
     }

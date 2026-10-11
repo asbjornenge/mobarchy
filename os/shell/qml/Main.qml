@@ -107,7 +107,9 @@ QtObject {
         onScreensChanged: shell.wake()
     }
     readonly property HardwareKeys keys: HardwareKeys {
-        onPowerPressed: shell.screen.on ? shell.screenOff() : shell.wake()
+        // (an alarm ringing: the power key snoozes it, as on other phones)
+        onPowerPressed: shell.alarms.ringing ? shell.alarms.snooze()
+                                             : shell.screen.on ? shell.screenOff() : shell.wake()
         // A tap on the dark screen (where the touchscreen supports it) shows the lock
         // screen for a glance: the clock and notifications, dark again after a while.
         onWakeGesture: if (!shell.screen.on) shell.wake()
@@ -130,13 +132,13 @@ QtObject {
     // inhibitors count too: the compositor holds the notification back), or Frigg is in a
     // conversation.
     readonly property Idle idle: Idle {
-        timeout: shell.inhibitors.active || shell.talk.talking ? 0 : 60
+        timeout: shell.inhibitors.active || shell.talk.talking || shell.alarms.ringing ? 0 : 60
         onIdleChanged: if (idle && shell.screen.on) shell.screenOff()
     }
     // A woken but untouched lock screen goes dark again soon.
     readonly property Timer lockTimeout: Timer {
         interval: 10000
-        running: shell.lockScreen.shown && shell.screen.on
+        running: shell.lockScreen.shown && shell.screen.on && !shell.alarms.ringing
         onTriggered: if (shell.lockScreen.shown) shell.screen.on = false
     }
 
@@ -207,6 +209,7 @@ QtObject {
         insetLeft: shell.leftInset.inset
         insetRight: shell.rightInset.inset
         insetBottom: shell.edge.inset
+        nextAlarm: shell.alarms.nextAlarm
         onUnlocked: {
             shown = false
             // Focus goes back to the app behind; the keyboard should not come up with it.
@@ -217,12 +220,23 @@ QtObject {
         onFingerUnlocked: shell.screen.on = true
     }
 
+    // Alarms and timers (ADR 0028): ringing wakes the screen, over the lock screen.
+    readonly property Alarms alarms: Alarms {
+        onStarted: shell.wake()
+    }
+    readonly property AlarmScreen alarmScreen: AlarmScreen {
+        alarms: shell.alarms
+        haptics: shell.haptics
+        volume: shell.volume
+    }
+
     readonly property StatusBar statusBar: StatusBar {
         system: shell.system
         quick: shell.quick
         device: shell.device
         notifications: shell.notifications
         listening: shell.talk.active
+        alarmSet: !isNaN(shell.alarms.nextAlarm.getTime())
         turns: shell.rotation.turns
     }
     readonly property Home home: Home {

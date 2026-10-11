@@ -51,6 +51,8 @@ click_bank = 0        # custom effect (the actuator's own waveform: bank, index)
 click_index = 2       # it, a short buzz
 tick_bank = 0         # the lighter tick when a gesture takes hold (the app switcher);
 tick_index = 9        # without it, a shorter, weaker buzz (or the click's waveform)
+buzz_bank = 0         # a long vibration (an alarm), played for as long as asked;
+buzz_index = 0        # without it, a plain buzz
 ```
 
 Fields will be added as the porting work needs them. Keep this document in sync.

@@ -46,6 +46,9 @@ click_index = 2
 # (the Pixel vibrator HAL's light tick: cs40l26 RAM waveform 9)
 tick_bank = 0
 tick_index = 9
+# (and its long vibration, played for as long as it is asked: waveform 0)
+buzz_bank = 0
+buzz_index = 0
 
 # The Android container for telephony (ADR 0014; os/rootfs/usr/lib/mobarchy/android-container).
 [android]

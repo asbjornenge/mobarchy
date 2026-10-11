@@ -20,6 +20,8 @@ LayerWindow {
     property int insetLeft: 0
     property int insetRight: 0
     property int insetBottom: 0
+    // The next alarm (Alarms.nextAlarm), shown under the date; invalid: none
+    property date nextAlarm
     signal unlocked()
     signal fingerUnlocked()     // (then unlocked())
     signal touched()  // any interaction: keeps the screen on a little longer
@@ -160,6 +162,16 @@ LayerWindow {
                 text: lock.now.toLocaleDateString(Qt.locale(), "dddd d MMMM")
                 color: Theme.muted
                 font { family: Theme.font; pixelSize: 18 }
+            }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: !isNaN(lock.nextAlarm.getTime())
+                // (the weekday too, when it isn't within the next day)
+                text: "󰀠 " + (lock.nextAlarm - lock.now < 20 * 3600 * 1000
+                              ? Qt.formatTime(lock.nextAlarm, "HH:mm")
+                              : lock.nextAlarm.toLocaleString(Qt.locale(), "ddd HH:mm"))
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 15 }
             }
             Item { width: 1; height: 18 }
             Text {

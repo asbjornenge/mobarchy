@@ -22,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import approval, bluetooth, browser, themes, camera, clipboard, clock, media, network, power, store, webapps
+from . import alarms, approval, bluetooth, browser, themes, camera, clipboard, clock, media, network, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -639,6 +639,71 @@ def set_network_time(enabled: bool) -> dict:
         return clock.set_network_time(enabled)
     except (RuntimeError, FileNotFoundError, subprocess.TimeoutExpired) as e:
         raise ToolError(f"could not change network time: {e}") from e
+
+
+# --- alarms and timers (ADR 0028): the shell rings them, over the lock screen ------------
+
+@tool(Risk.READ, "Alarms and timers")
+def alarm_list() -> dict:
+    """The alarms (time, days, label, on/off, when each rings next) and the running timers
+    (time left)."""
+    try:
+        return alarms.list_all()
+    except alarms.AlarmError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Set an alarm")
+def alarm_set(time: str, label: str = "", days: list[str] | None = None) -> dict:
+    """Set an alarm: the phone rings at that time of day (24 h, "07:30"), on the screen even
+    when locked, until the owner snoozes or stops it.
+
+    days: when it repeats: day names (mon..sun), "weekdays", "weekend" or "daily"; none: once,
+    at the next such time (then it turns itself off). label: what it is for, shown as it rings.
+    Returns when it rings next: tell the owner."""
+    try:
+        return alarms.add_alarm(time, label, days)
+    except alarms.AlarmError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Change an alarm")
+def alarm_update(alarm_id: str, time: str | None = None, label: str | None = None,
+                 days: list[str] | None = None, enabled: bool | None = None) -> dict:
+    """Change an alarm (by id, from alarm_list): its time, label or days, or turn it off or
+    on (enabled). What isn't given stays."""
+    try:
+        return alarms.update_alarm(alarm_id, time, label, days, enabled)
+    except alarms.AlarmError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Delete an alarm")
+def alarm_delete(alarm_id: str) -> dict:
+    """Delete an alarm (by id, from alarm_list)."""
+    try:
+        return alarms.delete_alarm(alarm_id)
+    except alarms.AlarmError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Start a timer")
+def timer_start(minutes: float = 0, seconds: int = 0, label: str = "") -> dict:
+    """Start a countdown ("10 minutes for the pasta"): the phone rings when it ends, as an
+    alarm does. label: what it is for."""
+    try:
+        return alarms.start_timer(round(minutes * 60) + seconds, label)
+    except alarms.AlarmError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Cancel a timer")
+def timer_cancel(timer_id: str) -> dict:
+    """Stop a running timer (by id, from alarm_list) before it rings."""
+    try:
+        return alarms.cancel_timer(timer_id)
+    except alarms.AlarmError as e:
+        raise ToolError(str(e)) from e
 
 
 @tool(Risk.CONFIRM, "Run shell command")

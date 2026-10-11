@@ -14,6 +14,7 @@ namespace {
 
 constexpr int ClickMs = 20;     // the buzz, when the device has no click of its own
 constexpr int TickMs = 10;
+constexpr int BuzzMs = 800;     // an alarm's, again and again
 
 bool testBit(const unsigned long *bits, int n)
 {
@@ -35,9 +36,10 @@ Haptics::~Haptics()
 }
 
 // One effect, uploaded: the device's waveform <name>_bank/<name>_index, else a buzz of
-// <ms> at <strength> (of full). -1 if it can't take it.
+// <ms> at <strength> (of full). timed: the device's waveform plays for <ms> too (a long
+// vibration), not its own length. -1 if it can't take it.
 static int upload(int fd, const unsigned long *ff, const QVariantMap &haptics, const QString &name, int ms,
-                  double strength)
+                  double strength, bool timed = false)
 {
     ff_effect effect = {};
     effect.id = -1;
@@ -49,6 +51,8 @@ static int upload(int fd, const unsigned long *ff, const QVariantMap &haptics, c
         effect.u.periodic.waveform = FF_CUSTOM;
         effect.u.periodic.custom_len = 2;
         effect.u.periodic.custom_data = custom;
+        if (timed)
+            effect.replay.length = uint16_t(ms);
     } else if (testBit(ff, FF_RUMBLE)) {
         effect.type = FF_RUMBLE;
         effect.u.rumble.strong_magnitude = uint16_t(0xc000 * strength);
@@ -93,6 +97,7 @@ bool Haptics::open()
         m_tick = upload(fd, ff, haptics, QStringLiteral("tick"), TickMs, 0.5);
         if (m_tick < 0)
             m_tick = m_click;
+        m_buzz = upload(fd, ff, haptics, QStringLiteral("buzz"), BuzzMs, 1.0, true);
         m_fd = fd;
         return true;
     }
@@ -109,6 +114,12 @@ void Haptics::tick()
 {
     if (open())
         play(m_tick);
+}
+
+void Haptics::buzz()
+{
+    if (open() && m_buzz >= 0)
+        play(m_buzz);
 }
 
 void Haptics::play(int effect)

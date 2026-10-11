@@ -19,7 +19,8 @@ qt_policy(SET QTP0004 NEW)  # qmldir files for the qml/ subdirectory
 
 # Parsers with no GUI dependencies, so the tests can link them alone.
 add_library(core STATIC src/desktopentry.cpp src/desktopentry.h src/deviceinfo.cpp src/deviceinfo.h
-    src/wpaparse.cpp src/wpaparse.h src/icontheme.cpp src/icontheme.h)
+    src/wpaparse.cpp src/wpaparse.h src/icontheme.cpp src/icontheme.h
+    src/alarmschedule.cpp src/alarmschedule.h)
 target_link_libraries(core PUBLIC Qt6::Core)
 
 qt_add_executable(mobarchy-shell src/main.cpp)
@@ -30,6 +31,7 @@ qt_add_qml_module(mobarchy-shell
     # (QtMultimedia: the types of C++ properties, e.g. CameraSource.videoSink, for qmllint)
     DEPENDENCIES QtMultimedia
     SOURCES
+        src/alarms.cpp src/alarms.h
         src/apps.cpp src/apps.h
         src/approvals.cpp src/approvals.h
         src/device.cpp src/device.h
@@ -81,6 +83,7 @@ qt_add_qml_module(mobarchy-shell
         qml/PinPad.qml
         qml/VolumeOsd.qml
         qml/WifiPassword.qml
+        qml/AlarmScreen.qml
         qml/ApprovalSheet.qml
         qml/AuthSheet.qml
         qml/ThemesApp.qml
@@ -96,6 +99,7 @@ qt_add_qml_module(mobarchy-shell
         qml/Rotation.qml
     RESOURCES
         data/emoji.json
+        data/sounds/alarm.wav
 )
 qt6_generate_wayland_protocol_client_sources(mobarchy-shell
     FILES
@@ -134,6 +138,9 @@ add_test(NAME deviceinfo COMMAND tst_deviceinfo)
 qt_add_executable(tst_wpaparse tests/tst_wpaparse.cpp)
 target_link_libraries(tst_wpaparse PRIVATE core Qt6::Test)
 add_test(NAME wpaparse COMMAND tst_wpaparse)
+qt_add_executable(tst_alarmschedule tests/tst_alarmschedule.cpp)
+target_link_libraries(tst_alarmschedule PRIVATE core Qt6::Test)
+add_test(NAME alarmschedule COMMAND tst_alarmschedule)
 qt_add_executable(tst_icontheme tests/tst_icontheme.cpp)
 target_link_libraries(tst_icontheme PRIVATE core Qt6::Test)
 add_test(NAME icontheme COMMAND tst_icontheme)
