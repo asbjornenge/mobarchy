@@ -14,8 +14,8 @@ import Mobarchy.Shell
 // with it), the screen behind blurred (a picture of it, taken as the finger touched the edge,
 // blurred once: a compositor's blur is worked out again for every frame, and halved the frame
 // rate as the cards moved); back down cancels it, and let
-// go it settles with the app in use in the middle. In a wide screen (the unfolded inner one)
-// the cards are a grid.
+// go it settles with the app in use in the middle. The same on the inner screen, its cards
+// as square as its windows.
 LayerWindow {
     id: switcher
 
@@ -33,7 +33,6 @@ LayerWindow {
     LayerShell.Window.exclusionZone: -1
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
-    readonly property bool wide: width > height * 0.85
     // 0 = gone, 1 = up; while the finger holds it, it follows the finger
     property real openness: 0
     property bool following: false
@@ -43,7 +42,8 @@ LayerWindow {
     // (how far off to the left, 0..1, 1 out of sight: a fraction, as the window may not have
     // its width yet when the gesture begins)
     property real away: 0
-    readonly property real peek: width
+    // (from the middle card's left edge to beyond the screen's)
+    readonly property real peek: row.middleLeft + row.cardWidth + width * 0.09
     // (while the finger holds it, it eases after the finger, so it slides in rather than
     // jumping to where the finger already is)
     Behavior on away {
@@ -183,34 +183,36 @@ LayerWindow {
         // sight). "Close all" after the oldest.
         ListView {
             id: row
-            visible: !switcher.wide
             // (anchored on the left with a margin, so the view itself moves)
             anchors { left: parent.left; verticalCenter: parent.verticalCenter
                       verticalCenterOffset: -20; leftMargin: -switcher.away * switcher.peek }
             width: parent.width
-            height: parent.height * 0.70
+            // (the cards as the screen is: tall on the outer screen, square on the inner)
+            height: Math.min(parent.height * 0.70, cardWidth * switcher.height / Math.max(1, switcher.width) + 42)
             orientation: ListView.Horizontal
             // Newest on the right: the view mirrored (and each card mirrored back). (A
             // right-to-left ListView doesn't keep its margins at the start.)
             transform: Scale { origin.x: row.width / 2; xScale: -1 }
-            readonly property real cardWidth: switcher.width * 0.62
+            readonly property real cardWidth: Math.min(switcher.width * 0.62, switcher.height * 0.55)
             spacing: -cardWidth * 0.25
             readonly property real step: cardWidth + spacing
             // Where a card's left edge is on the screen, q steps to the left of the middle
             // (negative: to the right). The view lays them out evenly; each is moved there.
-            readonly property real middleLeft: width * 0.29
+            // (in card widths, so a wide screen has the same stack, around the middle)
+            readonly property real middleLeft: (width - cardWidth) / 2 + cardWidth * 0.16
             // Further back, smaller: a carousel, the older ones behind (as iOS)
             function sizeAt(q) {
                 return 1 - 0.07 * Math.max(0, Math.min(3, q))
             }
             function leftEdge(q) {
+                const c = cardWidth
                 if (q <= 0)
-                    return middleLeft - q * width * 0.60   // the next: just in sight on the right
+                    return middleLeft - q * c * 0.97        // the next: just in sight on the right
                 if (q <= 1)
-                    return middleLeft + (width * 0.12 - middleLeft) * q
+                    return middleLeft - c * 0.28 * q
                 if (q <= 2)
-                    return width * (0.12 - 0.08 * (q - 1))
-                return width * (0.04 - 0.04 * (q - 2))     // then under the one before
+                    return middleLeft - c * (0.28 + 0.13 * (q - 1))
+                return middleLeft - c * (0.41 + 0.065 * (q - 2))   // then under the one before
             }
             leftMargin: (width - cardWidth) / 2
             rightMargin: (width - cardWidth) / 2
@@ -259,31 +261,6 @@ LayerWindow {
                 }
             }
         }
-        GridView {
-            id: grid
-            visible: switcher.wide
-            anchors { fill: parent; margins: 24; topMargin: 56; bottomMargin: 96 + switcher.insetBottom }
-            readonly property int columns: Math.max(2, Math.floor(width / 420))
-            cellWidth: width / columns
-            cellHeight: cellWidth * Math.min(1.4, switcher.height / switcher.width) + 44
-            model: switcher.toplevels
-            delegate: Item {
-                id: cell
-                required property int index
-                required property string title
-                required property string appId
-                required property bool activated
-                width: grid.cellWidth; height: grid.cellHeight
-                Card {
-                    anchors { fill: parent; margins: 12 }
-                    index: cell.index; title: cell.title; appId: cell.appId; activated: cell.activated
-                }
-            }
-            footer: Item {
-                width: grid.width; height: 96
-                CloseAll { anchors.centerIn: parent }
-            }
-        }
     }
 
     // The bar, under the finger while it holds the switcher (Edge.qml's, picked up)
@@ -295,31 +272,7 @@ LayerWindow {
         color: Theme.accent
     }
 
-    component CloseAll: Rectangle {
-        width: closeAllRow.implicitWidth + 36; height: 48; radius: 24
-        color: closeAllTap.pressed ? Theme.line : Theme.panel
-        border.color: Theme.line
-        Row {
-            id: closeAllRow
-            anchors.centerIn: parent
-            spacing: 10
-            Text { text: "󰅙"; color: Theme.muted; font { family: Theme.font; pixelSize: 18 }
-                   anchors.verticalCenter: parent.verticalCenter }
-            Text { text: qsTr("Close all"); color: Theme.fg; font { family: Theme.font; pixelSize: 14 }
-                   anchors.verticalCenter: parent.verticalCenter }
-        }
-        MouseArea {
-            id: closeAllTap
-            anchors.fill: parent
-            onClicked: {
-                for (let i = switcher.toplevels.count - 1; i >= 0; i--)
-                    switcher.toplevels.close(i)
-                switcher.close()
-            }
-        }
-    }
-
-    // (the same, small: in the strip left of the cards)
+    // "Close all": small, in the strip left of the cards
     component CloseAllRound: Column {
         spacing: 6
         Rectangle {
@@ -415,8 +368,14 @@ LayerWindow {
                 Image {
                     id: shot
                     anchors.fill: parent
-                    fillMode: Image.PreserveAspectCrop
-                    verticalAlignment: Image.AlignTop
+                    // A picture of about the card's shape fills it. One of another shape (taken
+                    // on the other screen, before a fold: a window out of sight isn't drawn
+                    // again at its new size until it is shown) is shown whole, in its own
+                    // shape, on the card's colour: not cut down to a corner of it.
+                    readonly property bool sameShape: implicitWidth > 0 && implicitHeight > 0 && height > 0
+                        && Math.abs(Math.log((implicitWidth / implicitHeight) / (width / height))) < 0.2
+                    fillMode: sameShape ? Image.PreserveAspectCrop : Image.PreserveAspectFit
+                    verticalAlignment: sameShape ? Image.AlignTop : Image.AlignVCenter
                     // (in memory already: at once, so a newer picture replaces the last one
                     // without a blank in between)
                     asynchronous: false
