@@ -111,9 +111,16 @@ void ToplevelModel::updated(Toplevel *t)
         m_recent.removeOne(t);
         m_recent.prepend(t);
     }
+    const bool was = m_active.contains(t);
+    if (t->activated())
+        m_active.insert(t);
+    else
+        m_active.remove(t);
     const int row = int(m_rows.indexOf(t));
     if (row < 0)
         return;
+    if (was && !t->activated())
+        emit deactivated(t->appId(), t->title());
     emit dataChanged(index(row), index(row));
     if (t->activated() && row > 0) {
         beginMoveRows({}, row, row, {}, 0);
@@ -127,6 +134,7 @@ void ToplevelModel::removed(Toplevel *t)
     qCDebug(lcToplevels) << "closed" << t << t->appId() << t->activated();
     const bool wasActive = t->activated();
     m_recent.removeOne(t);
+    m_active.remove(t);
     if (const int row = int(m_rows.indexOf(t)); row >= 0) {
         beginRemoveRows({}, row, row);
         m_rows.removeAt(row);
@@ -178,6 +186,15 @@ QVariant ToplevelModel::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> ToplevelModel::roleNames() const
 {
     return {{TitleRole, "title"}, {AppIdRole, "appId"}, {ActivatedRole, "activated"}};
+}
+
+QVariantList ToplevelModel::active() const
+{
+    QVariantList out;
+    for (const Toplevel *t : m_rows)
+        if (t->activated())
+            out << QVariantMap{{QStringLiteral("appId"), t->appId()}, {QStringLiteral("title"), t->title()}};
+    return out;
 }
 
 void ToplevelModel::activate(int row)

@@ -55,6 +55,18 @@ LayerWindow {
         NumberAnimation { duration: 200; easing.type: Easing.OutCubic }
     }
 
+    // Pictures: of the windows in front now, and of any not pictured yet (the others keep
+    // the one from when they left the front: see WindowCapture.capture).
+    function picture() {
+        for (const w of toplevels.active())
+            capture.capture(w.appId, w.title)
+        capture.captureMissing()
+    }
+    Connections {
+        target: switcher.toplevels
+        function onDeactivated(appId, title) { capture.capture(appId, title) }
+    }
+
     // --- the gesture (Edge.qml) ----------------------------------------------------------
     // A finger on the edge: the screen as it is, before anything comes up over it.
     function prepare(window) {
@@ -63,7 +75,7 @@ LayerWindow {
     function begin(distance) {
         settle.stop()
         glide.stop()
-        capture.captureAll()
+        picture()
         openness = 0
         away = 1
         shown = true
@@ -89,7 +101,7 @@ LayerWindow {
 
     function open() {
         if (!shown) {
-            capture.captureAll()
+            picture()
             shown = true
             toFront()
         }

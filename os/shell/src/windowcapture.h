@@ -20,6 +20,7 @@
 #include <QImage>
 #include <QMutex>
 #include <QObject>
+#include <QSet>
 #include <QQuickImageProvider>
 #include <QtQml/qqmlregistration.h>
 #include <QWindow>
@@ -110,8 +111,14 @@ public:
     int generation() const { return m_generation; }
     int screenGeneration() const { return m_screenGeneration; }
     bool supported() const;
-    // Takes a picture of every open window (each comes in as it's ready).
-    Q_INVOKABLE void captureAll();
+    // Takes a picture of a window (it comes in when it's ready). A window out of sight
+    // keeps the buffer it last drew, at its old size after a fold (Hyprland then scales it to
+    // the new size: squeezed); so windows are pictured as they leave the front
+    // (ToplevelModel.deactivated) and when in front, and a picture of another shape is
+    // the window as it last looked.
+    Q_INVOKABLE void capture(const QString &appId, const QString &title);
+    // ... of every window there is no picture of yet
+    Q_INVOKABLE void captureMissing();
     // Takes a picture of the screen the window is on (smaller: it is for a blurred
     // background).
     Q_INVOKABLE void captureScreen(QWindow *window);
@@ -138,6 +145,8 @@ private:
     wl_registry *m_registry = nullptr;
     wl_shm *m_shm = nullptr;
     QList<CaptureJob *> m_jobs;
+    QSet<QString> m_busy;        // windows a picture is being taken of
+    void start(ExtToplevel *t);
     mutable QMutex m_lock;      // (the image provider asks from QML's image thread)
     QHash<QString, QImage> m_pictures;
     int m_generation = 0;

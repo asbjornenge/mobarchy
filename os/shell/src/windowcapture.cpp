@@ -200,15 +200,37 @@ bool WindowCapture::supported() const
     return m_list->isActive() && m_sources->isActive() && m_copy->isActive();
 }
 
-void WindowCapture::captureAll()
+void WindowCapture::start(ExtToplevel *t)
 {
-    if (!supported() || !m_jobs.isEmpty())
+    if (m_busy.contains(t->key()))
         return;
-    for (ExtToplevel *t : std::as_const(m_list->toplevels)) {
-        auto *source = m_sources->create_source(t->object());
-        auto *job = new CaptureJob(this, t->key(), m_copy->create_session(source, 0), source);
-        m_jobs << job;
-    }
+    m_busy.insert(t->key());
+    auto *source = m_sources->create_source(t->object());
+    m_jobs << new CaptureJob(this, t->key(), m_copy->create_session(source, 0), source);
+}
+
+void WindowCapture::capture(const QString &appId, const QString &title)
+{
+    if (!supported())
+        return;
+    const QString key = appId + QLatin1Char('\n') + title;
+    for (ExtToplevel *t : std::as_const(m_list->toplevels))
+        if (t->key() == key)
+            start(t);
+}
+
+void WindowCapture::captureMissing()
+{
+    if (!supported())
+        return;
+    QMutexLocker locker(&m_lock);
+    QList<ExtToplevel *> missing;
+    for (ExtToplevel *t : std::as_const(m_list->toplevels))
+        if (!m_pictures.contains(t->key()))
+            missing << t;
+    locker.unlock();
+    for (ExtToplevel *t : std::as_const(missing))
+        start(t);
 }
 
 void WindowCapture::captureScreen(QWindow *window)
@@ -226,6 +248,8 @@ void WindowCapture::finished(CaptureJob *job, const QString &key, const QImage &
 {
     m_jobs.removeOne(job);
     const bool screen = job == m_screenJob;
+    if (!screen)
+        m_busy.remove(key);
     if (screen)
         m_screenJob = nullptr;
     // (not from inside the job's own callback)

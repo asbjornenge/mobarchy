@@ -6,6 +6,7 @@
 #include "qwayland-wlr-foreign-toplevel-management-unstable-v1.h"
 
 #include <QAbstractListModel>
+#include <QSet>
 #include <QtQml/qqmlregistration.h>
 #include <QtWaylandClient/QWaylandClientExtension>
 
@@ -83,10 +84,14 @@ public:
     // Switch to an app's most recent window (its app ID one of these, any case); false if
     // it has none open.
     Q_INVOKABLE bool activateApp(const QStringList &appIds);
+    // The windows in front now: [{appId, title}]
+    Q_INVOKABLE QVariantList active() const;
 
 signals:
     void countChanged();
     void supportedChanged();
+    // A window went from the front (another app came over it): its last look, as it was.
+    void deactivated(const QString &appId, const QString &title);
 
 private:
     void announced(Toplevel *t);
@@ -98,5 +103,6 @@ private:
 
     ToplevelManager *m_manager;
     QList<Toplevel *> m_rows;    // other apps' windows, most recently used first
+    QSet<Toplevel *> m_active;
     QList<Toplevel *> m_recent;  // all windows, the shell's included, most recently used first
 };
