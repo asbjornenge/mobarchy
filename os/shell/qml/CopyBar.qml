@@ -24,6 +24,14 @@ LayerWindow {
 
     property bool copied: false
     property string text: ""        // what is offered (the selection when it appeared)
+    // The on-screen keyboard: a selection that comes with typing is the app's own doing (a
+    // web page deletes a letter by selecting it), not the owner's.
+    property Keyboard keyboard
+    property real lastKey: 0
+    Connections {
+        target: bar.keyboard
+        function onEdited() { bar.lastKey = Date.now() }
+    }
 
     // Offer text for copying (the shell's own selections, e.g. in the conversation).
     function offer(text) {
@@ -45,6 +53,8 @@ LayerWindow {
                     bar.shown = false
                 return
             }
+            if (Date.now() - bar.lastKey < 600)
+                return
             bar.offer(selected)
         }
     }

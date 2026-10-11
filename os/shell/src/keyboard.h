@@ -87,6 +87,9 @@ signals:
     void activeChanged();
     void contentChanged();
     void supportedChanged();
+    // A key was pressed (typed, deleted, moved): an app's selection right after is its own
+    // doing (Chromium deletes by selecting first), not something to offer for copying.
+    void edited();
 
 private:
     friend class InputMethod;

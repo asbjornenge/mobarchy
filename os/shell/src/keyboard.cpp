@@ -165,6 +165,7 @@ void Keyboard::type(const QString &text)
 {
     if (text.isEmpty())
         return;
+    emit edited();
     if (m_active && m_im) {
         m_im->commit_string(text);
         m_im->commit(m_serial);
@@ -182,6 +183,7 @@ void Keyboard::type(const QString &text)
 
 void Keyboard::backspace()
 {
+    emit edited();
     const QString before = textBefore();
     if (m_active && m_im && !before.isEmpty()) {
         // one grapheme: a whole emoji, a letter with its combining marks
@@ -201,6 +203,7 @@ void Keyboard::backspace()
 
 void Keyboard::key(const QString &name)
 {
+    emit edited();
     static const QHash<QString, uint32_t> keys = {
         {QStringLiteral("Return"), XKB_KEY_Return}, {QStringLiteral("Tab"), XKB_KEY_Tab},
         {QStringLiteral("Left"), XKB_KEY_Left},     {QStringLiteral("Right"), XKB_KEY_Right},

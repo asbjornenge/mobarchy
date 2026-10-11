@@ -32,7 +32,7 @@ QtObject {
     }
     readonly property Keyboard keyboard: Keyboard {}
     readonly property Clipboard clipboard: Clipboard {}
-    readonly property CopyBar copyBar: CopyBar { clipboard: shell.clipboard }
+    readonly property CopyBar copyBar: CopyBar { clipboard: shell.clipboard; keyboard: shell.keyboard }
     readonly property KeyboardPanel keyboardPanel: KeyboardPanel {
         keyboard: shell.keyboard
         clipboard: shell.clipboard
