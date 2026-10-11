@@ -139,7 +139,8 @@ QtObject {
     readonly property Timer lockTimeout: Timer {
         interval: 10000
         running: shell.lockScreen.shown && shell.screen.on && !shell.alarms.ringing
-        onTriggered: if (shell.lockScreen.shown) shell.screen.on = false
+        // (not while an alarm rings: wake() restarts this, which ends the binding above)
+        onTriggered: if (shell.lockScreen.shown && !shell.alarms.ringing) shell.screen.on = false
     }
 
     // Volume keys: 5 % steps; the bar shows only when the screen is on.
@@ -184,7 +185,7 @@ QtObject {
         screen.on = true
         // Only the lock screen goes dark again by itself. (A fold wakes an unlocked phone
         // too: restarting the timer then turned the screen off 10 s later, video or not.)
-        if (lockScreen.shown)
+        if (lockScreen.shown && !alarms.ringing)
             lockTimeout.restart()
     }
 
@@ -223,6 +224,8 @@ QtObject {
     // Alarms and timers (ADR 0028): ringing wakes the screen, over the lock screen.
     readonly property Alarms alarms: Alarms {
         onStarted: shell.wake()
+        // stopped on the lock screen: dark again soon, as after any glance
+        onRingingChanged: if (!ringing && shell.lockScreen.shown && shell.screen.on) shell.lockTimeout.restart()
     }
     readonly property AlarmScreen alarmScreen: AlarmScreen {
         alarms: shell.alarms

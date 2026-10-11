@@ -108,6 +108,8 @@ void Alarms::check()
             file[QStringLiteral("alarms")] = alarms;
         });
         const bool was = ringing();
+        for (const auto &d : std::as_const(fresh))
+            qInfo("alarms: ringing %s %s %s", qPrintable(d.kind), qPrintable(d.id), qPrintable(d.label));
         m_queue << fresh;
         emit ringingChanged();
         if (!was)
