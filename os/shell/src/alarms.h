@@ -27,6 +27,13 @@ class Alarms : public QObject
     // The next alarm to ring (not timers), for the lock screen and the status bar
     Q_PROPERTY(QDateTime nextAlarm READ nextAlarm NOTIFY changed)
     Q_PROPERTY(int snoozeMinutes READ snoozeMinutes CONSTANT)
+    // The Clock app's: its own instance, which shows and changes them but leaves the
+    // ringing to the shell's.
+    Q_PROPERTY(bool ringer READ ringer WRITE setRinger NOTIFY ringerChanged)
+    // [{id, time, days: [1..7], label, enabled, next}], by time of day
+    Q_PROPERTY(QVariantList alarmList READ alarmList NOTIFY listChanged)
+    // [{id, label, ends, duration}], the soonest first
+    Q_PROPERTY(QVariantList timerList READ timerList NOTIFY listChanged)
 
 public:
     explicit Alarms(QObject *parent = nullptr);
@@ -38,6 +45,20 @@ public:
     QDateTime nextAlarm() const { return m_nextAlarm; }
 
     int snoozeMinutes() const { return 9; }
+    bool ringer() const { return m_ringer; }
+    void setRinger(bool ringer);
+    QVariantList alarmList() const;
+    QVariantList timerList() const;
+
+    // The Clock app's changes (as the agent's tools make them). time: "HH:mm"; days: ISO
+    // weekdays, none for once.
+    Q_INVOKABLE void addAlarm(const QString &time, const QString &label, const QVariantList &days);
+    Q_INVOKABLE void updateAlarm(const QString &id, const QString &time, const QString &label,
+                                 const QVariantList &days);
+    Q_INVOKABLE void setEnabled(const QString &id, bool enabled);
+    Q_INVOKABLE void removeAlarm(const QString &id);
+    Q_INVOKABLE void startTimer(int seconds, const QString &label);
+    Q_INVOKABLE void cancelTimer(const QString &id);
     // The one ringing: again in a few minutes (an alarm), or no more.
     Q_INVOKABLE void snooze();
     Q_INVOKABLE void dismiss();
@@ -45,6 +66,8 @@ public:
 signals:
     void ringingChanged();
     void changed();
+    void listChanged();
+    void ringerChanged();
     // a ring has begun: wake the screen
     void started();
 
@@ -56,10 +79,13 @@ private:
     void reload();
     void check();
     void pop();
+    // changes the alarm with this id (alarms.py's update: from now on, no snooze)
+    void changeAlarm(const QString &id, const std::function<void(QJsonObject &)> &change);
 
     QFileSystemWatcher m_watcher;
     QTimer m_timer;
     QJsonObject m_file;
     QList<alarmschedule::Due> m_queue;
     QDateTime m_nextAlarm;
+    bool m_ringer = true;
 };

@@ -1,6 +1,6 @@
 # 0028: Alarms and timers, rung by the shell
 
-- Status: accepted (the Clock app to come)
+- Status: accepted
 - Date: 2026-10-11
 
 ## Context
@@ -58,5 +58,7 @@ their labels can be personal.
   in a restart comes late rather than never.
 - If Mobarchy gets real suspend, the shell has to set an RTC wake alarm for the next ring
   first (a system helper: the session has no `CAP_WAKE_ALARM`).
-- A Clock app (list, add, edit, timers) writes the same file; until then, alarms are set
-  and changed through the agent.
+- The Clock app (`mobarchy-shell --clock`, `ClockApp.qml`) writes the same file through its
+  own `Alarms` instance (`ringer: false`: it shows and changes, the shell's rings): the
+  alarms with a switch each, an editor (time on wheels, days, label, delete), and the timers
+  (running ones counting down, quick ones, a time on wheels).

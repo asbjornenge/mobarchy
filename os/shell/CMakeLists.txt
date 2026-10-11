@@ -87,6 +87,8 @@ qt_add_qml_module(mobarchy-shell
         qml/ApprovalSheet.qml
         qml/AuthSheet.qml
         qml/ThemesApp.qml
+        qml/ClockApp.qml
+        qml/Wheel.qml
         qml/TalkOverlay.qml
         qml/AppSwitcher.qml
         qml/FriggSettings.qml
@@ -122,9 +124,9 @@ include(GNUInstallDirs)
 install(TARGETS mobarchy-shell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # The app ID of the shell's windows (portals look it up).
 install(FILES data/org.mobarchy.Shell.desktop data/org.mobarchy.Store.desktop data/org.mobarchy.Camera.desktop
-              data/org.mobarchy.Themes.desktop
+              data/org.mobarchy.Themes.desktop data/org.mobarchy.Clock.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(FILES data/org.mobarchy.Store.svg data/org.mobarchy.Camera.svg data/org.mobarchy.Themes.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+install(FILES data/org.mobarchy.Store.svg data/org.mobarchy.Camera.svg data/org.mobarchy.Themes.svg data/org.mobarchy.Clock.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 # The themes that come with Mobarchy (ADR 0025).
 install(DIRECTORY data/themes/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mobarchy/themes FILES_MATCHING PATTERN "*.json")
 

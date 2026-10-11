@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Clock
+Comment=Alarms and timers
+Exec=mobarchy-shell --clock
+Icon=org.mobarchy.Clock
+Categories=Utility;Clock;

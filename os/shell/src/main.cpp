@@ -3,6 +3,7 @@
 //   mobarchy-shell --store    the app store (ADR 0012), an app of its own
 //   mobarchy-shell --camera   the camera (ADR 0018), an app of its own
 //   mobarchy-shell --themes   the themes (ADR 0025), an app of its own
+//   mobarchy-shell --clock    alarms and timers (ADR 0028), an app of its own
 #include "iconprovider.h"
 #include "windowcapture.h"
 
@@ -25,6 +26,7 @@ int main(int argc, char *argv[])
         {"--store", "org.mobarchy.Store", "mobarchy-store", "Store"},
         {"--camera", "org.mobarchy.Camera", "mobarchy-camera", "CameraApp"},
         {"--themes", "org.mobarchy.Themes", "mobarchy-themes", "ThemesApp"},
+        {"--clock", "org.mobarchy.Clock", "mobarchy-clock", "ClockApp"},
     };
     const App *own = nullptr;
     for (const App &a : apps)

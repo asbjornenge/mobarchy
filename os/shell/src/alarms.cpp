@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
+#include <QRandomGenerator>
 #include <QSaveFile>
 #include <QStandardPaths>
 
@@ -36,7 +37,8 @@ Alarms::Alarms(QObject *parent)
     m_watcher.addPath(QFileInfo(path()).absolutePath());
     connect(&m_watcher, &QFileSystemWatcher::directoryChanged, this, &Alarms::reload);
     connect(&m_watcher, &QFileSystemWatcher::fileChanged, this, &Alarms::reload);
-    reload();
+    // (once QML has set the properties: the Clock app's instance isn't a ringer)
+    QTimer::singleShot(0, this, &Alarms::reload);
 }
 
 QString Alarms::path() const
@@ -70,6 +72,7 @@ void Alarms::modify(const std::function<void(QJsonObject &)> &change)
     if (lock >= 0)
         ::close(lock);
     m_file = file;
+    emit listChanged();
 }
 
 void Alarms::reload()
@@ -77,13 +80,14 @@ void Alarms::reload()
     if (QFile::exists(path()) && !m_watcher.files().contains(path()))
         m_watcher.addPath(path());
     m_file = read();
+    emit listChanged();
     check();
 }
 
 void Alarms::check()
 {
     const QDateTime now = QDateTime::currentDateTime();
-    const auto due = alarmschedule::due(m_file, now);
+    const auto due = m_ringer ? alarmschedule::due(m_file, now) : QList<alarmschedule::Due>();
     QList<alarmschedule::Due> fresh;
     for (const auto &d : due) {
         const bool queued = std::any_of(m_queue.cbegin(), m_queue.cend(), [&](const alarmschedule::Due &q) {
@@ -180,5 +184,166 @@ void Alarms::dismiss()
         file[QStringLiteral("alarms")] = alarms;
     });
     pop();
+    check();
+}
+
+// --- the Clock app's -----------------------------------------------------------------
+
+namespace {
+
+QString newId()
+{
+    return QString::number(QRandomGenerator::global()->bounded(0x1000000), 16).rightJustified(6, u'0');
+}
+
+QJsonArray isoDays(const QVariantList &days)
+{
+    QList<int> sorted;
+    for (const QVariant &d : days)
+        if (d.toInt() >= 1 && d.toInt() <= 7 && !sorted.contains(d.toInt()))
+            sorted << d.toInt();
+    std::sort(sorted.begin(), sorted.end());
+    QJsonArray out;
+    for (int d : sorted)
+        out << d;
+    return out;
+}
+
+}  // namespace
+
+void Alarms::setRinger(bool ringer)
+{
+    if (ringer == m_ringer)
+        return;
+    m_ringer = ringer;
+    emit ringerChanged();
+    check();
+}
+
+QVariantList Alarms::alarmList() const
+{
+    const QDateTime now = QDateTime::currentDateTime();
+    QList<QVariantMap> list;
+    for (const QJsonValue &v : m_file.value(QStringLiteral("alarms")).toArray()) {
+        const QJsonObject a = v.toObject();
+        QVariantMap m = a.toVariantMap();
+        const auto next = alarmschedule::nextRing(a, now);
+        m[QStringLiteral("next")] = next ? *next : QDateTime();
+        m[QStringLiteral("enabled")] = a.value(QStringLiteral("enabled")).toBool(true);
+        list << m;
+    }
+    std::sort(list.begin(), list.end(), [](const QVariantMap &x, const QVariantMap &y) {
+        return x.value(QStringLiteral("time")).toString() < y.value(QStringLiteral("time")).toString();
+    });
+    QVariantList out;
+    for (const auto &m : std::as_const(list))
+        out << m;
+    return out;
+}
+
+QVariantList Alarms::timerList() const
+{
+    QList<QVariantMap> list;
+    for (const QJsonValue &v : m_file.value(QStringLiteral("timers")).toArray()) {
+        const QJsonObject t = v.toObject();
+        list << QVariantMap{{QStringLiteral("id"), t.value(QStringLiteral("id")).toString()},
+                            {QStringLiteral("label"), t.value(QStringLiteral("label")).toString()},
+                            {QStringLiteral("ends"), QDateTime::fromMSecsSinceEpoch(qint64(t.value(QStringLiteral("ends")).toDouble() * 1000))},
+                            {QStringLiteral("duration"), t.value(QStringLiteral("duration_s")).toInt()}};
+    }
+    std::sort(list.begin(), list.end(), [](const QVariantMap &x, const QVariantMap &y) {
+        return x.value(QStringLiteral("ends")).toDateTime() < y.value(QStringLiteral("ends")).toDateTime();
+    });
+    QVariantList out;
+    for (const auto &m : std::as_const(list))
+        out << m;
+    return out;
+}
+
+void Alarms::addAlarm(const QString &time, const QString &label, const QVariantList &days)
+{
+    if (!QTime::fromString(time, QStringLiteral("HH:mm")).isValid())
+        return;
+    modify([&](QJsonObject &file) {
+        QJsonArray alarms = file.value(QStringLiteral("alarms")).toArray();
+        alarms << QJsonObject{{QStringLiteral("id"), newId()}, {QStringLiteral("time"), time},
+                              {QStringLiteral("days"), isoDays(days)}, {QStringLiteral("label"), label.left(80)},
+                              {QStringLiteral("enabled"), true}, {QStringLiteral("created"), epochNow()},
+                              {QStringLiteral("snoozed_until"), QJsonValue::Null},
+                              {QStringLiteral("last_rung"), QJsonValue::Null}};
+        file[QStringLiteral("alarms")] = alarms;
+    });
+    check();
+}
+
+void Alarms::changeAlarm(const QString &id, const std::function<void(QJsonObject &)> &change)
+{
+    modify([&](QJsonObject &file) {
+        QJsonArray alarms = file.value(QStringLiteral("alarms")).toArray();
+        for (qsizetype i = 0; i < alarms.size(); ++i) {
+            QJsonObject a = alarms[i].toObject();
+            if (a.value(QStringLiteral("id")).toString() == id) {
+                change(a);
+                a[QStringLiteral("created")] = epochNow();
+                a[QStringLiteral("snoozed_until")] = QJsonValue::Null;
+            }
+            alarms[i] = a;
+        }
+        file[QStringLiteral("alarms")] = alarms;
+    });
+    check();
+}
+
+void Alarms::updateAlarm(const QString &id, const QString &time, const QString &label, const QVariantList &days)
+{
+    if (!QTime::fromString(time, QStringLiteral("HH:mm")).isValid())
+        return;
+    changeAlarm(id, [&](QJsonObject &a) {
+        a[QStringLiteral("time")] = time;
+        a[QStringLiteral("label")] = label.left(80);
+        a[QStringLiteral("days")] = isoDays(days);
+        a[QStringLiteral("enabled")] = true;
+    });
+}
+
+void Alarms::setEnabled(const QString &id, bool enabled)
+{
+    changeAlarm(id, [&](QJsonObject &a) { a[QStringLiteral("enabled")] = enabled; });
+}
+
+void Alarms::removeAlarm(const QString &id)
+{
+    modify([&](QJsonObject &file) {
+        QJsonArray alarms = file.value(QStringLiteral("alarms")).toArray();
+        for (qsizetype i = alarms.size() - 1; i >= 0; --i)
+            if (alarms[i].toObject().value(QStringLiteral("id")).toString() == id)
+                alarms.removeAt(i);
+        file[QStringLiteral("alarms")] = alarms;
+    });
+    check();
+}
+
+void Alarms::startTimer(int seconds, const QString &label)
+{
+    if (seconds < 1 || seconds > 7 * 24 * 3600)
+        return;
+    modify([&](QJsonObject &file) {
+        QJsonArray timers = file.value(QStringLiteral("timers")).toArray();
+        timers << QJsonObject{{QStringLiteral("id"), newId()}, {QStringLiteral("label"), label.left(80)},
+                              {QStringLiteral("ends"), epochNow() + seconds}, {QStringLiteral("duration_s"), seconds}};
+        file[QStringLiteral("timers")] = timers;
+    });
+    check();
+}
+
+void Alarms::cancelTimer(const QString &id)
+{
+    modify([&](QJsonObject &file) {
+        QJsonArray timers = file.value(QStringLiteral("timers")).toArray();
+        for (qsizetype i = timers.size() - 1; i >= 0; --i)
+            if (timers[i].toObject().value(QStringLiteral("id")).toString() == id)
+                timers.removeAt(i);
+        file[QStringLiteral("timers")] = timers;
+    });
     check();
 }
