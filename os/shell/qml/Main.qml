@@ -120,6 +120,7 @@ QtObject {
         onMediaPause: shell.media.pause()
         onMediaNext: shell.media.next()
         onMediaPrevious: shell.media.previous()
+        onScreenshot: shell.screenshot.take()
         onPowerLongPressed: {
             shell.wake()
             if (!shell.lockScreen.shown)
@@ -220,6 +221,15 @@ QtObject {
         // a finger unlocks a dark screen too: it comes on
         onFingerUnlocked: shell.screen.on = true
     }
+
+    // Power and volume down together: a screenshot, saved; a flash and a click when it is.
+    readonly property Screenshot screenshot: Screenshot {
+        onTaken: {
+            shell.haptics.click()
+            shell.flash.go()
+        }
+    }
+    readonly property ScreenFlash flash: ScreenFlash {}
 
     // Alarms and timers (ADR 0028): ringing wakes the screen, over the lock screen.
     readonly property Alarms alarms: Alarms {

@@ -54,6 +54,7 @@ qt_add_qml_module(mobarchy-shell
         src/polkitagent.cpp src/polkitagent.h
         src/rfkill.cpp src/rfkill.h
         src/screenpower.cpp src/screenpower.h
+        src/screenshot.cpp src/screenshot.h
         src/wifi.cpp src/wifi.h
         src/systemstatus.cpp src/systemstatus.h
         src/talk.cpp src/talk.h
@@ -84,6 +85,7 @@ qt_add_qml_module(mobarchy-shell
         qml/VolumeOsd.qml
         qml/WifiPassword.qml
         qml/AlarmScreen.qml
+        qml/ScreenFlash.qml
         qml/ApprovalSheet.qml
         qml/AuthSheet.qml
         qml/ThemesApp.qml

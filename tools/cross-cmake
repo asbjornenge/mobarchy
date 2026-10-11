@@ -3,12 +3,17 @@
 # on this PC, and package it with its PKGBUILD. Minutes, where tools/pkg-build's container
 # under qemu-user takes a quarter of an hour (and building on the phone heats it up).
 #
-#   tools/cross-cmake <package dir> --work <dir> [--repo <dir>] [--fresh]
+#   tools/cross-cmake <package dir> --work <dir> [--repo <dir>] [--fresh] [--device <user@host>]
 #
 #   --work   where the sysroot and the build tree go (a few GB)
 #   --repo   Mobarchy's repository: the package is added to it (tools/repo-build --add)
 #   --fresh  make the sysroot again (it is kept, and made again when the package's
 #            dependencies change)
+#   --device the phone the package is for (ssh, the device key ~/.config/mobarchy/device_ed25519):
+#            the sysroot's libraries and headers are copied from it, so the package is built
+#            against exactly what it runs (Arch Linux ARM's mirrors move on, and are not always
+#            in step with each other). The compiler's (gcc, libstdc++) still come from the
+#            container; the device's gcc-libs has to be the same version (checked).
 #
 # As os/packages/qt6-webengine/cross-build does it (Qt's cross-compiling): an Arch Linux ARM
 # sysroot with the package's dependencies (the mobarchy-alarm-base container, exported); an
@@ -18,12 +23,13 @@
 # tree (makepkg -R).
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-pkgdir="" work="" repo="" fresh=0
+pkgdir="" work="" repo="" fresh=0 device=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --work) work="$(realpath -m "$2")"; shift 2 ;;
         --repo) repo="$(realpath -m "$2")"; shift 2 ;;
         --fresh) fresh=1; shift ;;
+        --device) device="$2"; shift 2 ;;
         -*) echo "unknown argument: $1" >&2; exit 2 ;;
         *) pkgdir="$(realpath "$1")"; shift ;;
     esac
@@ -42,22 +48,55 @@ t0=$(date +%s)
 say() { echo "== $* ($(( $(date +%s) - t0 )) s)"; }
 
 # --- the target's root: the package's dependencies for aarch64 ---------------------------
-if [ $fresh = 1 ] || [ "$(cat "$work/sysroot.deps" 2>/dev/null)" != "$deps" ] || [ ! -d "$sysroot/usr" ]; then
-    say "sysroot: $deps"
+ssh_device() {
+    ssh -i ~/.config/mobarchy/device_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+        -o LogLevel=ERROR -o ConnectTimeout=10 "$device" "$@"
+}
+sysroot_key="$deps${device:+ device:$device}"
+if [ $fresh = 1 ] || [ "$(cat "$work/sysroot.deps" 2>/dev/null)" != "$sysroot_key" ] || [ ! -d "$sysroot/usr" ]; then
+    say "sysroot: $deps${device:+ (libraries from $device)}"
+    # from the device: only the compiler from the container (the rest it has itself)
+    container_pkgs="gcc pkgconf linux-api-headers $deps"
+    if [ -n "$device" ]; then
+        # (what it runs with: its makedepends, e.g. pkgconf, come from the container)
+        missing=$(ssh_device "pacman -T $(pkgvar 'echo ${depends[@]}')" || true)
+        [ -z "$missing" ] || { echo "not installed on $device: $missing" >&2; exit 1; }
+        container_pkgs="gcc pkgconf linux-api-headers $(pkgvar 'echo ${makedepends[@]}' | tr ' ' '\n' | grep -vxE 'cmake|ninja' | tr '\n' ' ')"
+    fi
     docker rm -f "$name-sysroot" >/dev/null 2>&1 || true
     docker run --name "$name-sysroot" --platform linux/arm64 "$alarm_image" bash -c "
         pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
         for i in 1 2 3; do
-            pacman -Syu --noconfirm --needed --disable-sandbox gcc pkgconf linux-api-headers $deps >/tmp/p.log 2>&1 && exit 0
+            pacman -Sy --noconfirm --needed --disable-sandbox $container_pkgs >/tmp/p.log 2>&1 && exit 0
             sleep 30
         done
         tail -20 /tmp/p.log; exit 1"
-    [ ! -d "$sysroot" ] || { chmod -R u+w "$sysroot" && rm -rf "$sysroot"; }
+    # (as root: the container's tree has a few directories only root may enter)
+    [ ! -d "$sysroot" ] || docker run --rm -v "$work:/w" "$alarm_image" rm -rf /w/sysroot
     mkdir -p "$sysroot"
     docker export "$name-sysroot" | tar -x -C "$sysroot" --anchored --exclude='dev/*' --exclude='proc/*' \
         --exclude='sys/*' --exclude='var/cache/pacman/pkg/*' 2>/dev/null || true
     docker rm "$name-sysroot" >/dev/null
-    echo "$deps" > "$work/sysroot.deps"
+    if [ -n "$device" ]; then
+        here_gcc=$(grep -h -A1 '^%VERSION%' "$sysroot"/var/lib/pacman/local/gcc-[0-9]*/desc | tail -1)
+        there_gcc=$(ssh_device "pacman -Q gcc-libs" | awk '{print $2}')
+        [ "$here_gcc" = "$there_gcc" ] || {
+            echo "the container's gcc is $here_gcc, $device's gcc-libs $there_gcc: not the same" >&2; exit 1; }
+        # its headers, libraries, CMake and pkg-config files, Qt's modules, and its package
+        # database (which Qt it has)
+        rsync -a --delete-after -e "ssh -i $HOME/.config/mobarchy/device_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR" \
+            --exclude='/lib/firmware' --exclude='/lib/modules' --exclude='/lib/python3*' \
+            --exclude='/lib/mobarchy' --exclude='/lib/node_modules' --exclude='/lib/debug' \
+            --exclude='/include/c++' --exclude='/lib/gcc' \
+            --ignore-errors "$device:/usr/include" "$device:/usr/lib" "$sysroot/usr/" \
+            || [ $? = 23 ]  # (a few files only root may read, e.g. ssh-keysign: not needed)
+        rsync -a -e "ssh -i $HOME/.config/mobarchy/device_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR" \
+            "$device:/usr/share/pkgconfig" "$device:/usr/share/wayland" "$device:/usr/share/wayland-protocols" \
+            "$device:/usr/share/qt6" "$sysroot/usr/share/" 2>/dev/null || true
+        rsync -a --delete -e "ssh -i $HOME/.config/mobarchy/device_ed25519 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR" \
+            "$device:/var/lib/pacman/local/" "$sysroot/var/lib/pacman/local/"
+    fi
+    echo "$sysroot_key" > "$work/sysroot.deps"
     rm -rf "$build"
 fi
 target_qt=$(grep -m1 -A1 '^%VERSION%' "$sysroot"/var/lib/pacman/local/qt6-base-*/desc | tail -1)

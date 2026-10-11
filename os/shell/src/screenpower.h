@@ -143,8 +143,10 @@ signals:
     void mediaPause();
     void mediaNext();
     void mediaPrevious();
+    void screenshot();        // power and volume down pressed together (as on Android)
 
 private:
+    void combo();
     void scan();        // open input devices with the keys we handle, new ones included
     bool read(int fd);  // false: the device is gone
 
@@ -153,5 +155,9 @@ private:
     QTimer m_rescan;
     QTimer m_powerHold;
     QTimer m_volumeRepeat;
+    QTimer m_volumeDownDelay;
     int m_volumeKey = 0;  // the volume key being held
+    bool m_powerDown = false;
+    bool m_volumeDownDown = false;
+    bool m_combo = false;    // power and volume down: neither does its own thing until both are up
 };

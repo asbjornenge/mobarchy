@@ -141,6 +141,14 @@ HardwareKeys::HardwareKeys(QObject *parent)
         m_volumeKey == KEY_VOLUMEUP ? emit volumeUp() : emit volumeDown();
     });
 
+    m_volumeDownDelay.setSingleShot(true);
+    m_volumeDownDelay.setInterval(150);
+    connect(&m_volumeDownDelay, &QTimer::timeout, this, [this] {
+        emit volumeDown();
+        m_volumeRepeat.setInterval(250);
+        m_volumeRepeat.start();
+    });
+
     // Devices come and go (a Bluetooth headset's buttons appear when it connects).
     m_rescan.setSingleShot(true);
     m_rescan.setInterval(300);  // udev gives the session user access just after the node appears
@@ -199,10 +207,19 @@ bool HardwareKeys::read(int fd)
             continue;
         if (ev.code == KEY_POWER) {
             if (ev.value == 1) {
-                m_powerHold.start();
-            } else if (ev.value == 0 && m_powerHold.isActive()) {
-                m_powerHold.stop();
-                emit powerPressed();
+                m_powerDown = true;
+                if (m_volumeDownDown)
+                    combo();
+                else
+                    m_powerHold.start();
+            } else if (ev.value == 0) {
+                m_powerDown = false;
+                if (m_combo) {
+                    m_combo = m_volumeDownDown;
+                } else if (m_powerHold.isActive()) {
+                    m_powerHold.stop();
+                    emit powerPressed();
+                }
             }
         } else if (ev.value == 1 && (ev.code == KEY_PLAYPAUSE || ev.code == KEY_PLAYCD)) {
             // A headset's "play" is a toggle: it doesn't know the player's state.
@@ -216,17 +233,45 @@ bool HardwareKeys::read(int fd)
         } else if (ev.code == KEY_WAKEUP) {
             if (ev.value == 1)
                 emit wakeGesture();
+        } else if (ev.code == KEY_VOLUMEDOWN && ev.value == 1 && m_powerDown) {
+            m_volumeDownDown = true;
+            combo();
         } else if (ev.code == KEY_VOLUMEUP || ev.code == KEY_VOLUMEDOWN) {
+            if (ev.code == KEY_VOLUMEDOWN && ev.value != 2)
+                m_volumeDownDown = ev.value == 1;
+            if (ev.code == KEY_VOLUMEDOWN && ev.value == 0 && m_combo)
+                m_combo = m_powerDown;
             if (ev.value == 1) {
                 m_volumeKey = ev.code;
-                ev.code == KEY_VOLUMEUP ? emit volumeUp() : emit volumeDown();
-                m_volumeRepeat.setInterval(400);
-                m_volumeRepeat.start();
+                if (ev.code == KEY_VOLUMEDOWN) {
+                    // (a moment first: with power just after, it's a screenshot, not a step)
+                    m_volumeDownDelay.start();
+                } else {
+                    emit volumeUp();
+                    m_volumeRepeat.setInterval(400);
+                    m_volumeRepeat.start();
+                }
             } else if (ev.value == 0 && ev.code == m_volumeKey) {
+                if (m_volumeDownDelay.isActive()) {
+                    m_volumeDownDelay.stop();
+                    emit volumeDown();
+                }
                 m_volumeRepeat.stop();
                 m_volumeKey = 0;
             }
         }
     }
     return n >= 0 || errno == EAGAIN || errno == EINTR;
+}
+
+void HardwareKeys::combo()
+{
+    if (m_combo)
+        return;
+    m_combo = true;
+    m_powerHold.stop();
+    m_volumeDownDelay.stop();
+    m_volumeRepeat.stop();
+    m_volumeKey = 0;
+    emit screenshot();
 }
