@@ -18,6 +18,21 @@ Window {
     property var tabs: []
     property int index: 0
     readonly property var current: tabs.length > index ? tabs[index] : null
+
+    // Back in front after a while behind another app: the page shown again. QtWebEngine
+    // only counts the view hidden, not the window under another, and on the phone's GPU a
+    // page left behind for a while came back black until touched; hidden and shown again,
+    // Chromium draws it anew (as a tab switched back to).
+    property bool reshowing: false
+    property real inactiveSince: 0
+    onActiveChanged: {
+        if (!active) {
+            inactiveSince = Date.now()
+        } else if (inactiveSince > 0 && Date.now() - inactiveSince > 2000) {
+            reshowing = true
+            Qt.callLater(() => win.reshowing = false)
+        }
+    }
     property bool desktopSite: false
     property bool barShown: true
     readonly property string searchUrl: "https://duckduckgo.com/?q="
@@ -86,7 +101,7 @@ Window {
             // The bar floats over the page: a page that changed size with the bar would be
             // laid out again on every swipe that shows or hides it, and jump.
             anchors.fill: parent
-            visible: win.current === view
+            visible: win.current === view && !win.reshowing
             profile: profile
             settings.scrollAnimatorEnabled: true
             settings.fullScreenSupportEnabled: true

@@ -37,9 +37,23 @@ Window {
         Component.onCompleted: httpUserAgent = win.mobileAgent(httpUserAgent)
     }
 
+    // Back in front after a while behind another app: the page shown again (as in the
+    // browser, Main.qml: else it can come back black until touched).
+    property bool reshowing: false
+    property real inactiveSince: 0
+    onActiveChanged: {
+        if (!active) {
+            inactiveSince = Date.now()
+        } else if (inactiveSince > 0 && Date.now() - inactiveSince > 2000) {
+            reshowing = true
+            Qt.callLater(() => win.reshowing = false)
+        }
+    }
+
     WebEngineView {
         id: view
         anchors.fill: parent
+        visible: !win.reshowing
         profile: profile
         url: BrowserBus.startUrls()[0]
         settings.scrollAnimatorEnabled: true
@@ -75,6 +89,7 @@ Window {
         WebEngineView {
             id: popupView
             anchors { fill: parent; topMargin: 44 }
+            visible: !win.reshowing
             profile: profile
             onWindowCloseRequested: popup.visible = false
             onNewWindowRequested: (request) => request.openIn(popupView)
