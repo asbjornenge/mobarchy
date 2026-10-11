@@ -23,12 +23,15 @@ The shell is already Qt Quick (ADR 0009), in Mobarchy's theme.
   the compositor:
   - When a text field gets focus (text-input-v3 in GTK, Qt, Firefox and foot), it learns
     the field's purpose and the text around the cursor.
-  - It types with commit_string and deletes whole graphemes (an emoji, an accented
-    letter) with delete_surrounding_text.
+  - It types with commit_string. (Deleting went through delete_surrounding_text at first;
+    Chromium reports its text a step late and dropped the first deletion after typing, so
+    BackSpace is a key now, below: every toolkit deletes a whole grapheme for it.) A report
+    of the field's text that is one of the keyboard's own earlier states is a late one,
+    and doesn't overwrite what the keyboard knows it typed.
 - **Keys that are actions go through virtual-keyboard-unstable-v1,** with a Norwegian xkb
   keymap:
   - Return, arrows and Tab.
-  - BackSpace when a field doesn't share its text (terminals).
+  - BackSpace.
   - All typing when no field speaks text-input.
 - **The keyboard is QML** (`KeyboardPanel.qml`): a top-layer surface with an exclusive
   zone, so apps make room.

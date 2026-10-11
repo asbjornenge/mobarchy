@@ -112,6 +112,11 @@ private:
     bool m_manual = false;         // the owner showed it with no field focused
     QString m_surrounding;
     int m_cursor = 0;              // in bytes of UTF-8, as the protocol counts
+    // What the field held before our latest edits (text, cursor). An app may report its
+    // text a step late (Chromium tells the state before the edit it was just given): such
+    // a report is not taken over our own view of the field.
+    QList<QPair<QString, int>> m_before;
+    void noteEdit();
     uint32_t m_hint = 0;
     uint32_t m_purposeValue = 0;
     QString m_purpose = QStringLiteral("text");

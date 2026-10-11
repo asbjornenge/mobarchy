@@ -6,6 +6,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QDebug>
+#include <QLoggingCategory>
 #include <QGuiApplication>
 #include <QTextBoundaryFinder>
 #include <QtGui/qguiapplication_platform.h>
@@ -14,6 +15,9 @@
 #include <unistd.h>
 #include <wayland-client-protocol.h>
 #include <xkbcommon/xkbcommon.h>
+
+// QT_LOGGING_RULES=mobarchy.keyboard.debug=true: what the app tells the keyboard, and back
+Q_LOGGING_CATEGORY(lcKeyboard, "mobarchy.keyboard", QtWarningMsg)
 
 namespace {
 // text-input-v3's content_hint and content_purpose
@@ -51,12 +55,19 @@ void InputMethod::zwp_input_method_v2_content_type(uint32_t hint, uint32_t purpo
 
 void InputMethod::zwp_input_method_v2_done()
 {
+    qCDebug(lcKeyboard) << "done" << m_keyboard->m_serial + 1 << "active" << m_pendingActive << "text" << m_pendingText
+                        << "cursor" << m_pendingCursor;
     m_keyboard->m_serial++;
     const bool activated = m_pendingActive && !m_keyboard->m_active;
     m_keyboard->m_activeChanged = m_pendingActive != m_keyboard->m_active;
     m_keyboard->m_active = m_pendingActive;
-    m_keyboard->m_surrounding = m_pendingText;
-    m_keyboard->m_cursor = int(m_pendingCursor);
+    const QPair<QString, int> reported(m_pendingText, int(m_pendingCursor));
+    if (activated || !m_keyboard->m_before.contains(reported)) {
+        // (the app's own news: a new field, or a change it made; ours caught up)
+        m_keyboard->m_before.clear();
+        m_keyboard->m_surrounding = m_pendingText;
+        m_keyboard->m_cursor = int(m_pendingCursor);
+    }
     m_keyboard->m_hint = m_pendingHint;
     m_keyboard->m_purposeValue = m_pendingPurpose;
     if (activated)
@@ -167,9 +178,11 @@ void Keyboard::type(const QString &text)
         return;
     emit edited();
     if (m_active && m_im) {
+        qCDebug(lcKeyboard) << "commit_string" << text << "serial" << m_serial;
         m_im->commit_string(text);
         m_im->commit(m_serial);
         // Our own view of the field, until the app sends its new state (it may not).
+        noteEdit();
         const QByteArray utf8 = m_surrounding.toUtf8();
         const int at = qBound(0, m_cursor, int(utf8.size()));
         m_surrounding = QString::fromUtf8(utf8.left(at) + text.toUtf8() + utf8.mid(at));
@@ -181,24 +194,34 @@ void Keyboard::type(const QString &text)
         pressKeysym(xkb_utf32_to_keysym(c));
 }
 
+// The BackSpace key, as a hardware keyboard's: every toolkit deletes one grapheme (a whole
+// emoji, a letter with its marks) for it. (delete_surrounding_text instead counts on the
+// app's report of its text being current: Chromium's is a step late, and it dropped the
+// first deletion after typing.)
 void Keyboard::backspace()
 {
     emit edited();
     const QString before = textBefore();
-    if (m_active && m_im && !before.isEmpty()) {
-        // one grapheme: a whole emoji, a letter with its combining marks
+    if (m_active && !before.isEmpty()) {
+        // our own view of the field: one grapheme less
         QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, before);
         finder.toEnd();
         const int start = finder.toPreviousBoundary();
         const int bytes = int(before.mid(start).toUtf8().size());
-        m_im->delete_surrounding_text(uint32_t(bytes), 0);
-        m_im->commit(m_serial);
+        noteEdit();
         m_cursor -= bytes;
         m_surrounding = QString::fromUtf8(m_surrounding.toUtf8().remove(m_cursor, bytes));
         emit contentChanged();
-        return;
     }
+    qCDebug(lcKeyboard) << "BackSpace key";
     pressKeysym(XKB_KEY_BackSpace);
+}
+
+void Keyboard::noteEdit()
+{
+    m_before << qMakePair(m_surrounding, m_cursor);
+    while (m_before.size() > 16)
+        m_before.removeFirst();
 }
 
 void Keyboard::key(const QString &name)
