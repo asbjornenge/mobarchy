@@ -86,7 +86,8 @@ for w in "${what[@]}"; do
         *) echo "unknown builder: $builder" >&2; exit 2 ;;
     esac
 done
-for p in "${adds[@]}"; do cp "$p" "$repo/"; done
+# (one already in the repository, e.g. tools/pkg-build --out <repo>, stays where it is)
+for p in "${adds[@]}"; do [ "$p" -ef "$repo/$(basename "$p")" ] || cp "$p" "$repo/"; done
 
 # The database: the newest version of each package, by pacman's version order (vercmp).
 # Older files go. (repo-add -R took the files in glob order, where 0.1-9 comes after 0.1-11,

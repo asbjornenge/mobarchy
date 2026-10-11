@@ -1,0 +1,25 @@
+From: Mobarchy <noreply@mobarchy.invalid>
+Subject: [PATCH] V8 with write barriers, as in Chromium
+
+QtWebEngine's Chromium sets v8_disable_write_barriers = true (V8 upstream, and Chrome:
+false). That makes V8 single-generation and non-incremental, and in a page that makes
+garbage only off V8's own heap (Blink's: a style recalculation for every frame of an
+animation run on the main thread, an SVG spinner, a requestAnimationFrame loop) no garbage
+collection is ever started: the renderer grows ~3 KB a frame, 0.4 MB/s on an empty page and
+4.5 MB/s on a big one at 120 Hz, until the memory runs out. A collection forced through
+DevTools (HeapProfiler.collectGarbage) gives it all back. Chrome of the same era does not
+grow. QTBUG-150562.
+
+---
+diff --git a/chromium/v8/BUILD.gn b/chromium/v8/BUILD.gn
+--- a/chromium/v8/BUILD.gn
++++ b/chromium/v8/BUILD.gn
+@@ -292,7 +292,7 @@ declare_args() {
+ 
+   # Disable write barriers when GCs are non-incremental and
+   # heap has single generation.
+-  v8_disable_write_barriers = true
++  v8_disable_write_barriers = false
+ 
+   # Ensure that write barriers are always used.
+   # Useful for debugging purposes.

@@ -1,7 +1,9 @@
 # Arch Linux ARM's qt6-webengine PKGBUILD (Arch: Antonio Rojas, Felix Yan; ALARM: Kevin
-# Mihelich) plus Mobarchy's patch that makes Chromium draw in step with the display
-# (0100-..., see it). Without it, pages scroll at a free-running 60 Hz on a 120 Hz panel and
-# judder. Drop this package once the fix is in Qt.
+# Mihelich) plus Mobarchy's patches: Chromium draws in step with the display (0100-..., see
+# it; without it, pages scroll at a free-running 60 Hz on a 120 Hz panel and judder), and V8
+# has write barriers as in Chromium (0101-...; without them, a page animated on its main
+# thread is never garbage collected and grows until the memory runs out). Drop this package
+# once both are in Qt.
 #
 # Built on a PC, cross-compiled (Chromium under qemu-user would take days, and on the phone
 # it cooks the phone): ./cross-build. This PKGBUILD then only packages the cross-built tree
@@ -11,7 +13,7 @@
 pkgname=qt6-webengine
 _pkgver=6.11.2
 pkgver=${_pkgver/-/}
-pkgrel=1.1
+pkgrel=1.2
 _chromium=
 arch=(aarch64)
 url='https://www.qt.io'
@@ -19,7 +21,7 @@ license=(GPL-3.0-only
          LGPL-3.0-only
          LicenseRef-Qt-Commercial
          Qt-GPL-exception-1.0)
-pkgdesc='Provides support for web applications using the Chromium browser project (Mobarchy: vsync from Qt)'
+pkgdesc='Provides support for web applications using the Chromium browser project (Mobarchy: vsync from Qt, V8 write barriers)'
 depends=(alsa-lib
          dbus
          expat
@@ -90,12 +92,14 @@ source=(git+https://github.com/qt/$_pkgfn#tag=v$pkgver
         0001-disable-libyuv-neon.patch
         0001-ARM-toolchain-fixes.patch
         0002-Run-blink-bindings-generation-single-threaded.patch
-        0100-Chromium-draws-in-step-with-the-Qt-window.patch)
+        0100-Chromium-draws-in-step-with-the-Qt-window.patch
+        0101-V8-with-write-barriers.patch)
 sha256sums=('056f15a095db905f60034b6c58f332843d46b01c8a8b12c00dcac2e0ef8c69a2'
             'SKIP'
             'a9dd73d2772b117aaae3ce9d4278796ddb3784131abfa78f1582d950518f72ce'
             '772aeba76d16387e28ef629285965109a4bfaa02ca2dd466e9526fe2030773ec'
             'eff4ebf2e714185ef6e36e30c8d2158da6b41a46e3168d06472d35f6c9977aaf'
+            'SKIP'
             'SKIP')
 
 # The source tree: patched as here (cross-build calls this too, on its own checkout).
@@ -108,6 +112,7 @@ _patch() {
   sed -i 's/"-Wno-unused-function",/"-Wno-unused-function", "-Wno-incompatible-pointer-types",/' chromium/third_party/xnnpack/BUILD.gn
   patch -p1 -i "$patches"/0001-ARM-toolchain-fixes.patch
   patch -p1 -i "$patches"/0002-Run-blink-bindings-generation-single-threaded.patch
+  patch -p1 -i "$patches"/0101-V8-with-write-barriers.patch
 }
 
 prepare() {
