@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Browser
+Name=Bifrost
 GenericName=Web Browser
-Comment=Browse the web, made for the phone
+Comment=The web, made for the phone
 Exec=mobarchy-browser %U
 Icon=org.mobarchy.Browser
 Terminal=false

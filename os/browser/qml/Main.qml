@@ -13,7 +13,7 @@ Window {
     width: 450; height: 900
     visible: true
     color: Theme.bg
-    title: current && current.title ? current.title : qsTr("Browser")
+    title: current && current.title ? current.title : qsTr("Bifrost")
 
     property var tabs: []
     property int index: 0

@@ -3,6 +3,9 @@
 - Status: accepted
 - Date: 2026-10-06
 
+Named **Bifrost** on 2026-10-11 (the rainbow bridge between the worlds; its icon is a
+rainbow). The app ID stays `org.mobarchy.Browser`, the command `mobarchy-browser`.
+
 ## Context
 
 On the phone, the desktop browsers are hard to use (the owner's experience on comet):
