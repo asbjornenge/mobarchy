@@ -47,11 +47,32 @@ LayerWindow {
     property bool caps: false
     readonly property bool upper: caps || shift
     readonly property string purpose: keyboard.purpose
+    // Searching the emoji: the letters type into the search (in the strip), not the app
+    property bool emojiSearch: false
+    property string emojiQuery: ""
+    readonly property var emojiFound: emojiSearch ? keyboard.searchEmoji(emojiQuery) : []
+    function searchEmoji() {
+        emojiQuery = ""
+        emojiSearch = true
+        mode = "letters"
+        caps = false
+        shift = false
+    }
+    function endEmojiSearch(toEmoji) {
+        emojiSearch = false
+        emojiQuery = ""
+        mode = toEmoji ? "emoji" : "letters"
+        followField()
+    }
     readonly property bool pad10: purpose === "digits" || purpose === "number" || purpose === "phone"
                                   || purpose === "pin"
 
     // Shift follows the field: a capital at a sentence start (unless caps lock is on).
     function followField() {
+        if (emojiSearch) {
+            shift = false
+            return
+        }
         if (!caps)
             shift = keyboard.capitalize
     }
@@ -59,6 +80,8 @@ LayerWindow {
         target: kb.keyboard
         function onContentChanged() { kb.followField() }
         function onActiveChanged() {
+            if (kb.emojiSearch)
+                kb.endEmojiSearch(false)
             if (kb.keyboard.active && kb.mode !== "emoji")
                 kb.mode = "letters"
             kb.followField()
@@ -116,6 +139,10 @@ LayerWindow {
     property real lastSpace: 0
 
     function typeKey(value) {
+        if (emojiSearch) {
+            emojiQuery += value.toLowerCase()
+            return
+        }
         let text = value
         if (mode === "letters" && upper && value.length === 1)
             text = value.toUpperCase()
@@ -124,6 +151,10 @@ LayerWindow {
             shift = false
     }
     function typeSpace() {
+        if (emojiSearch) {
+            emojiQuery += " "
+            return
+        }
         const now = Date.now()
         const before = keyboard.textBefore
         // two spaces quickly after a word: ". "
@@ -146,13 +177,22 @@ LayerWindow {
             else shift = !shift
             shiftTime = Date.now()
             break
-        case "back": keyboard.backspace(); break
+        case "back":
+            if (emojiSearch) emojiQuery = emojiQuery.slice(0, -1)
+            else keyboard.backspace()
+            break
         case "space": typeSpace(); break
-        case "return": keyboard.key("Return"); break
+        case "return":
+            if (emojiSearch) endEmojiSearch(false)
+            else keyboard.key("Return")
+            break
         case "numbers": mode = "numbers"; break
         case "symbols": mode = "symbols"; break
         case "letters": mode = "letters"; followField(); break
-        case "emoji": mode = mode === "emoji" ? "letters" : "emoji"; break
+        case "emoji":
+            if (emojiSearch) endEmojiSearch(true)
+            else mode = mode === "emoji" ? "letters" : "emoji"
+            break
         case "hide": keyboard.visible = false; break
         }
     }
@@ -203,9 +243,81 @@ LayerWindow {
         id: strip
         width: parent.width; height: kb.stripHeight
 
+        // the emoji search: what is typed, and what it finds (tap one to type it)
+        Item {
+            id: searchLine
+            visible: kb.emojiSearch
+            anchors { left: parent.left; right: parent.right; leftMargin: kb.pad + 2; rightMargin: 40
+                      top: parent.top; bottom: parent.bottom }
+            Rectangle {
+                id: queryPill
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                height: kb.stripHeight - 10
+                width: Math.min(parent.width * 0.42, Math.max(110, queryText.implicitWidth + 44))
+                radius: height / 2
+                color: Theme.panel
+                border.color: Theme.accent
+                Text {
+                    id: queryText
+                    anchors { fill: parent; leftMargin: 12; rightMargin: 28 }
+                    verticalAlignment: Text.AlignVCenter
+                    elide: Text.ElideLeft
+                    color: kb.emojiQuery === "" ? Theme.muted : Theme.fg
+                    font { family: Theme.font; pixelSize: 14 }
+                    text: kb.emojiQuery === "" ? "󰍉  " + qsTr("Søk emoji") : kb.emojiQuery + "▏"
+                }
+                Text {
+                    anchors { right: parent.right; rightMargin: 10; verticalCenter: parent.verticalCenter }
+                    text: "󰅖"
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 14 }
+                    TapHandler { onTapped: kb.endEmojiSearch(true) }
+                }
+            }
+            ListView {
+                anchors { left: queryPill.right; leftMargin: 6; right: parent.right; top: parent.top; bottom: parent.bottom }
+                orientation: ListView.Horizontal
+                clip: true
+                model: kb.emojiFound
+                boundsBehavior: Theme.boundsBehavior
+                delegate: Text {
+                    required property string modelData
+                    width: kb.stripHeight; height: kb.stripHeight
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                    text: modelData
+                    font { family: "Noto Color Emoji"; pixelSize: kb.stripHeight * 0.6 }
+                    TapHandler { onTapped: kb.typeEmoji(parent.modelData) }
+                }
+                Text {
+                    anchors { left: parent.left; leftMargin: 8; verticalCenter: parent.verticalCenter }
+                    visible: kb.emojiQuery.trim() !== "" && parent.count === 0
+                    text: qsTr("Ingen treff")
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 13 }
+                }
+            }
+        }
+        // over the emoji: a search for them
+        Rectangle {
+            id: searchPill
+            visible: kb.mode === "emoji"
+            anchors { left: parent.left; right: parent.right; leftMargin: kb.pad + 2; rightMargin: 44
+                      verticalCenter: parent.verticalCenter }
+            height: kb.stripHeight - 10
+            radius: height / 2
+            color: searchTap.pressed ? Theme.line : Theme.panel
+            Text {
+                anchors { left: parent.left; leftMargin: 12; verticalCenter: parent.verticalCenter }
+                text: "󰍉  " + qsTr("Søk emoji")
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 14 }
+            }
+            TapHandler { id: searchTap; onTapped: kb.searchEmoji() }
+        }
         Rectangle {
             id: paste
-            visible: kb.clipboard.text !== "" || kb.clipboard.history.length > 0
+            visible: !kb.emojiSearch && kb.mode !== "emoji" && (kb.clipboard.text !== "" || kb.clipboard.history.length > 0)
             anchors { left: parent.left; leftMargin: kb.pad + 2; verticalCenter: parent.verticalCenter }
             height: kb.stripHeight - 10
             width: Math.min(kb.width * 0.7, pasteLabel.implicitWidth + 24)

@@ -81,6 +81,9 @@ public:
     Q_INVOKABLE void key(const QString &name);
     // The emoji panel's groups: [{name, emoji: [...]}] (data/emoji.json, tools/emoji-gen)
     Q_INVOKABLE QVariantList emojiGroups() const;
+    // Emoji whose names or keywords (CLDR's, Norwegian and English) start with every word of
+    // the query: "hjer" finds ❤️, "red heart" too. The ones a word names exactly first.
+    Q_INVOKABLE QStringList searchEmoji(const QString &query, int max = 80) const;
 
 signals:
     void visibleChanged();
@@ -111,6 +114,7 @@ private:
     bool m_hiddenByHand = false;   // the owner hid it while a field had focus
     bool m_manual = false;         // the owner showed it with no field focused
     QString m_surrounding;
+    mutable QList<QPair<QString, QStringList>> m_emojiWords;   // (emoji, its words), in order
     int m_cursor = 0;              // in bytes of UTF-8, as the protocol counts
     // What the field held before our latest edits (text, cursor). An app may report its
     // text a step late (Chromium tells the state before the edit it was just given): such

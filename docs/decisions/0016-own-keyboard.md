@@ -43,7 +43,9 @@ The shell is already Qt Quick (ADR 0009), in Mobarchy's theme.
   - **Shift:** shift, caps lock on double tap, and capitals at sentence starts when the
     field asks for auto-capitalization. Two spaces after a word type ". ".
   - **Emoji:** an emoji panel from Unicode's list (tools/emoji-gen → data/emoji.json), with
-    recently used emoji kept.
+    recently used emoji kept, and a search: CLDR's names and keywords in Norwegian and
+    English ("katt", "hjerte", "heart"), typed with the letters into a line in the strip,
+    the matches beside it (data/LICENSE.unicode).
 - **The clipboard is the shell's too** (wlr-data-control): it sees every text copy, and the
   keyboard's strip has a paste button (the latest copy; hold it for the last 20).
   - **Copying:** selecting text in an app puts it in the primary selection. The shell sees

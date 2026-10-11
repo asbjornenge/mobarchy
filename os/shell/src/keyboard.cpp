@@ -245,6 +245,45 @@ QVariantList Keyboard::emojiGroups() const
     return QJsonDocument::fromJson(file.readAll()).object().value(QStringLiteral("groups")).toArray().toVariantList();
 }
 
+QStringList Keyboard::searchEmoji(const QString &query, int max) const
+{
+    if (m_emojiWords.isEmpty()) {
+        QFile file(QStringLiteral(":/qt/qml/Mobarchy/Shell/data/emoji.json"));
+        if (!file.open(QIODevice::ReadOnly))
+            return {};
+        const QJsonObject all = QJsonDocument::fromJson(file.readAll()).object();
+        const QJsonObject names = all.value(QStringLiteral("names")).toObject();
+        for (const QJsonValue &g : all.value(QStringLiteral("groups")).toArray())
+            for (const QJsonValue &e : g.toObject().value(QStringLiteral("emoji")).toArray()) {
+                QStringList words;
+                for (const QString &phrase : names.value(e.toString()).toString().split(u'|'))
+                    words << phrase << phrase.split(u' ', Qt::SkipEmptyParts);
+                words.removeDuplicates();
+                m_emojiWords << qMakePair(e.toString(), words);
+            }
+    }
+    const QStringList wanted = query.toLower().split(u' ', Qt::SkipEmptyParts);
+    if (wanted.isEmpty())
+        return {};
+    QStringList exact, prefix;
+    for (const auto &[emoji, words] : std::as_const(m_emojiWords)) {
+        bool all = true, named = false;
+        for (const QString &w : wanted) {
+            bool found = false;
+            for (const QString &word : words) {
+                if (word.startsWith(w)) {
+                    found = true;
+                    named = named || word == w || word == query.toLower().trimmed();
+                }
+            }
+            all = all && found;
+        }
+        if (all)
+            (named ? exact : prefix) << emoji;
+    }
+    return (exact + prefix).mid(0, max);
+}
+
 // --- the virtual keyboard: key presses of a Norwegian keymap -------------------------------
 
 bool Keyboard::ensureVirtualKeyboard()

@@ -2,15 +2,20 @@
 """Generate the on-screen keyboard's emoji list (os/shell/data/emoji.json) from Unicode's
 emoji-test.txt: fully-qualified emoji by group, in Unicode's order (the order phones show),
 without skin-tone and hair variants (the base emoji only), and only up to an emoji version
-the emoji font covers.
+the emoji font covers. With CLDR's annotations, each emoji's names and keywords too (for
+searching: "hjerte", "heart"), in the languages given.
 
-usage: tools/emoji-gen <emoji-test.txt> [--max-version 16.0] > os/shell/data/emoji.json
-       (emoji-test.txt: https://unicode.org/Public/emoji/latest/emoji-test.txt)
+usage: tools/emoji-gen <emoji-test.txt> [--max-version 16.0] [--annotations <cldr xml>]...
+           > os/shell/data/emoji.json
+       emoji-test.txt: https://unicode.org/Public/emoji/latest/emoji-test.txt
+       annotations: CLDR's common/annotations/<lang>.xml and common/annotationsDerived/<lang>.xml
+       (https://github.com/unicode-org/cldr), e.g. no and en: Unicode licence (data/LICENSE.unicode)
 """
 import argparse
 import json
 import re
 import sys
+import xml.etree.ElementTree as ET
 
 MODIFIERS = {0x1F3FB, 0x1F3FC, 0x1F3FD, 0x1F3FE, 0x1F3FF, 0x1F9B0, 0x1F9B1, 0x1F9B2, 0x1F9B3}
 SKIP_GROUPS = {"Component"}
@@ -18,6 +23,7 @@ SKIP_GROUPS = {"Component"}
 p = argparse.ArgumentParser()
 p.add_argument("source")
 p.add_argument("--max-version", type=float, default=16.0)
+p.add_argument("--annotations", action="append", default=[])
 a = p.parse_args()
 
 groups, current = [], None
@@ -37,6 +43,27 @@ for line in open(a.source, encoding="utf-8"):
         continue
     current["emoji"].append("".join(map(chr, codes)))
 
-json.dump({"source": "Unicode emoji-test.txt", "maxVersion": a.max_version,
-           "groups": [g for g in groups if g["emoji"]]}, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+# Names and keywords, by emoji without its variation selectors (CLDR leaves them out)
+def bare(e):
+    return e.replace("\ufe0f", "")
+
+words = {}
+for path in a.annotations:
+    for node in ET.parse(path).getroot().iter("annotation"):
+        if node.text:
+            for w in node.text.split("|"):
+                w = w.strip().lower()
+                if w and w not in words.setdefault(bare(node.get("cp")), []):
+                    words[bare(node.get("cp"))].append(w)
+names = {}
+for g in groups:
+    for e in g["emoji"]:
+        if bare(e) in words:
+            names[e] = "|".join(words[bare(e)])
+
+out = {"source": "Unicode emoji-test.txt" + (", CLDR annotations (Unicode licence)" if names else ""),
+       "maxVersion": a.max_version, "groups": [g for g in groups if g["emoji"]]}
+if names:
+    out["names"] = names
+json.dump(out, sys.stdout, ensure_ascii=False, separators=(",", ":"))
 sys.stdout.write("\n")
