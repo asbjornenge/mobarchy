@@ -215,7 +215,27 @@ Window {
         // it and renders at full frame rate for seconds.
         currentIndex: -1
         highlightFollowsCurrentItem: false
-        onCountChanged: Qt.callLater(positionViewAtEnd)
+        // At the end it stays at the end: as messages come and grow (an answer streaming in),
+        // and when the view changes size (the keyboard, a fold, the window back in front).
+        // Its items are of different heights and made as they come into sight, so the view
+        // only estimates the whole height: a size change otherwise left it at the same
+        // offset in a changed estimate, somewhere far up. Scrolled up by the owner, it stays.
+        property bool atEnd: true
+        onMovementEnded: atEnd = atYEnd
+        onFlickEnded: atEnd = atYEnd
+        function keepAtEnd() {
+            if (atEnd)
+                Qt.callLater(positionViewAtEnd)
+        }
+        onCountChanged: { atEnd = true; keepAtEnd() }
+        onContentHeightChanged: keepAtEnd()
+        onHeightChanged: keepAtEnd()
+        onWidthChanged: keepAtEnd()
+        onVisibleChanged: if (visible) keepAtEnd()
+        Connections {
+            target: home
+            function onActiveChanged() { if (home.active) list.keepAtEnd() }
+        }
 
         interactive: !home.dragging
         delegate: Rectangle {
