@@ -113,13 +113,42 @@ Sheet {
             radius: 21
             color: Theme.panel
             border.color: drawer.searching ? Theme.accent : Theme.line
-            Text {
+            // what is typed, the cursor after it; before anything is typed the cursor comes
+            // first and the hint stays behind it, faint (nothing to rub out)
+            Row {
                 anchors { left: parent.left; right: clear.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
-                elide: Text.ElideLeft
-                text: drawer.searching && drawer.keyboard.captured !== "" ? drawer.keyboard.captured + "▏"
-                    : "󰍉  " + qsTr("Search apps") + (drawer.searching ? "▏" : "")
-                color: drawer.searching && drawer.keyboard.captured !== "" ? Theme.fg : Theme.muted
-                font { family: Theme.font; pixelSize: 15 }
+                spacing: 0
+                Text {
+                    visible: !drawer.searching
+                    text: "󰍉  "
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 15 }
+                }
+                Text {
+                    text: drawer.keyboard.captured
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 15 }
+                }
+                Rectangle {
+                    visible: drawer.searching
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 2; height: 20
+                    color: Theme.accent
+                    SequentialAnimation on opacity {
+                        running: drawer.searching
+                        loops: Animation.Infinite
+                        NumberAnimation { to: 0; duration: 500; easing.type: Easing.InOutQuad }
+                        NumberAnimation { to: 1; duration: 500; easing.type: Easing.InOutQuad }
+                    }
+                }
+                Text {
+                    visible: drawer.keyboard.captured === ""
+                    leftPadding: drawer.searching ? 4 : 0
+                    text: qsTr("Search apps")
+                    color: Theme.muted
+                    opacity: drawer.searching ? 0.6 : 1
+                    font { family: Theme.font; pixelSize: 15 }
+                }
             }
             Text {
                 id: clear
