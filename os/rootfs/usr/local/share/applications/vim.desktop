@@ -1,0 +1,5 @@
+[Desktop Entry]
+# Hidden from the Mobarchy app grid (vim is a terminal tool: in foot, not an app of its own).
+Type=Application
+Name=Vim
+NoDisplay=true

@@ -49,11 +49,10 @@ pipewire-audio
 wpa_supplicant
 iw
 wireless-regdb
-# Web browsers: GNOME Web (adaptive, phone-friendly UI) and Firefox (GPU page rendering
+# Web browsers besides Mobarchy's own (Bifrost, ADR 0023): Firefox (GPU page rendering
 # with WebRender and a separate scroll thread: much smoother scrolling on phones; its phone
 # UI is mobile-config-firefox, built from os/packages) and Chromium (mobile pages and a
-# touch UI through /etc/chromium-flags.conf).
-epiphany
+# touch UI through /etc/chromium-flags.conf). (GNOME Web went with Bifrost.)
 firefox
 chromium
 
