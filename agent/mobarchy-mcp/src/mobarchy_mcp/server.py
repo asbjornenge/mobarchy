@@ -22,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import alarms, approval, bluetooth, browser, themes, camera, clipboard, clock, media, network, power, store, webapps
+from . import alarms, approval, bluetooth, browser, themes, camera, clipboard, clock, media, network, photos, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -453,6 +453,37 @@ def take_photo(facing: str = "back") -> list:
     except camera.CameraError as e:
         raise ToolError(f"camera: {e}") from e
     return [f"Saved as {path}", Image(path=path)]
+
+
+# The owner's pictures are theirs: not while the phone is locked (as the screen).
+@tool(Risk.READ, "List the owner's pictures", screen=True)
+def photos_list(album: str = "", limit: int = 30) -> dict:
+    """The owner's pictures (~/Pictures: the camera's photos in "Camera", screenshots in
+    "Screenshots", other folders), newest first: path, album, time, video. album: one
+    folder, or "" for all."""
+    return photos.list_pictures(album, limit)
+
+
+@tool(Risk.READ, "Look at a picture", screen=True)
+def photos_view(path: str) -> list:
+    """Look at one of the owner's pictures (a path from photos_list)."""
+    try:
+        p = photos.check_path(path)
+    except photos.PhotosError as e:
+        raise ToolError(str(e)) from e
+    if p.suffix.lower() in photos.VIDEOS:
+        raise ToolError("that is a video: it can be shown (photos_show), not looked at")
+    return [str(p), Image(path=str(p))]
+
+
+@tool(Risk.ACT, "Show a picture", screen=True)
+def photos_show(path: str) -> str:
+    """Show one of the owner's pictures on the screen, in the Photos app (a path from
+    photos_list, or a photo just taken)."""
+    try:
+        return f"Showing {photos.show(path)}"
+    except photos.PhotosError as e:
+        raise ToolError(str(e)) from e
 
 
 # The browser shows on the screen, and its tabs are the owner's browsing: not while the

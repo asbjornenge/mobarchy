@@ -6,7 +6,7 @@
 # package when Arch moves to a new Python minor version (like Arch's own Python packages).
 pkgname=mobarchy-agent
 pkgver=0.1
-pkgrel=24
+pkgrel=25
 pkgdesc='The Mobarchy agent (Claude, OpenAI, local) and the phone OS as MCP tools'
 arch=(aarch64 x86_64)
 depends=(python)

@@ -4,6 +4,7 @@
 //   mobarchy-shell --camera   the camera (ADR 0018), an app of its own
 //   mobarchy-shell --themes   the themes (ADR 0025), an app of its own
 //   mobarchy-shell --clock    alarms and timers (ADR 0028), an app of its own
+//   mobarchy-shell --photos [path]   the photos in ~/Pictures, an app of its own
 #include "iconprovider.h"
 #include "windowcapture.h"
 
@@ -27,6 +28,7 @@ int main(int argc, char *argv[])
         {"--camera", "org.mobarchy.Camera", "mobarchy-camera", "CameraApp"},
         {"--themes", "org.mobarchy.Themes", "mobarchy-themes", "ThemesApp"},
         {"--clock", "org.mobarchy.Clock", "mobarchy-clock", "ClockApp"},
+        {"--photos", "org.mobarchy.Photos", "mobarchy-photos", "PhotosApp"},
     };
     const App *own = nullptr;
     for (const App &a : apps)

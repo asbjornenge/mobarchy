@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Photos
+Comment=Your photos and screenshots
+Exec=mobarchy-shell --photos
+Icon=org.mobarchy.Photos
+Categories=Graphics;Photography;Viewer;
+MimeType=image/jpeg;image/png;image/webp;image/gif;

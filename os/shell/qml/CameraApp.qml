@@ -14,5 +14,6 @@ Window {
         anchors.fill: parent
         active: win.active
         onCloseRequested: win.close()
+        onPhotosRequested: (path) => Photos.open(path)
     }
 }
