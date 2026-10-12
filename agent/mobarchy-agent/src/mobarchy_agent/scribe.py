@@ -44,9 +44,12 @@ def url(language: str) -> str:
     return f"{URL}?{urllib.parse.urlencode(params)}"
 
 
-def chunk(pcm: bytes, commit: bool = False) -> str:
-    return json.dumps({"message_type": "input_audio_chunk", "audio_base_64": base64.b64encode(pcm).decode(),
-                       "commit": commit, "sample_rate": RATE})
+def chunk(pcm: bytes, commit: bool = False, previous: str = "") -> str:
+    m = {"message_type": "input_audio_chunk", "audio_base_64": base64.b64encode(pcm).decode(),
+         "commit": commit, "sample_rate": RATE}
+    if previous:
+        m["previous_text"] = previous[-400:]
+    return json.dumps(m)
 
 
 def committed_text(message: dict) -> str | None:
@@ -64,8 +67,11 @@ def committed_text(message: dict) -> str | None:
 class Scribe:
     """One turn's transcription: start(), feed() its audio as it comes, then finish()."""
 
-    def __init__(self, language: str) -> None:
+    def __init__(self, language: str, previous: str = "") -> None:
         self.language = language
+        # what Frigg said just before: the context the owner answers in ("Bob Dylan" after
+        # "which theme?"); the service takes it with the first audio only
+        self.previous = previous
         self.queue: asyncio.Queue[bytes | None] = asyncio.Queue()
         self.task: asyncio.Task | None = None
 
@@ -101,17 +107,17 @@ class Scribe:
             committed = asyncio.Event()
 
             async def send() -> None:
-                pending = b""
+                pending, previous = b"", self.previous
                 while True:
                     pcm = await self.queue.get()
                     if pcm is None:
-                        await ws.send(chunk(pending, commit=True))
+                        await ws.send(chunk(pending, commit=True, previous=previous))
                         committed.set()
                         return
                     pending += pcm
                     if len(pending) >= RATE // 10 * 2:      # ~100 ms a message
-                        await ws.send(chunk(pending))
-                        pending = b""
+                        await ws.send(chunk(pending, previous=previous))
+                        pending, previous = b"", ""
 
             sender = asyncio.create_task(send())
             texts: list[str] = []

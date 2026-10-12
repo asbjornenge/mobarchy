@@ -32,3 +32,8 @@ def test_messages():
         scribe.committed_text({"message_type": "quota_exceeded", "error": "out of credits"})
     with pytest.raises(scribe.ScribeError):
         scribe.committed_text({"message_type": "auth_error", "error": "bad key"})
+
+
+def test_context_goes_with_the_first_audio():
+    assert json.loads(scribe.chunk(b"x", previous="Hvilket tema vil du ha?"))["previous_text"] == "Hvilket tema vil du ha?"
+    assert "previous_text" not in json.loads(scribe.chunk(b"x"))

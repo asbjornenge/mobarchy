@@ -558,6 +558,7 @@ class Talk:
         self.barge_in = False
         self.marks: dict[str, float] = {}   # (the turn's timing: report_timing)
         self.hearing: scribe.Scribe | None = None   # (Scribe: the turn being heard)
+        self.last_said = ""     # Frigg's last answer: Scribe's context for the next turn
         self.trusted = False    # this conversation began on an unlocked phone
         self.vad = Vad()
         self.speaker = Speaker()
@@ -719,16 +720,25 @@ class Talk:
         self.hearing = None
         # (a language to hear: "auto" is whisper's, which tells which it was)
         if stt() == "elevenlabs" and talk_language() != "auto":
-            self.hearing = scribe.Scribe(talk_language())
+            self.hearing = scribe.Scribe(talk_language(), self.last_said)
             self.hearing.start()
             self.hearing.feed(pcm)
 
     async def hear(self, pcm: bytes, hearing: scribe.Scribe | None) -> tuple[str, str]:
         """(text, language): Scribe's, as it streamed; else (or if it fails: no network) the
         phone's whisper with the whole turn."""
+        # (MOBARCHY_TALK_SAVE=<dir>: each turn's sound and what was heard, to look into
+        # what Frigg hears; off unless set)
+        if save := os.environ.get("MOBARCHY_TALK_SAVE"):
+            Path(save).mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%H%M%S")
+            write_wav(Path(save) / f"turn-{stamp}.wav", pcm)
         if hearing:
             try:
-                return await hearing.finish(), talk_language()
+                text = await hearing.finish()
+                if save:
+                    (Path(save) / f"turn-{stamp}.txt").write_text(text + "\n")
+                return text, talk_language()
             except scribe.ScribeError as e:
                 print(f"frigg: Scribe failed ({e}): whisper instead", file=sys.stderr, flush=True)
         return await asyncio.to_thread(transcribe, pcm)
@@ -818,6 +828,7 @@ class Talk:
             await speak
             if spoken:
                 conv.add("assistant", " ".join(spoken), "claude")
+                self.last_said = " ".join(spoken)
             if self.session.session_id:
                 conv.sessions["claude"] = self.session.session_id
             conv.seen["claude"] = len(conv.turns)
