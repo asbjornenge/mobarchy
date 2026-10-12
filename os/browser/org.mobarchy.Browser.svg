@@ -1,12 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <!-- Mobarchy's app icons: a Tokyo Night tile, a line glyph in the theme's colours -->
-  <rect x="6" y="6" width="116" height="116" rx="30" fill="#1a1b26" stroke="#292e42" stroke-width="3"/>
-  <!-- Bifrost: the rainbow bridge between the worlds -->
-  <g fill="none" stroke-width="6" stroke-linecap="round">
-    <path d="M18 90 A46 46 0 0 1 110 90" stroke="#f7768e"/>
-    <path d="M25 90 A39 39 0 0 1 103 90" stroke="#e0af68"/>
-    <path d="M32 90 A32 32 0 0 1 96 90" stroke="#9ece6a"/>
-    <path d="M39 90 A25 25 0 0 1 89 90" stroke="#7aa2f7"/>
-    <path d="M46 90 A18 18 0 0 1 82 90" stroke="#bb9af7"/>
+  <!-- Mobarchy's app icons: a line glyph in the theme's colours, no tile -->
+  <g transform="translate(64 64) scale(1.2) translate(-64 -64) translate(0 -4)">
+    <!-- Bifrost: the rainbow bridge between the worlds -->
+    <g fill="none" stroke-width="6" stroke-linecap="round">
+      <path d="M18 90 A46 46 0 0 1 110 90" stroke="#f7768e"/>
+      <path d="M25 90 A39 39 0 0 1 103 90" stroke="#e0af68"/>
+      <path d="M32 90 A32 32 0 0 1 96 90" stroke="#9ece6a"/>
+      <path d="M39 90 A25 25 0 0 1 89 90" stroke="#7aa2f7"/>
+      <path d="M46 90 A18 18 0 0 1 82 90" stroke="#bb9af7"/>
+    </g>
   </g>
 </svg>

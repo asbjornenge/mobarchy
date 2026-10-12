@@ -61,7 +61,7 @@ if [ $fresh = 1 ] || [ "$(cat "$work/sysroot.deps" 2>/dev/null)" != "$sysroot_ke
         # (what it runs with: its makedepends, e.g. pkgconf, come from the container)
         missing=$(ssh_device "pacman -T $(pkgvar 'echo ${depends[@]}')" || true)
         [ -z "$missing" ] || { echo "not installed on $device: $missing" >&2; exit 1; }
-        container_pkgs="gcc pkgconf linux-api-headers $(pkgvar 'echo ${makedepends[@]}' | tr ' ' '\n' | grep -vxE 'cmake|ninja' | tr '\n' ' ')"
+        container_pkgs="gcc pkgconf linux-api-headers $(pkgvar 'echo ${makedepends[@]}' | tr ' ' '\n' | { grep -vxE 'cmake|ninja' || true; } | tr '\n' ' ')"
     fi
     docker rm -f "$name-sysroot" >/dev/null 2>&1 || true
     docker run --name "$name-sysroot" --platform linux/arm64 "$alarm_image" bash -c "
