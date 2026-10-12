@@ -35,15 +35,30 @@ starts it and shows it. A turn goes:
    - Other languages: OpenAI's multilingual small with the language set, ~1.3 s on comet.
    - `auto` detects the language with the multilingual model, but takes ~7 s on comet.
    - Cloud, with a key: OpenAI's transcription, every language and fast.
+   - **With an ElevenLabs key, the default since 2026-10-12: Scribe v2 Realtime**
+     (`scribe.py`). A turn is streamed while it is said (a WebSocket from the start of
+     speech, committed at its end by Frigg's own VAD), so its text is there ~0.35–0.4 s
+     after the owner stops. Measured on comet with the same 6.5 s of Norwegian: NB-Whisper
+     small took 9 s and misheard; Scribe 0.38 s, and right. Names it wouldn't know are
+     given as keyterms (Frigg, Mobarchy, Bifrost; `MOBARCHY_TALK_KEYTERMS` adds more). No
+     network or a refusal: whisper on the phone with the same audio. The wake phrase
+     stays on the phone: the sound goes out only during a conversation.
 3. **Think.** Frigg goes on in the Mobarchy chat's Claude Code session (`--resume`), and
    leaves the chat its session afterwards: what is said to one, the other knows. If the chat
    moved on while Frigg waited, Frigg resumes it again before the next turn. The session
-   stays open for the whole conversation, on Sonnet
-   (`MOBARCHY_TALK_MODEL`). On comet its first words come after ~1–3 s, the default
+   stays open for the whole conversation, on Sonnet unless the owner chooses another for
+   Frigg in the chat's menu (Opus, Sonnet, Haiku; `mobarchy-agent model frigg`, or
+   `MOBARCHY_TALK_MODEL`; the chat's own model is chosen there too). On comet Sonnet's
+   first words come after ~1–3 s, the default
    model's after 5–7
    (`--input-format stream-json`, `--include-partial-messages`). The first answer comes
    without a cold start for every turn. It has the agent's tools and rules (ADR 0010,
-   0024), plus a voice brief: short spoken sentences, no markdown, the owner's language.
+   0024), plus a voice brief: short spoken sentences, no markdown, the owner's language,
+   and before any tool a short sentence of what it is about to do. **Never silence:** if
+   it starts on a tool without having said anything, or has said nothing 2.5 s after the
+   owner stopped, Frigg says a line of her own ("Jeg søker litt på nettet.", "Et
+   øyeblikk."). What it said before a tool is spoken at once, not held for more text.
+   Each turn's timing (heard, first words, first tool, first sound) goes to the journal.
 4. **Speak** each sentence as soon as it is complete, while the rest is still coming.
    Local: Piper, with a voice for the language heard. A service: ElevenLabs or OpenAI,
    streamed, every language.
@@ -54,11 +69,13 @@ Each turn is also written to the agent's conversation, so it is in the home scre
 history.
 
 **Local first, services as a choice.** `~/.config/mobarchy/agent.env`, each with its key:
-- `MOBARCHY_TALK_STT`: `whisper` (default, the phone) or `openai` (`OPENAI_API_KEY`).
+- `MOBARCHY_TALK_STT`: `elevenlabs` (Scribe; the default with `ELEVENLABS_API_KEY`),
+  `whisper` (the phone; the default without) or `openai` (`OPENAI_API_KEY`).
 - `MOBARCHY_TALK_TTS`: `piper` (default, the phone), `elevenlabs` (`ELEVENLABS_API_KEY`) or
   `openai`. ElevenLabs' Flash streams a sentence's sound as it is made: the first of it
   reaches comet ~0.25–0.35 s after the request, against Piper's 0.4 s for a whole sentence,
-  and it sounds human, in Norwegian too.
+  and it sounds human, in Norwegian too. (`eleven_v4_turbo`, tried 2026-10-12, sounds
+  livelier but its first sound came after 0.5–0.8 s; `MOBARCHY_TALK_TTS_MODEL` chooses.)
 - `MOBARCHY_TALK_VOICE` (the service's voice: an ElevenLabs voice id, an OpenAI voice name),
   `MOBARCHY_TALK_SPEED`, `MOBARCHY_TALK_LANGUAGE`, `MOBARCHY_TALK_MODEL`.
 - Without a key everything works on the phone. It is slower, and the voice sounds less

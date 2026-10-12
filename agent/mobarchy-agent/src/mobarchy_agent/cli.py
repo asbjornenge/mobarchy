@@ -55,12 +55,31 @@ def cmd_agents(argv: list[str]) -> int:
     statuses = asyncio.run(agents.statuses(Config.load()))
     active = agents.State.load().active
     if args.json:
-        print(json.dumps({"active": active, "agents": [asdict(s) for s in statuses]}, ensure_ascii=False))
+        st = agents.State.load()
+        print(json.dumps({"active": active, "agents": [asdict(s) for s in statuses],
+                          "models": {"chat": st.model("chat"), "frigg": st.model("frigg")},
+                          "modelChoices": [{"id": k, "name": v} for k, v in agents.CLAUDE_MODELS.items()]},
+                         ensure_ascii=False))
     else:
         for s in statuses:
             mark = "*" if s.id == active else " "
             state = "ready" if s.ready else ("installed" if s.installed else "-")
             print(f"{mark} {s.id:7} {state:9} {s.detail}")
+    return 0
+
+
+def cmd_model(argv: list[str]) -> int:
+    """mobarchy-agent model chat|frigg [opus|sonnet|haiku|default]: Claude's model for the chat
+    or for Frigg (the owner's choice, in the shell)."""
+    p = argparse.ArgumentParser(prog="mobarchy-agent model")
+    p.add_argument("which", choices=["chat", "frigg"])
+    p.add_argument("model", nargs="?", choices=[*agents.CLAUDE_MODELS, "default"])
+    args = p.parse_args(argv)
+    st = agents.State.load()
+    if args.model:
+        st.models[args.which] = "" if args.model == "default" else args.model
+        st.save()
+    print(st.model(args.which) or "default")
     return 0
 
 
@@ -197,7 +216,7 @@ def cmd_talk(argv: list[str]) -> int:
 
 def main() -> None:
     argv = sys.argv[1:]
-    commands = {"agents": cmd_agents, "use": cmd_use, "setup": cmd_setup, "logout": cmd_logout,
+    commands = {"agents": cmd_agents, "model": cmd_model, "use": cmd_use, "setup": cmd_setup, "logout": cmd_logout,
                 "conversations": cmd_conversations, "conversation": cmd_conversation,
                 "transcribe": cmd_transcribe, "talk": cmd_talk}
     if argv and argv[0] in commands:

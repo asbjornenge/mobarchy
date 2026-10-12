@@ -27,6 +27,8 @@ Agent::Agent(QObject *parent)
         const QJsonObject o = QJsonDocument::fromJson(m_list.readAllStandardOutput()).object();
         m_agents = o.value(QStringLiteral("agents")).toArray().toVariantList();
         m_active = o.value(QStringLiteral("active")).toString();
+        m_models = o.value(QStringLiteral("models")).toObject().toVariantMap();
+        m_modelChoices = o.value(QStringLiteral("modelChoices")).toArray().toVariantList();
         emit agentsChanged();
     });
     refresh();
@@ -59,6 +61,19 @@ void Agent::logout(const QString &id)
         refresh();
     });
     proc->start(program(), {QStringLiteral("logout"), id});
+}
+
+void Agent::setModel(const QString &which, const QString &model)
+{
+    // at once in the menu; the file follows
+    m_models[which] = model == QLatin1String("default") ? QString() : model;
+    emit agentsChanged();
+    auto *proc = new QProcess(this);
+    connect(proc, &QProcess::finished, this, [this, proc] {
+        proc->deleteLater();
+        refresh();
+    });
+    proc->start(program(), {QStringLiteral("model"), which, model});
 }
 
 void Agent::choose(const QString &id)

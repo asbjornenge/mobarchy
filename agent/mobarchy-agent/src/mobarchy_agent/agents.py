@@ -22,7 +22,7 @@ import tempfile
 import time
 import uuid
 from collections.abc import AsyncIterator
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, replace, field
 from pathlib import Path
 
 from . import local
@@ -47,18 +47,34 @@ class Status:
 
 # --- state ---------------------------------------------------------------------------------
 
+# The Claude models the owner chooses between (Claude Code's aliases: the latest of each),
+# for the chat and for Frigg; "" for the chat is Claude Code's own default (the account's).
+CLAUDE_MODELS = {"opus": "Opus", "sonnet": "Sonnet", "haiku": "Haiku"}
+FRIGG_DEFAULT_MODEL = "sonnet"
+
+
 @dataclass
 class State:
     active: str | None = None
     conversation: str | None = None  # the current one (conversations.py)
+    # {"chat": alias or "", "frigg": alias}
+    models: dict = field(default_factory=dict)
 
     @classmethod
     def load(cls) -> State:
         try:
             data = json.loads(STATE_FILE.read_text())
-            return cls(active=data.get("active"), conversation=data.get("conversation"))
+            return cls(active=data.get("active"), conversation=data.get("conversation"),
+                       models=dict(data.get("models") or {}))
         except (OSError, ValueError):
             return cls()
+
+    def model(self, which: str) -> str:
+        """The chosen model for "chat" or "frigg" (an alias; "" for the chat: the default)."""
+        chosen = self.models.get(which, "")
+        if chosen in CLAUDE_MODELS:
+            return chosen
+        return FRIGG_DEFAULT_MODEL if which == "frigg" else ""
 
     def save(self) -> None:
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -231,6 +247,8 @@ async def claude_run(prompt: str, config: Config, on_event: EventHandler, resume
         return None
     WORKDIR.mkdir(parents=True, exist_ok=True)
     cmd = [*await claude_command(exe, config), "-p", prompt]
+    if model := State.load().model("chat"):
+        cmd += ["--model", model]
     if resume:
         cmd += ["--resume", resume]
     # (a step the owner approves waits for them: up to two minutes, then root)

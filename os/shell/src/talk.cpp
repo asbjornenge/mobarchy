@@ -9,6 +9,8 @@
 Talk::Talk(QObject *parent)
     : QObject(parent)
 {
+    // its messages (e.g. each turn's timing) to the shell's log, the journal
+    m_proc.setProcessChannelMode(QProcess::ForwardedErrorChannel);
     connect(&m_proc, &QProcess::readyReadStandardOutput, this, &Talk::readEvents);
     connect(&m_proc, &QProcess::stateChanged, this, [this] {
         if (!active() && m_state != QLatin1String("idle")) {

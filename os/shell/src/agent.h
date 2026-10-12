@@ -3,6 +3,7 @@
 #pragma once
 
 #include <QObject>
+#include <QVariantMap>
 #include <QProcess>
 #include <functional>
 #include <QtQml/qqmlregistration.h>
@@ -15,6 +16,10 @@ class Agent : public QObject
     // [{id, name, installed, ready, detail, available}]
     Q_PROPERTY(QVariantList agents READ agents NOTIFY agentsChanged)
     Q_PROPERTY(QString active READ active NOTIFY agentsChanged)
+    // Claude's model for the chat and for Frigg: {chat: alias or "" (the default), frigg: alias}
+    Q_PROPERTY(QVariantMap models READ models NOTIFY agentsChanged)
+    // [{id, name}]: the models to choose between
+    Q_PROPERTY(QVariantList modelChoices READ modelChoices NOTIFY agentsChanged)
     // [{id, title, updated, current, agents}], newest first
     Q_PROPERTY(QVariantList conversations READ conversations NOTIFY conversationsChanged)
     // A login is waiting for a code the owner may paste (event kind "code").
@@ -31,6 +36,10 @@ public:
 
     QVariantList agents() const { return m_agents; }
     QString active() const { return m_active; }
+    QVariantMap models() const { return m_models; }
+    QVariantList modelChoices() const { return m_modelChoices; }
+    // which: "chat" or "frigg"; model: an alias, or "default" (the chat's: Claude Code's)
+    Q_INVOKABLE void setModel(const QString &which, const QString &model);
     bool awaitingCode() const { return m_awaitingCode; }
     QVariantList conversations() const { return m_conversations; }
 
@@ -72,6 +81,8 @@ private:
     QProcess m_list;
     QVariantList m_agents;
     QString m_active;
+    QVariantMap m_models;
+    QVariantList m_modelChoices;
     QVariantList m_conversations;
     bool m_awaitingCode = false;
     QByteArray m_stderr;

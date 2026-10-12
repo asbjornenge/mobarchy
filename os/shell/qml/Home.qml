@@ -535,6 +535,52 @@ Window {
                 width: chooser.width
             }
         }
+        // Claude's model: for the chat, and for Frigg (talking)
+        Repeater {
+            model: home.chosen && home.agent.active === "claude" && home.agent.modelChoices.length > 0
+                   ? [{which: "chat", label: qsTr("Model"), choices: [{id: "default", name: qsTr("Default")}].concat(home.agent.modelChoices)},
+                      {which: "frigg", label: qsTr("Frigg"), choices: home.agent.modelChoices}]
+                   : []
+            delegate: Column {
+                id: modelRow
+                required property var modelData
+                width: chooser.width
+                spacing: 6
+                Text {
+                    text: modelRow.modelData.label
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 12 }
+                }
+                Row {
+                    spacing: 6
+                    Repeater {
+                        model: modelRow.modelData.choices
+                        delegate: Rectangle {
+                            id: choice
+                            required property var modelData
+                            readonly property string current: home.agent.models[modelRow.modelData.which] || "default"
+                            readonly property bool on: current === modelData.id
+                            width: (chooser.width - 6 * (modelRow.modelData.choices.length - 1)) / modelRow.modelData.choices.length
+                            height: 36
+                            radius: 18
+                            color: on ? Theme.accent : (choiceTap.pressed ? Theme.line : Theme.panel)
+                            border.color: Theme.line
+                            Text {
+                                anchors.centerIn: parent
+                                text: choice.modelData.name
+                                color: choice.on ? Theme.bg : Theme.fg
+                                font { family: Theme.font; pixelSize: 13; bold: choice.on }
+                            }
+                            MouseArea {
+                                id: choiceTap
+                                anchors.fill: parent
+                                onClicked: home.agent.setModel(modelRow.modelData.which, choice.modelData.id)
+                            }
+                        }
+                    }
+                }
+            }
+        }
         // While setting up (installing, logging in): what is happening.
         Repeater {
             model: home.chosen ? null : feed

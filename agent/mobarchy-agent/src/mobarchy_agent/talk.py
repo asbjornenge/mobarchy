@@ -22,6 +22,7 @@ import json
 import os
 import re
 import shutil
+import sys
 import tempfile
 import time
 import urllib.request
@@ -29,7 +30,7 @@ import wave
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
 
-from . import agents, voice
+from . import agents, scribe, voice
 from .config import Config
 from .runtime import SYSTEM_PROMPT
 
@@ -63,8 +64,10 @@ VOICE_PROMPT = """
 You are Frigg, the voice of this phone. This is a spoken conversation: what you write is \
 read aloud. Answer in the language the owner speaks, in short plain sentences, as you would \
 talk: no markdown, no lists, no emoji, no URLs read out. Keep answers brief unless asked for \
-more, and ask back when something is unclear. You still have all your tools; say in a few \
-words what you are doing before something that takes time. When a tool says the phone is \
+more, and ask back when something is unclear. You still have all your tools. Before you use \
+any of them, first say in one short sentence what you are about to do ("Jeg søker litt på \
+nettet.", "Let me check your calendar."), ending it with a full stop, and only then call the \
+tool: the owner hears nothing while you work, and silence sounds broken. When a tool says the phone is \
 locked and the owner has to unlock it, ask them to unlock it (fingerprint or PIN) and try \
 again when they say so."""
 
@@ -116,6 +119,29 @@ def emit(kind: str, **fields) -> None:
 # --- sentences --------------------------------------------------------------------------
 
 SENTENCE_END = re.compile(r"([.!?…:;])(\s+)")
+
+
+# What Frigg says herself when the agent starts on a tool without having said anything (or
+# has been quiet a while): the owner hears that something is going on.
+def doing_line(tool: str | None, language: str) -> str:
+    no = language in ("no", "nb", "nn")
+    t = (tool or "").lower()
+    if any(k in t for k in ("websearch", "webfetch", "search_web", "browser")):
+        return "Jeg søker litt på nettet." if no else "Let me look that up."
+    if "calendar" in t:
+        return "Jeg sjekker kalenderen." if no else "Let me check your calendar."
+    if any(k in t for k in ("gmail", "mail")):
+        return "Jeg ser i e-posten." if no else "Let me look in your mail."
+    if any(k in t for k in ("drive", "docs")):
+        return "Jeg ser i dokumentene dine." if no else "Let me look in your documents."
+    if t in SCREEN_TOOLS:
+        return "Jeg ser på skjermen." if no else "Let me look at the screen."
+    if tool is None:
+        return "Et øyeblikk." if no else "One moment."
+    return "Et øyeblikk, jeg sjekker." if no else "One moment, let me check."
+
+
+QUIET_LINE_S = 2.5     # this long without a word after the owner has spoken: "One moment."
 
 
 class Sentences:
@@ -282,7 +308,7 @@ class Speaker:
 
 # --- speech: the phone's, or a service's -----------------------------------------------
 
-STT_KEYS = {"openai": "OPENAI_API_KEY"}
+STT_KEYS = {"openai": "OPENAI_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}
 TTS_KEYS = {"openai": "OPENAI_API_KEY", "elevenlabs": "ELEVENLABS_API_KEY"}
 
 
@@ -292,7 +318,10 @@ def _service(setting: str, keys: dict[str, str], local: str) -> str:
 
 
 def stt() -> str:
-    """Who understands: "whisper" (the phone) or "openai"."""
+    """Who understands: "elevenlabs" (Scribe v2 Realtime, as the owner speaks: the default
+    with an ElevenLabs key), "openai", or "whisper" (the phone; also the fallback)."""
+    if os.environ.get("MOBARCHY_TALK_STT") is None:
+        return "elevenlabs" if os.environ.get("ELEVENLABS_API_KEY") else "whisper"
     return _service("MOBARCHY_TALK_STT", STT_KEYS, "whisper")
 
 
@@ -527,6 +556,8 @@ class Talk:
         self.last_active = time.monotonic()
         self.wake_after = 0.0   # (back to waiting: not before her own voice has died away)
         self.barge_in = False
+        self.marks: dict[str, float] = {}   # (the turn's timing: report_timing)
+        self.hearing: scribe.Scribe | None = None   # (Scribe: the turn being heard)
         self.trusted = False    # this conversation began on an unlocked phone
         self.vad = Vad()
         self.speaker = Speaker()
@@ -660,6 +691,7 @@ class Talk:
                     await self.cut_in()
                     ep = Endpointer()
                     ep.speaking, turn = True, bytearray(b"".join(pre))
+                    self.hear_start(bytes(turn))
                     self.set_state("listening")
                 continue
             pre = (pre + [window])[-max(PRE_ROLL_WINDOWS, pre_keep):]
@@ -669,26 +701,54 @@ class Talk:
             if what == "start":
                 turn = bytearray(b"".join(pre))
                 pre_keep = 0
+                self.hear_start(bytes(turn))
             elif ep.speaking:
                 turn += window
+                if self.hearing:
+                    self.hearing.feed(window)
             if what == "end":
                 pcm, turn = bytes(turn), bytearray()
-                self.speaking_task = asyncio.create_task(self.answer(pcm))
+                self.marks = {"end": time.monotonic()}
+                hearing, self.hearing = self.hearing, None
+                self.speaking_task = asyncio.create_task(self.answer(pcm, hearing))
 
-    async def answer(self, pcm: bytes) -> None:
+    def hear_start(self, pcm: bytes) -> None:
+        """Speech has begun: with Scribe, its stream (the turn's audio from here on)."""
+        if self.hearing:
+            self.hearing.cancel()
+        self.hearing = None
+        # (a language to hear: "auto" is whisper's, which tells which it was)
+        if stt() == "elevenlabs" and talk_language() != "auto":
+            self.hearing = scribe.Scribe(talk_language())
+            self.hearing.start()
+            self.hearing.feed(pcm)
+
+    async def hear(self, pcm: bytes, hearing: scribe.Scribe | None) -> tuple[str, str]:
+        """(text, language): Scribe's, as it streamed; else (or if it fails: no network) the
+        phone's whisper with the whole turn."""
+        if hearing:
+            try:
+                return await hearing.finish(), talk_language()
+            except scribe.ScribeError as e:
+                print(f"frigg: Scribe failed ({e}): whisper instead", file=sys.stderr, flush=True)
+        return await asyncio.to_thread(transcribe, pcm)
+
+    async def answer(self, pcm: bytes, hearing: scribe.Scribe | None = None) -> None:
         self.set_state("thinking")
         self.interrupted.clear()
         self.barge_in = await asyncio.to_thread(can_barge_in)
         try:
-            text, language = await asyncio.to_thread(transcribe, pcm)
+            text, language = await self.hear(pcm, hearing)
         except Exception as e:
             self.out("error", text=f"could not understand: {e}")
             self.set_state("listening")
             return
+        self.mark("heard")
         if not text:
             self.set_state("listening")
             return
         owner, score = await asyncio.to_thread(self.who, pcm)
+        self.mark("who")
         self.out("heard", text=text, language=language, voice="owner" if owner else "guest",
                  **({"match": round(score, 3)} if score is not None else {}))
         if not owner:
@@ -702,6 +762,17 @@ class Talk:
         spoken = []
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         speak = asyncio.create_task(self.speak(queue, language))
+
+        async def say_doing(tool: str | None) -> None:
+            if not spoken and not self.interrupted.is_set():
+                line = doing_line(tool, language)
+                spoken.append(line)
+                await queue.put(line)
+
+        async def quiet() -> None:
+            await asyncio.sleep(QUIET_LINE_S)
+            await say_doing(None)
+        quiet_task = asyncio.create_task(quiet())
         try:
             for attempt in (1, 2):
                 answered = False
@@ -711,10 +782,20 @@ class Talk:
                         if self.interrupted.is_set():
                             continue    # (the rest of the answer goes unspoken)
                         if kind == "text":
+                            self.mark("first_text")
+                            quiet_task.cancel()
                             for s in sentences.feed(value):
                                 spoken.append(s)
                                 await queue.put(s)
                         elif kind == "tool":
+                            self.mark("first_tool")
+                            quiet_task.cancel()
+                            # what it said it would do, at once (not held for more text), else
+                            # a line of Frigg's own
+                            for s in sentences.flush():
+                                spoken.append(s)
+                                await queue.put(s)
+                            await say_doing(value)
                             self.out("tool", text=value, screen=value in SCREEN_TOOLS)
                         elif kind == "error":
                             self.out("error", text=value)
@@ -732,6 +813,7 @@ class Talk:
         except Exception as e:
             self.out("error", text=f"Claude: {e}")
         finally:
+            quiet_task.cancel()
             await queue.put(None)
             await speak
             if spoken:
@@ -740,9 +822,24 @@ class Talk:
                 conv.sessions["claude"] = self.session.session_id
             conv.seen["claude"] = len(conv.turns)
             conv.save()
+            self.report_timing()
             if not self.stopping and self.state != "waiting":
                 self.last_active = time.monotonic()
                 self.set_state("listening")
+
+    # --- how long each part of a turn takes, from the end of what was said ---------------
+    def mark(self, what: str) -> None:
+        """The first time this happened in the turn (end: the speech ended)."""
+        self.marks.setdefault(what, time.monotonic())
+
+    def report_timing(self) -> None:
+        end = self.marks.get("end")
+        if end is None:
+            return
+        took = {k: round(v - end, 2) for k, v in self.marks.items() if k != "end"}
+        self.out("timing", **took)
+        print(f"frigg timing: {json.dumps(took)}", file=sys.stderr, flush=True)
+        self.marks = {}
 
     def who(self, pcm: bytes) -> tuple[bool, float | None]:
         """(the owner?, Voice Match's score). On an unlocked phone (or one without a PIN) it's
@@ -829,6 +926,7 @@ class Talk:
                     if self.interrupted.is_set():
                         break
                     if first:
+                        self.mark("first_sound")
                         self.set_state("speaking")
                         self.out("said", text=sentence)
                         first = False
@@ -967,8 +1065,9 @@ async def main(config: Config | None = None, wake: bool = False, enroll: bool = 
     config = agents.replace(config, mcp_url=agents.task_url(config.mcp_url))
     cmd = await agents.claude_command(exe, config, SYSTEM_PROMPT + VOICE_PROMPT)
     # A quick model for a spoken conversation: on comet, Sonnet's first words come in ~1-3 s,
-    # the default's in 5-7 (MOBARCHY_TALK_MODEL changes it; "" for Claude Code's default).
-    model = os.environ.get("MOBARCHY_TALK_MODEL", "sonnet")
+    # the default's in 5-7. The owner's choice (the chat's model menu, agents.State), or
+    # MOBARCHY_TALK_MODEL ("" for Claude Code's default).
+    model = os.environ.get("MOBARCHY_TALK_MODEL", agents.State.load().model("frigg"))
     if model:
         cmd += ["--model", model]
     from . import speaker
