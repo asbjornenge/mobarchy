@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Package Mesa for the Android container (os/android-mesa/build's result) as
-# mobarchy-android-mesa, for Mobarchy's repository: the libraries android-container
-# mounts as the container's /odm/lib64 (/usr/lib/mobarchy/android/odm/lib64).
+# Package Mesa for Android (os/android-mesa/build's results) for Mobarchy's repository:
 #
-#   os/android-mesa/package --out <dir>      (after os/android-mesa/build)
+#   mobarchy-android-mesa    the libraries android-container mounts as the Android
+#                            container's /odm/lib64 (/usr/lib/mobarchy/android/odm/lib64)
+#   mobarchy-waydroid-mesa   the GPU's Mesa for Waydroid (the Android apps, ADR 0029),
+#                            overlaid on its vendor image (/var/lib/waydroid/overlay/vendor);
+#                            only if the waydroid stage was built
+#
+#   os/android-mesa/package --out <dir>      (after os/android-mesa/build [waydroid])
 #   tools/repo-build --repo <dir> --add <dir>/mobarchy-android-mesa-*.pkg.tar.zst
 set -euo pipefail
 out=""
@@ -21,27 +25,38 @@ image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-
     echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
 mkdir -p "$out"
 
-docker run --rm --platform linux/arm64 -v "$work/odm:/odm:ro" -v "$out:/out" "$image" bash -euo pipefail -c "
-    pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
-    pacman -Sy --noconfirm --needed --disable-sandbox fakeroot >/dev/null
-    useradd -m builder
-    mkdir -p /tmp/pkg/root/usr/lib/mobarchy/android && cp -a /odm /tmp/pkg/root/usr/lib/mobarchy/android/
-    cat > /tmp/pkg/PKGBUILD <<'EOP'
-pkgname=mobarchy-android-mesa
+# package <name> <dir to copy> <where it goes> <pkgdesc>
+package() {
+    local name="$1" from="$2" to="$3" desc="$4"
+    docker run --rm --platform linux/arm64 -v "$from:/from:ro" -v "$out:/out" "$image" bash -euo pipefail -c "
+        pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+        pacman -Sy --noconfirm --needed --disable-sandbox fakeroot >/dev/null
+        useradd -m builder
+        mkdir -p /tmp/pkg/root$to && cp -a /from/. /tmp/pkg/root$to/
+        cat > /tmp/pkg/PKGBUILD <<'EOP'
+pkgname=PKGNAME
 pkgver=PKGVER
 pkgrel=1
-pkgdesc=\"Mesa for Mobarchy's Android container: EGL/GLES and OpenCL (rusticl) on llvmpipe, for the vendor HALs (ADR 0017)\"
+pkgdesc='PKGDESC'
 arch=(aarch64)
 url='https://mesa3d.org'
 license=(MIT)
 options=(!strip !debug)
 package() { cp -a \"\$startdir/root/.\" \"\$pkgdir/\"; }
 EOP
-    sed -i 's/PKGVER/$version/' /tmp/pkg/PKGBUILD
-    chown -R builder /tmp/pkg
-    su builder -c 'cd /tmp/pkg && PKGDEST=/tmp/pkg PKGEXT=.pkg.tar.zst makepkg --nodeps --noconfirm >/tmp/pkg/makepkg.log 2>&1' \
-        || { tail -20 /tmp/pkg/makepkg.log >&2; exit 1; }
-    cp /tmp/pkg/mobarchy-android-mesa-*.pkg.tar.zst /out/
-    chmod a+r /out/*
-"
-ls "$out"/mobarchy-android-mesa-*.pkg.tar.zst
+        sed -i 's|PKGNAME|$name|; s|PKGVER|$version|; s|PKGDESC|$desc|' /tmp/pkg/PKGBUILD
+        chown -R builder /tmp/pkg
+        su builder -c 'cd /tmp/pkg && PKGDEST=/tmp/pkg PKGEXT=.pkg.tar.zst makepkg --nodeps --noconfirm >/tmp/pkg/makepkg.log 2>&1' \
+            || { tail -20 /tmp/pkg/makepkg.log >&2; exit 1; }
+        cp /tmp/pkg/$name-*.pkg.tar.zst /out/
+        chmod a+r /out/*
+    "
+    ls "$out"/$name-*.pkg.tar.zst
+}
+
+package mobarchy-android-mesa "$work/odm" /usr/lib/mobarchy/android/odm \
+    "Mesa for the Mobarchy Android container: EGL/GLES and OpenCL (rusticl) on llvmpipe, for the vendor HALs (ADR 0017)"
+if [ -f "$work/waydroid/vendor/lib64/libgallium_dri.so" ]; then
+    package mobarchy-waydroid-mesa "$work/waydroid/vendor" /var/lib/waydroid/overlay/vendor \
+        "Mesa for Android in Waydroid: the GPU (panfrost) for the Android apps, over the Mesa of its vendor image (ADR 0029)"
+fi

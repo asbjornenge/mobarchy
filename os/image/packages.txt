@@ -61,3 +61,6 @@ chromium
 playerctl
 # The clipboard from the command line for the agent (mobarchy-mcp clipboard tools)
 wl-clipboard
+# Android apps (ADR 0029): Waydroid, with the GPU's Mesa over its vendor image's
+waydroid
+mobarchy-waydroid-mesa

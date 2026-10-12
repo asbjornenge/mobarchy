@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""Prepares Waydroid (the Android apps' container, ADR 0029) before its container starts
+(waydroid-container.service's ExecStartPre):
+
+  - binder devices of its own (anbox-binder, anbox-vndbinder, anbox-hwbinder) in a binderfs
+    instance of its own: /dev/binder etc. are the Android container's (ADR 0014), and the two
+    must not share a context manager
+  - the GPU's render node for its gralloc and Mesa (drm_device): the one whose driver is a
+    GPU's, not the display controller's (which has no 3D); Waydroid's own pick is the first
+    render node, which on a phone is often the display's
+  - Waydroid's config to match; its Android properties are regenerated (waydroid upgrade
+    --offline) only when something changed
+
+Idempotent: run as often as the container starts.
+"""
+
+import configparser
+import fcntl
+import os
+import struct
+import subprocess
+import sys
+from pathlib import Path
+
+BINDERFS = Path("/run/waydroid-binderfs")
+BINDERS = {"binder": "anbox-binder", "vndbinder": "anbox-vndbinder", "hwbinder": "anbox-hwbinder"}
+# _IOWR('b', 1, struct binderfs_device { char name[256]; __u32 major, minor; })
+BINDER_CTL_ADD = (3 << 30) | (264 << 16) | (ord("b") << 8) | 1
+CFG = Path("/var/lib/waydroid/waydroid.cfg")
+# DRM drivers that render (Mesa has a driver for them); display-only ones are left out
+GPU_DRIVERS = {"panthor", "panfrost", "lima", "msm", "v3d", "vc4", "etnaviv", "asahi",
+               "amdgpu", "radeon", "i915", "xe", "nouveau", "virtio_gpu", "powervr"}
+
+
+def binders() -> None:
+    BINDERFS.mkdir(parents=True, exist_ok=True)
+    if not os.path.ismount(BINDERFS):
+        subprocess.run(["mount", "-t", "binder", "binder", str(BINDERFS)], check=True)
+    for name in BINDERS.values():
+        path = BINDERFS / name
+        if not path.exists():
+            fd = os.open(BINDERFS / "binder-control", os.O_RDONLY)
+            try:
+                fcntl.ioctl(fd, BINDER_CTL_ADD, struct.pack("256sII", name.encode(), 0, 0))
+            finally:
+                os.close(fd)
+        path.chmod(0o666)
+        link = Path("/dev") / name
+        if link.is_symlink() or link.exists():
+            if link.is_symlink() and os.readlink(link) == str(path):
+                continue
+            link.unlink()
+        link.symlink_to(path)
+
+
+def gpu_render_node() -> str | None:
+    for node in sorted(Path("/sys/class/drm").glob("renderD*")):
+        driver = node / "device" / "driver"
+        if driver.exists() and driver.resolve().name in GPU_DRIVERS:
+            return f"/dev/dri/{node.name}"
+    return None
+
+
+def configure() -> bool:
+    """Waydroid's config to match; True if it changed."""
+    if not CFG.exists():
+        return False     # not initialised yet (waydroid init): nothing to match
+    cfg = configparser.ConfigParser()
+    cfg.read(CFG)
+    w = cfg["waydroid"]
+    want = dict(BINDERS)
+    if node := gpu_render_node():
+        want["drm_device"] = node
+    changed = {k: v for k, v in want.items() if w.get(k) != v}
+    if not changed:
+        return False
+    for k, v in changed.items():
+        w[k] = v
+    with CFG.open("w") as f:
+        cfg.write(f)
+    print(f"waydroid-prepare: {changed}")
+    return True
+
+
+def main() -> int:
+    binders()
+    if configure():
+        # the Android properties (gralloc's device among them) and the LXC config from it
+        subprocess.run(["waydroid", "upgrade", "--offline"], check=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

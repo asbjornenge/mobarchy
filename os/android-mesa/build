@@ -11,6 +11,10 @@
 #   libclc      OpenCL's built-in library, as SPIR-V (from Arch's package)
 #   compiler    Mesa's build-time compilers (mesa_clc, vtn_bindgen2, panfrost's), for here
 #   mesa        Mesa: gallium (llvmpipe), EGL/GLES for Android, rusticl
+#   waydroid    Mesa for Waydroid's Android 13 (the Android apps' container): the GPU's own
+#               driver (panfrost on Panthor) with softpipe to fall back on, GBM for its
+#               minigbm gralloc; named as Waydroid's vendor image names them, to overlay them
+#               (stock Waydroid's Mesa, 26.0, has no Mali-G715 yet)
 #
 # Sources and builds live in the work directory (default ~/.cache/mobarchy/android-mesa):
 # src/{llvm-project-*,SPIRV-*,mesa}; the result is installed to <work>/out.
@@ -33,7 +37,7 @@ while [ $# -gt 0 ]; do
     case "$1" in
         --work) work="$(realpath -m "$2")"; shift 2 ;;
         --jobs) jobs="$2"; shift 2 ;;
-        llvm|spirv|libclc|compiler|mesa) stages+=("$1"); shift ;;
+        llvm|spirv|libclc|compiler|mesa|waydroid) stages+=("$1"); shift ;;
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
@@ -147,11 +151,11 @@ apply_patches() {
     done
 }
 
-stage_mesa() {
-    apply_patches
-    local bin="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" sysroot
+# The cross file for an Android API level: cross_file <api> <file>
+cross_file() {
+    local API=$1 bin="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin" sysroot
     sysroot="$NDK/toolchains/llvm/prebuilt/linux-x86_64/sysroot"
-    cat > "$build/android-aarch64.cross" <<EOS
+    cat > "$2" <<EOS
 [binaries]
 c = '$bin/aarch64-linux-android$API-clang'
 cpp = ['$bin/aarch64-linux-android$API-clang++', '-fno-exceptions', '-fno-unwind-tables', '-fno-asynchronous-unwind-tables', '--start-no-unused-arguments', '-static-libstdc++', '--end-no-unused-arguments']
@@ -174,6 +178,11 @@ cpu_family = 'aarch64'
 cpu = 'armv8'
 endian = 'little'
 EOS
+}
+
+stage_mesa() {
+    apply_patches
+    cross_file $API "$build/android-aarch64.cross"
     export PATH="$work/compiler/bin:$PATH"
     [ -f "$build/mesa/build.ninja" ] || meson setup "$build/mesa" "$src/mesa" \
         --cross-file "$build/android-aarch64.cross" --prefix=/odm --libdir=lib64 \
@@ -200,9 +209,47 @@ EOS
     cp -a "$lib/libEGL_mesa.so" "$lib/libGLESv2_mesa.so" "$dest/egl/"
 }
 
+# Waydroid (LineageOS 20, Android 13: API 33). Its vendor image loads EGL/GLES as
+# lib*_mesa.so from /vendor/lib64/egl, the driver as libgallium_dri.so, GBM as
+# libgbm_mesa.so with its backend dri_gbm.so in /vendor/lib64; Waydroid overlays files from
+# /var/lib/waydroid/overlay/vendor onto the image.
+stage_waydroid() {
+    apply_patches
+    local wapi=33
+    cross_file $wapi "$build/android33-aarch64.cross"
+    export PATH="$work/compiler/bin:$PATH"
+    [ -f "$build/mesa-waydroid/build.ninja" ] || meson setup "$build/mesa-waydroid" "$src/mesa" \
+        --cross-file "$build/android33-aarch64.cross" --prefix=/vendor --libdir=lib64 \
+        -Dbuildtype=release -Db_ndebug=true -Dstrip=true -Dcpp_rtti=false \
+        -Degl-lib-suffix=_mesa -Dgles-lib-suffix=_mesa \
+        -Dplatforms=android -Dplatform-sdk-version=$wapi -Dandroid-stub=true \
+        -Dandroid-libbacktrace=disabled -Dallow-fallback-for=libdrm \
+        -Dgallium-drivers=panfrost,softpipe -Dvulkan-drivers= -Dgallium-rusticl=false \
+        -Dllvm=disabled \
+        -Degl=enabled -Dgles1=enabled -Dgles2=enabled -Dopengl=true \
+        -Dgbm=enabled -Dgbm-backends-path=/vendor/lib64 \
+        -Dglx=disabled -Dxmlconfig=disabled -Dzstd=disabled -Dvalgrind=disabled \
+        -Dlibunwind=disabled -Dbuild-tests=false -Dvideo-codecs= -Dtools= \
+        -Dmesa-clc=system -Dprecomp-compiler=system
+    ninja -C "$build/mesa-waydroid" -j"$jobs"
+    local inst="$work/out-waydroid"
+    rm -rf "$inst" && DESTDIR="$inst" ninja -C "$build/mesa-waydroid" install
+
+    local lib="$inst/vendor/lib64" dest="$work/waydroid/vendor/lib64"
+    rm -rf "$work/waydroid" && mkdir -p "$dest/egl"
+    cp -a "$lib/libgallium_dri.so" "$dest/"
+    cp -a "$lib/libEGL_mesa.so" "$lib/libGLESv2_mesa.so" "$lib/libGLESv1_CM_mesa.so" "$dest/egl/"
+    cp -a "$lib/libgbm_mesa.so" "$lib/gbm/dri_gbm.so" "$lib/libdrm.so" "$dest/"
+}
+
+# (waydroid: only when named)
 for s in llvm spirv libclc compiler mesa; do
     if done_stage $s; then echo "== $s: done"; continue; fi
     echo "== $s"
     "stage_$s"
     mark $s
 done
+if [[ " ${stages[*]} " == *" waydroid "* ]]; then
+    echo "== waydroid"
+    stage_waydroid
+fi
