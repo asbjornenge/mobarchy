@@ -23,7 +23,43 @@ Sheet {
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     onOpening: keyboard.visible = false
-    onShownChanged: if (!shown) newWindow.visible = false
+    // closed: the search is over too
+    onShownChanged: if (!shown) {
+        newWindow.visible = false
+        endSearch()
+    }
+
+    // --- the search: the keyboard types into it (Keyboard.capturing), the grid follows ---
+    readonly property bool searching: keyboard.capturing
+    function startSearch() {
+        keyboard.startCapture()
+        keyboard.visible = true
+    }
+    function endSearch() {
+        if (keyboard.capturing) {
+            keyboard.stopCapture()
+            keyboard.visible = false
+        }
+    }
+    AppFilter {
+        id: filtered
+        source: drawer.apps
+        query: drawer.keyboard.captured
+    }
+    Connections {
+        target: drawer.keyboard
+        // Return: the first match
+        function onCaptureAccepted() {
+            const id = filtered.first()
+            if (id !== "")
+                drawer.open_(id)
+        }
+    }
+    function open_(appId) {
+        if (!toplevels.activateApp(apps.windowIds(appId)))
+            apps.launch(appId)
+        close()
+    }
 
     // Holding an app's icon: a new window of it, apart from the one it has open.
     function offerNewWindow(appId, name, tile) {
@@ -70,6 +106,41 @@ Sheet {
         }
 
         // --- installed apps -------------------------------------------------------------
+        Rectangle {
+            id: search
+            anchors { left: parent.left; right: parent.right; top: handle.bottom; leftMargin: 16; rightMargin: 16; topMargin: 4 }
+            height: 42
+            radius: 21
+            color: Theme.panel
+            border.color: drawer.searching ? Theme.accent : Theme.line
+            Text {
+                anchors { left: parent.left; right: clear.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
+                elide: Text.ElideLeft
+                text: drawer.searching && drawer.keyboard.captured !== "" ? drawer.keyboard.captured + "▏"
+                    : "󰍉  " + qsTr("Search apps") + (drawer.searching ? "▏" : "")
+                color: drawer.searching && drawer.keyboard.captured !== "" ? Theme.fg : Theme.muted
+                font { family: Theme.font; pixelSize: 15 }
+            }
+            Text {
+                id: clear
+                visible: drawer.searching
+                anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
+                text: "󰅖"
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 16 }
+            }
+            MouseArea {
+                anchors.fill: parent
+                onClicked: drawer.searching ? drawer.endSearch() : drawer.startSearch()
+            }
+        }
+        Text {
+            anchors { horizontalCenter: parent.horizontalCenter; top: search.bottom; topMargin: 40 }
+            visible: drawer.searching && filtered.count === 0
+            text: qsTr("No apps called “%1”").arg(drawer.keyboard.captured)
+            color: Theme.muted
+            font { family: Theme.font; pixelSize: 14 }
+        }
         GridView {
             maximumFlickVelocity: Theme.flickVelocity
             boundsBehavior: Theme.boundsBehavior
@@ -78,14 +149,14 @@ Sheet {
             id: grid
             anchors {
                 left: parent.left; right: parent.right; bottom: parent.bottom
-                top: handle.bottom
+                top: search.bottom
                 topMargin: 8; leftMargin: 8; rightMargin: 8
             }
             clip: true
             readonly property int columns: Math.max(4, Math.floor(width / 120))
             cellWidth: width / columns
             cellHeight: 104
-            model: drawer.apps
+            model: filtered
             currentIndex: -1  // see Home.qml
             highlightFollowsCurrentItem: false
             // Pulling down past the top closes the drawer.
@@ -103,11 +174,7 @@ Sheet {
                 MouseArea {
                     id: tap
                     anchors.fill: parent
-                    onClicked: {
-                        if (!drawer.toplevels.activateApp(drawer.apps.windowIds(tile.appId)))
-                            drawer.apps.launch(tile.appId)
-                        drawer.close()
-                    }
+                    onClicked: drawer.open_(tile.appId)
                     onPressAndHold: drawer.offerNewWindow(tile.appId, tile.name, tile)
                 }
                 Column {

@@ -154,7 +154,7 @@ QString Keyboard::textBefore() const
 
 bool Keyboard::capitalize() const
 {
-    if (!m_active)
+    if (!m_active || m_capturing)
         return false;
     if (m_hint & Uppercase)
         return true;
@@ -172,10 +172,33 @@ bool Keyboard::capitalize() const
     return before.back().isSpace() && QStringLiteral(".!?").contains(t.back());
 }
 
+void Keyboard::startCapture()
+{
+    m_capturing = true;
+    m_captured.clear();
+    emit captureChanged();
+    emit contentChanged();      // (no capitals for a search)
+}
+
+void Keyboard::stopCapture()
+{
+    if (!m_capturing)
+        return;
+    m_capturing = false;
+    m_captured.clear();
+    emit captureChanged();
+    emit contentChanged();
+}
+
 void Keyboard::type(const QString &text)
 {
     if (text.isEmpty())
         return;
+    if (m_capturing) {
+        m_captured += text;
+        emit captureChanged();
+        return;
+    }
     emit edited();
     if (m_active && m_im) {
         qCDebug(lcKeyboard) << "commit_string" << text << "serial" << m_serial;
@@ -200,6 +223,14 @@ void Keyboard::type(const QString &text)
 // first deletion after typing.)
 void Keyboard::backspace()
 {
+    if (m_capturing) {
+        QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, m_captured);
+        finder.toEnd();
+        const qsizetype start = finder.toPreviousBoundary();
+        m_captured.truncate(start < 0 ? 0 : start);
+        emit captureChanged();
+        return;
+    }
     emit edited();
     const QString before = textBefore();
     if (m_active && !before.isEmpty()) {
@@ -226,6 +257,11 @@ void Keyboard::noteEdit()
 
 void Keyboard::key(const QString &name)
 {
+    if (m_capturing) {
+        if (name == QLatin1String("Return"))
+            emit captureAccepted();
+        return;
+    }
     emit edited();
     static const QHash<QString, uint32_t> keys = {
         {QStringLiteral("Return"), XKB_KEY_Return}, {QStringLiteral("Tab"), XKB_KEY_Tab},

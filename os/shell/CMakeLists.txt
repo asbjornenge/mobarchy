@@ -33,6 +33,7 @@ qt_add_qml_module(mobarchy-shell
     SOURCES
         src/alarms.cpp src/alarms.h
         src/apps.cpp src/apps.h
+        src/appfilter.cpp src/appfilter.h
         src/approvals.cpp src/approvals.h
         src/device.cpp src/device.h
         src/agent.cpp src/agent.h

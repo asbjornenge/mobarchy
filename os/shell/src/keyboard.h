@@ -58,6 +58,10 @@ class Keyboard : public QObject
     // The text before the cursor, as far as the field shares it.
     Q_PROPERTY(QString textBefore READ textBefore NOTIFY contentChanged)
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
+    // Typing into the shell itself (the drawer's search): the keys go to `captured`, not
+    // to an app, until stopCapture().
+    Q_PROPERTY(bool capturing READ capturing NOTIFY captureChanged)
+    Q_PROPERTY(QString captured READ captured NOTIFY captureChanged)
 
 public:
     explicit Keyboard(QObject *parent = nullptr);
@@ -66,6 +70,11 @@ public:
     bool visible() const { return m_visible; }
     void setVisible(bool visible);
     Q_INVOKABLE void toggle() { setVisible(!m_visible); }
+
+    bool capturing() const { return m_capturing; }
+    QString captured() const { return m_captured; }
+    Q_INVOKABLE void startCapture();
+    Q_INVOKABLE void stopCapture();
 
     bool active() const { return m_active; }
     QString purpose() const { return m_purpose; }
@@ -93,6 +102,9 @@ signals:
     // A key was pressed (typed, deleted, moved): an app's selection right after is its own
     // doing (Chromium deletes by selecting first), not something to offer for copying.
     void edited();
+    void captureChanged();
+    // Return while capturing
+    void captureAccepted();
 
 private:
     friend class InputMethod;
@@ -114,6 +126,8 @@ private:
     bool m_hiddenByHand = false;   // the owner hid it while a field had focus
     bool m_manual = false;         // the owner showed it with no field focused
     QString m_surrounding;
+    bool m_capturing = false;
+    QString m_captured;
     mutable QList<QPair<QString, QStringList>> m_emojiWords;   // (emoji, its words), in order
     int m_cursor = 0;              // in bytes of UTF-8, as the protocol counts
     // What the field held before our latest edits (text, cursor). An app may report its
