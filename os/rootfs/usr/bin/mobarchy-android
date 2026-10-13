@@ -1,0 +1,27 @@
+#!/bin/sh
+# Android, on demand (ADR 0029): starts the Waydroid session if it isn't running, shows its
+# full UI in a window, and stops the session again when that window is closed. Off by
+# default, so Android costs nothing (it holds ~2.5 GB while running) until the owner opens
+# it from the app drawer (org.mobarchy.Android.desktop).
+set -eu
+
+export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+session() { waydroid status 2>/dev/null | awk -F'\t' '/^Session:/ {print $NF}'; }
+
+if [ "$(session)" != "RUNNING" ]; then
+    systemctl --user reset-failed waydroid-session 2>/dev/null || true
+    systemd-run --user --quiet --collect --unit=waydroid-session waydroid session start
+    # let the session come up before the UI connects (show-full-ui then shows the boot screen)
+    i=0
+    while [ "$(session)" != "RUNNING" ] && [ "$i" -lt 30 ]; do
+        sleep 1; i=$((i + 1))
+    done
+fi
+
+# the UI window; blocks until the owner closes it
+waydroid show-full-ui || true
+
+# closed: free the memory
+waydroid session stop 2>/dev/null || true

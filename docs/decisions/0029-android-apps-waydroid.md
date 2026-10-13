@@ -54,11 +54,32 @@ drawing its windows as Wayland clients of Hyprland.
 - **No spoofing.** Play Integrity will say the device is not certified. We don't fake
   certification or fingerprints to get past that: if an app refuses, it refuses.
 
+**On demand, not always on (decided 2026-10-13).** Vipps — the app this was for — refuses at
+its attestation check (see ADR 0030), so Android is an occasional tool, not something worth
+~2.5 GB of memory held all day. So it is off by default:
+
+- One app-drawer entry, **Android** (`org.mobarchy.Android.desktop` → `mobarchy-android`),
+  starts the Waydroid session on demand, shows its full UI in a window, and stops the session
+  when that window is closed — zero memory when unused. Waydroid's own three launcher icons
+  are hidden (NoDisplay overrides).
+- An always-on model (a user service keeping the session alive, with Android apps listed
+  individually in the drawer) is held in reserve if several people want it; not built.
+
+**Keeping the phone-side setup in the repo.** `waydroid-prepare` (the container's
+ExecStartPre) now also reapplies the lxc-net workaround (iptables + non-fatal CHECKSUM), so a
+waydroid or pacman upgrade can't silently kill Android's networking. The remaining manual,
+one-time steps are external and documented, not scripted: `waydroid init -s GAPPS` (the ~1 GB
+images), the Google device registration, and the GMS/Play Store APK updates.
+
 ## Consequences
 
-- The session (`waydroid session start`) is started by hand for now; a user service that
-  keeps it running, and Android apps in the app drawer, come if the experiment works.
-- Two Androids run side by side: Waydroid's holds ~2.5 GB (with its page cache) while
-  running, on a phone with 16 GB.
+- Two Androids run side by side when Android is open: Waydroid's holds ~2.5 GB (with its page
+  cache) while running, on a phone with 16 GB. On-demand start bounds that to when the owner
+  is actually using it. A hard memory cap on the container (in the spirit of ADR 0027) is a
+  possible follow-up: Waydroid's lxc payload runs in its own cgroup, not the shell's
+  `app.slice`, so it needs an lxc `memory.max`, not the app drop-in.
 - The Mesa overlay must be rebuilt for Waydroid's Android version if its images move past
   Android 13 (API 33).
+- The lxc-net workaround goes away once a kernel with `NFT_NAT`/`NFT_MASQ`/`XT CHECKSUM`
+  (now in `mobarchy_defconfig`) is flashed; iptables NAT keeps working regardless, so there
+  is no rush and no breakage when that kernel lands.

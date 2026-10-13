@@ -14,6 +14,13 @@
     its OMX codec HAL has no service, and Android waits for a declared HAL for ever, so
     the media server hung, and with it the shared storage (/storage/emulated) and whatever
     waits on that
+  - the lxc-net script for a kernel without nftables NAT and the CHECKSUM target: Waydroid's
+    default uses nftables masquerade (CONFIG_NFT_NAT/NFT_MASQ) and the xt CHECKSUM target,
+    neither of which the comet kernel has yet (they are in mobarchy_defconfig, pending a
+    kernel flash). It is forced onto iptables (which has NAT here) and the CHECKSUM rule is
+    made non-fatal. A waydroid/pacman upgrade overwrites the script, so this reapplies it.
+    (iptables NAT works on a NAT-capable kernel too, so this stays safe once the kernel has
+    the nft options; drop it then if nftables is wanted.)
 
 Idempotent: run as often as the container starts.
 """
@@ -37,6 +44,7 @@ OVERLAY = Path("/var/lib/waydroid/overlay")
 MANIFEST = "etc/vintf/manifest.xml"
 # HALs a vendor image may declare without a service, and the binary that would serve them
 SERVED_BY = {"android.hardware.media.omx": "bin/hw/android.hardware.media.omx@1.0-service"}
+NET_SCRIPT = Path("/usr/lib/waydroid/data/scripts/waydroid-net.sh")
 # DRM drivers that render (Mesa has a driver for them); display-only ones are left out
 GPU_DRIVERS = {"panthor", "panfrost", "lima", "msm", "v3d", "vc4", "etnaviv", "asahi",
                "amdgpu", "radeon", "i915", "xe", "nouveau", "virtio_gpu", "powervr"}
@@ -121,9 +129,24 @@ def vendor_manifest() -> None:
         target.unlink()
 
 
+def net_script() -> None:
+    """Force iptables and a non-fatal CHECKSUM rule (this kernel lacks nft NAT / xt CHECKSUM)."""
+    if not NET_SCRIPT.exists():
+        return
+    text = original = NET_SCRIPT.read_text()
+    text = text.replace('LXC_USE_NFT="true"', 'LXC_USE_NFT="false"')
+    # append "|| true" to any CHECKSUM rule that doesn't already have it
+    text = re.sub(r'(-j CHECKSUM --checksum-fill)(?!.*\|\| true)([ \t]*)$',
+                  r'\1 || true', text, flags=re.M)
+    if text != original:
+        NET_SCRIPT.write_text(text)
+        print("waydroid-prepare: patched waydroid-net.sh (iptables, CHECKSUM non-fatal)")
+
+
 def main() -> int:
     binders()
     vendor_manifest()
+    net_script()
     if configure():
         # the Android properties (gralloc's device among them) and the LXC config from it
         subprocess.run(["waydroid", "upgrade", "--offline"], check=True)

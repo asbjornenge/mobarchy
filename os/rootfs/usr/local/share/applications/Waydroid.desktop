@@ -1,0 +1,6 @@
+[Desktop Entry]
+# Hidden from the Mobarchy app grid: Android opens on demand through the single
+# "Android" entry (org.mobarchy.Android, mobarchy-android), not Waydroid's own icons.
+Type=Application
+Name=Waydroid
+NoDisplay=true

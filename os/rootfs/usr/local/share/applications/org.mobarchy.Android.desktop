@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Android
+Comment=Android apps (Waydroid), started on demand
+Exec=mobarchy-android
+Icon=waydroid
+Categories=Utility;
