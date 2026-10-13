@@ -10,6 +10,10 @@
     render node, which on a phone is often the display's
   - Waydroid's config to match; its Android properties are regenerated (waydroid upgrade
     --offline) only when something changed
+  - the vendor image's HAL manifest without HALs it declares but doesn't have (overlaid):
+    its OMX codec HAL has no service, and Android waits for a declared HAL for ever, so
+    the media server hung, and with it the shared storage (/storage/emulated) and whatever
+    waits on that
 
 Idempotent: run as often as the container starts.
 """
@@ -17,9 +21,11 @@ Idempotent: run as often as the container starts.
 import configparser
 import fcntl
 import os
+import re
 import struct
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 BINDERFS = Path("/run/waydroid-binderfs")
@@ -27,6 +33,10 @@ BINDERS = {"binder": "anbox-binder", "vndbinder": "anbox-vndbinder", "hwbinder":
 # _IOWR('b', 1, struct binderfs_device { char name[256]; __u32 major, minor; })
 BINDER_CTL_ADD = (3 << 30) | (264 << 16) | (ord("b") << 8) | 1
 CFG = Path("/var/lib/waydroid/waydroid.cfg")
+OVERLAY = Path("/var/lib/waydroid/overlay")
+MANIFEST = "etc/vintf/manifest.xml"
+# HALs a vendor image may declare without a service, and the binary that would serve them
+SERVED_BY = {"android.hardware.media.omx": "bin/hw/android.hardware.media.omx@1.0-service"}
 # DRM drivers that render (Mesa has a driver for them); display-only ones are left out
 GPU_DRIVERS = {"panthor", "panfrost", "lima", "msm", "v3d", "vc4", "etnaviv", "asahi",
                "amdgpu", "radeon", "i915", "xe", "nouveau", "virtio_gpu", "powervr"}
@@ -82,8 +92,38 @@ def configure() -> bool:
     return True
 
 
+def vendor_manifest() -> None:
+    """The vendor image's manifest, less the HALs it lacks, in the overlay (or none)."""
+    if not CFG.exists():
+        return
+    cfg = configparser.ConfigParser()
+    cfg.read(CFG)
+    image = Path(cfg["waydroid"].get("images_path", "/var/lib/waydroid/images")) / "vendor.img"
+    if not image.exists():
+        return
+    with tempfile.TemporaryDirectory() as mnt:
+        subprocess.run(["mount", "-o", "ro,loop", str(image), mnt], check=True)
+        try:
+            manifest = (Path(mnt) / MANIFEST).read_text()
+            missing = [hal for hal, binary in SERVED_BY.items() if not (Path(mnt) / binary).exists()]
+        finally:
+            subprocess.run(["umount", mnt], check=True)
+    for hal in missing:
+        manifest = re.sub(rf'\s*<hal format="hidl">\s*<name>{re.escape(hal)}</name>.*?</hal>', "",
+                          manifest, flags=re.S)
+    target = OVERLAY / "vendor" / MANIFEST
+    if missing:
+        if not target.exists() or target.read_text() != manifest:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(manifest)
+            print(f"waydroid-prepare: vendor manifest without {missing}")
+    elif target.exists():
+        target.unlink()
+
+
 def main() -> int:
     binders()
+    vendor_manifest()
     if configure():
         # the Android properties (gralloc's device among them) and the LXC config from it
         subprocess.run(["waydroid", "upgrade", "--offline"], check=True)

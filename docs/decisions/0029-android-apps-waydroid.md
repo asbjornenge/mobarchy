@@ -36,6 +36,11 @@ drawing its windows as Wayland clients of Hyprland.
   `waydroid-prepare` points Waydroid's gralloc at the GPU's render node (the one whose
   driver renders; on comet renderD129, Panthor; renderD128 is the display controller).
   SurfaceFlinger and apps then render with "Mali-G715 MC7 (Panfrost)", and boot is ~15 s.
+- **The vendor image's broken promise.** Its HAL manifest declares the OMX codec HAL, but
+  no service provides it. Android waits for a declared HAL for ever, so the media server
+  hung on its codec list. MediaProvider hung on the media server, and the shared storage
+  (`/storage/emulated`) never mounted: apps and the Google sign-in waited on it.
+  `waydroid-prepare` overlays the image's manifest without the HALs it lacks.
 - **Networking.** Waydroid's lxc-net script uses nftables NAT if nftables works, and
   iptables' CHECKSUM target. The comet kernel has neither (`NFT_NAT`, `NFT_MASQ`,
   `NETFILTER_XT_TARGET_CHECKSUM`); they are now in `mobarchy_defconfig`. Until a kernel
