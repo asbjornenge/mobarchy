@@ -1,0 +1,237 @@
+pragma ComponentBehavior: Bound
+
+import QtQuick
+import Mobarchy.Shell
+
+// Phone (ADR 0031): the dialer, the call, and the SIM's PIN, over ofono (Telephony). Its own
+// window (mobarchy-shell --phone), like the Clock. A locked SIM asks for its PIN first; then
+// it shows the operator and signal, a keypad to dial, and — while a call is up — the in-call
+// screen. An incoming call takes over with answer/decline.
+Window {
+    id: win
+
+    visible: true
+    title: qsTr("Phone")
+    color: Theme.bg
+
+    Telephony {
+        id: tel
+        onFailed: (what, reason) => { win.note = what + ": " + reason; noteClear.restart() }
+    }
+
+    property string entry: ""        // the number being dialled
+    property string note: ""
+    Timer { id: noteClear; interval: 4000; onTriggered: win.note = "" }
+
+    readonly property var incoming: {
+        for (let i = 0; i < tel.calls.length; i++)
+            if (tel.calls[i].incoming) return tel.calls[i]
+        return null
+    }
+    readonly property var activeCall: tel.calls.length > 0 ? tel.calls[tel.calls.length - 1] : null
+
+    function stateText(s) {
+        return ({ dialing: qsTr("Calling…"), alerting: qsTr("Ringing…"), active: qsTr("In call"),
+                  held: qsTr("On hold"), incoming: qsTr("Incoming"), waiting: qsTr("Waiting") })[s] ?? s
+    }
+
+    // a little message at the top (errors)
+    Text {
+        anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 8 }
+        visible: win.note !== ""
+        text: win.note
+        color: Theme.red
+        font { family: Theme.font; pixelSize: 13 }
+    }
+
+    // 1) a locked SIM: enter the PIN
+    SimPin {
+        anchors.fill: parent
+        visible: tel.pinRequired === "pin" || tel.pinRequired === "puk"
+        telephony: tel
+    }
+
+    // 2) an incoming call
+    Loader {
+        anchors.fill: parent
+        active: win.incoming !== null
+        sourceComponent: incomingScreen
+    }
+
+    // 3) an ongoing call
+    Loader {
+        anchors.fill: parent
+        active: win.incoming === null && win.activeCall !== null
+        sourceComponent: callScreen
+    }
+
+    // 4) the dialer
+    Item {
+        anchors.fill: parent
+        visible: tel.pinRequired === "none" && tel.calls.length === 0
+
+        // operator + signal
+        Row {
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 28 }
+            spacing: 8
+            Text {
+                text: tel.registration === "registered" || tel.registration === "roaming"
+                      ? (tel.operatorName !== "" ? tel.operatorName : qsTr("Mobile"))
+                      : (tel.registration === "searching" ? qsTr("Searching…") : qsTr("No service"))
+                color: tel.registration === "registered" || tel.registration === "roaming" ? Theme.fg : Theme.muted
+                font { family: Theme.font; pixelSize: 15 }
+            }
+            Text {
+                visible: tel.signalStrength > 0
+                text: "▂▄▆█".substring(0, Math.max(1, Math.ceil(tel.signalStrength / 25)))
+                color: Theme.green
+                font { family: Theme.font; pixelSize: 15 }
+            }
+        }
+
+        // the dialled number
+        Text {
+            id: entryText
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 110 }
+            width: parent.width - 120
+            horizontalAlignment: Text.AlignHCenter
+            text: win.entry
+            color: Theme.fg
+            font { family: Theme.font; pixelSize: 40 }
+            elide: Text.ElideLeft
+        }
+
+        // keypad
+        Grid {
+            id: pad
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: callRow.top; bottomMargin: 24 }
+            columns: 3
+            spacing: 18
+            readonly property var keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"]
+            readonly property var sub: { "2": "ABC", "3": "DEF", "4": "GHI", "5": "JKL", "6": "MNO",
+                                         "7": "PQRS", "8": "TUV", "9": "WXYZ", "0": "+" }
+            Repeater {
+                model: pad.keys
+                delegate: Rectangle {
+                    id: key
+                    required property string modelData
+                    width: 78; height: 78; radius: 39
+                    color: keyTap.pressed ? Theme.line : Theme.panel
+                    Column {
+                        anchors.centerIn: parent
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: key.modelData
+                            color: Theme.fg
+                            font { family: Theme.font; pixelSize: 30 }
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: pad.sub[key.modelData] ?? ""
+                            color: Theme.muted
+                            font { family: Theme.font; pixelSize: 9 }
+                        }
+                    }
+                    TapHandler {
+                        id: keyTap
+                        onTapped: win.entry += (key.modelData === "0" && win.entry === "" ? "" : "") + key.modelData
+                        onLongPressed: if (key.modelData === "0") win.entry += "+"
+                    }
+                }
+            }
+        }
+
+        // call + backspace
+        Row {
+            id: callRow
+            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 26 }
+            spacing: 26
+            Item { width: 60; height: 60 }   // spacer to centre the call button
+            Rectangle {
+                width: 72; height: 72; radius: 36
+                color: win.entry === "" ? Theme.line : Theme.green
+                Text { anchors.centerIn: parent; text: "📞"; font.pixelSize: 30 }
+                TapHandler { onTapped: if (win.entry !== "") { tel.dial(win.entry); win.entry = "" } }
+            }
+            Rectangle {
+                width: 60; height: 60; radius: 30
+                color: "transparent"
+                visible: win.entry !== ""
+                Text { anchors.centerIn: parent; text: "⌫"; color: Theme.muted; font.pixelSize: 26 }
+                TapHandler {
+                    onTapped: win.entry = win.entry.slice(0, -1)
+                    onLongPressed: win.entry = ""
+                }
+            }
+        }
+    }
+
+    // --- incoming call ---
+    Component {
+        id: incomingScreen
+        Item {
+            readonly property var c: win.incoming
+            Column {
+                anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 140 }
+                spacing: 10
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: parent.parent.c && parent.parent.c.name !== "" ? parent.parent.c.name
+                          : (parent.parent.c ? parent.parent.c.number : "")
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 34 }
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: qsTr("Incoming call")
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 15 }
+                }
+            }
+            Row {
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 60 }
+                spacing: 80
+                Rectangle {
+                    width: 78; height: 78; radius: 39; color: Theme.red
+                    Text { anchors.centerIn: parent; text: "✕"; color: "white"; font.pixelSize: 30 }
+                    TapHandler { onTapped: if (win.incoming) tel.hangup(win.incoming.path) }
+                }
+                Rectangle {
+                    width: 78; height: 78; radius: 39; color: Theme.green
+                    Text { anchors.centerIn: parent; text: "📞"; font.pixelSize: 30 }
+                    TapHandler { onTapped: if (win.incoming) tel.answer(win.incoming.path) }
+                }
+            }
+        }
+    }
+
+    // --- in call ---
+    Component {
+        id: callScreen
+        Item {
+            readonly property var c: win.activeCall
+            Column {
+                anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 150 }
+                spacing: 12
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: parent.parent.c ? (parent.parent.c.name !== "" ? parent.parent.c.name : parent.parent.c.number) : ""
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 34 }
+                }
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    text: parent.parent.c ? win.stateText(parent.parent.c.state) : ""
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 16 }
+                }
+            }
+            Rectangle {
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 60 }
+                width: 78; height: 78; radius: 39; color: Theme.red
+                Text { anchors.centerIn: parent; text: "✕"; color: "white"; font.pixelSize: 30 }
+                TapHandler { onTapped: tel.hangupAll() }
+            }
+        }
+    }
+}

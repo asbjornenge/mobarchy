@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Messages
+Comment=Text messages (SMS)
+Exec=mobarchy-shell --messages
+Icon=org.mobarchy.Messages
+Categories=Network;Telephony;

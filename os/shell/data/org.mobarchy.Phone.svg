@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Mobarchy's app icons: a line glyph in the accent gradient, no tile -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7aa2f7"/>
+      <stop offset="1" stop-color="#bb9af7"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(64 64) scale(1.25) translate(-64 -64)">
+    <!-- a handset -->
+    <path d="M44 30 c-10 0 -16 7 -16 16 0 28 26 54 54 54 9 0 16 -6 16 -16 l0 -10 -18 -8 -8 10 c-10 -5 -17 -12 -22 -22 l10 -8 -8 -18 z"
+          fill="none" stroke="url(#g)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

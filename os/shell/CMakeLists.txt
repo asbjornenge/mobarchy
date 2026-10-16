@@ -57,6 +57,7 @@ qt_add_qml_module(mobarchy-shell
         src/screenpower.cpp src/screenpower.h
         src/screenshot.cpp src/screenshot.h
         src/photolibrary.cpp src/photolibrary.h
+        src/telephony.cpp src/telephony.h
         src/wifi.cpp src/wifi.h
         src/systemstatus.cpp src/systemstatus.h
         src/talk.cpp src/talk.h
@@ -93,6 +94,9 @@ qt_add_qml_module(mobarchy-shell
         qml/ThemesApp.qml
         qml/ClockApp.qml
         qml/PhotosApp.qml
+        qml/PhoneApp.qml
+        qml/MessagesApp.qml
+        qml/SimPin.qml
         qml/Gallery.qml
         qml/Wheel.qml
         qml/TalkOverlay.qml
@@ -131,8 +135,9 @@ install(TARGETS mobarchy-shell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # The app ID of the shell's windows (portals look it up).
 install(FILES data/org.mobarchy.Shell.desktop data/org.mobarchy.Store.desktop data/org.mobarchy.Camera.desktop
               data/org.mobarchy.Themes.desktop data/org.mobarchy.Clock.desktop data/org.mobarchy.Photos.desktop
+              data/org.mobarchy.Phone.desktop data/org.mobarchy.Messages.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(FILES data/org.mobarchy.Store.svg data/org.mobarchy.Camera.svg data/org.mobarchy.Themes.svg data/org.mobarchy.Clock.svg data/org.mobarchy.Photos.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+install(FILES data/org.mobarchy.Store.svg data/org.mobarchy.Camera.svg data/org.mobarchy.Themes.svg data/org.mobarchy.Clock.svg data/org.mobarchy.Photos.svg data/org.mobarchy.Phone.svg data/org.mobarchy.Messages.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 # The themes that come with Mobarchy (ADR 0025).
 install(DIRECTORY data/themes/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mobarchy/themes FILES_MATCHING PATTERN "*.json")
 

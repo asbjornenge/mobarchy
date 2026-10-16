@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Phone
+Comment=Calls and the SIM
+Exec=mobarchy-shell --phone
+Icon=org.mobarchy.Phone
+Categories=Network;Telephony;
