@@ -260,6 +260,11 @@ QtObject {
         onIncomingCall: { shell.wake(); shell.apps.launch("org.mobarchy.Phone") }
     }
 
+    readonly property SimPinScreen simPin: SimPinScreen {
+        telephony: shell.telephony
+        onShownChanged: if (shown) shell.wake()
+    }
+
     readonly property StatusBar statusBar: StatusBar {
         system: shell.system
         telephony: shell.telephony

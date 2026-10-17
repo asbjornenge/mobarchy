@@ -100,6 +100,7 @@ qt_add_qml_module(mobarchy-shell
         qml/AccountsApp.qml
         qml/MessagesApp.qml
         qml/SimPin.qml
+        qml/SimPinScreen.qml
         qml/Gallery.qml
         qml/Wheel.qml
         qml/TalkOverlay.qml
