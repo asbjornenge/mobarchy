@@ -259,6 +259,7 @@ Flickable {
             required property BoardCard card
             Component.onCompleted: {
                 card.editing = Qt.binding(() => board.editing)
+                card.live = Qt.binding(() => board.visible && board.Window.active && !board.editing)
                 card.wantedChanged.connect(() => Qt.callLater(grid.layout))
                 card.held.connect(() => board.editing = true)
                 card.removeAsked.connect(() => board.remove(card.kind))

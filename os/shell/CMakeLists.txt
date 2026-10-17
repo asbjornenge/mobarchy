@@ -111,6 +111,7 @@ qt_add_qml_module(mobarchy-shell
         qml/HomeBoard.qml
         qml/BoardCard.qml
         qml/WeatherCard.qml
+        qml/WeatherScene.qml
         qml/MediaCard.qml
         qml/NextAlarmCard.qml
         qml/MessagesCard.qml

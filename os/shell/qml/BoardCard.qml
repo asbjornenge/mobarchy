@@ -35,6 +35,8 @@ Rectangle {
 
     // the board's editing
     property bool editing: false
+    // in sight now (the board shown, its window in front): what moves, moves only then
+    property bool live: true
     property bool placed: false     // the board has put it somewhere (from then on it glides)
     readonly property bool dragged: drag.active
     signal held()

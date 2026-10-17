@@ -14,6 +14,7 @@ BoardCard {
 
     title: place ? place.name : qsTr("Weather")
     icon: now ? look(now.code, now.day)[0] : "󰖐"
+    compactIcon: ""     // (the scene says it)
     compactValue: now ? now.temp + "°" : "—"
     compactCaption: now ? qsTr("%1 · H %2° L %3°").arg(place.name).arg(now.high).arg(now.low)
                         : qsTr("Getting the weather …")
@@ -89,12 +90,19 @@ BoardCard {
         color: Theme.fg
         font { family: Theme.font; pixelSize: 44; weight: Font.Light }
     }
-    Text {
-        visible: card.now !== null
-        anchors { right: parent.right; top: parent.top }
-        text: card.now ? card.look(card.now.code, card.now.day)[0] : ""
-        color: Theme.accent
-        font { family: Theme.font; pixelSize: 30 }
+    // the weather, alive: at the top right, or at the right of a compact card
+    WeatherScene {
+        parent: card
+        visible: card.now !== null && !card.editing
+        anchors { right: parent.right; rightMargin: card.compact ? 12 : 14
+                  top: card.compact ? undefined : parent.top; topMargin: 12
+                  verticalCenter: card.compact ? parent.verticalCenter : undefined }
+        width: card.compact ? Math.min(56, card.height - 16) : 64
+        height: width
+        code: card.now ? card.now.code : 0
+        day: card.now ? card.now.day : true
+        running: card.live && visible
+        ground: card.color
     }
     Column {
         visible: card.now !== null
