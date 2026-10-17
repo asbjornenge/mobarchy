@@ -349,3 +349,31 @@ on post-fs-data
     mkdir /data/vendor_de 0771 root root
     mkdir /data/vendor_de/0 0770 system system
     mkdir /data/vendor_de/0/fpdata 0770 system system
+
+# GNSS (location): Samsung's GNSS in the SoC. gnssd boots its firmware (/vendor/firmware/
+# kepler.bin, through /dev/gnss_boot) and runs it (/dev/gnss_ipc); the GNSS HAL (AIDL
+# android.hardware.gnss.IGnss/default, on /dev/binder) is how a client gets fixes: on the
+# Linux side, mobarchy-location. As the vendor's init.gnss.rc, with seclabels.
+on post-fs-data
+    mkdir /data/vendor/gps 0771 system system
+    mkdir /data/vendor/gps/logs 0775 gps system
+    mkdir /data/vendor/gps/overlay 0777 gps system
+    mkdir /data/vendor/gps/resource 0777 gps system
+
+service vendor.gnssd /vendor/bin/hw/gnssd
+    user gps
+    group system inet net_raw wakelock
+    capabilities BLOCK_SUSPEND
+    ioprio be 0
+    disabled
+    seclabel u:r:gnssd:s0
+
+service vendor.gnss /vendor/bin/hw/android.hardware.gnss-service
+    user system
+    group system gps
+    disabled
+    seclabel u:r:hal_gnss_default:s0
+
+on mobarchy-start
+    start vendor.gnssd
+    start vendor.gnss

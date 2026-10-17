@@ -42,6 +42,8 @@ qt_add_qml_module(mobarchy-shell
         src/bluetooth.cpp src/bluetooth.h
         src/camera.cpp src/camera.h
         src/haptics.cpp src/haptics.h
+        src/geolocation.cpp src/geolocation.h
+        src/locationagent.cpp src/locationagent.h
         src/homeconfig.cpp src/homeconfig.h
         src/orientation.cpp src/orientation.h
         src/torch.cpp src/torch.h

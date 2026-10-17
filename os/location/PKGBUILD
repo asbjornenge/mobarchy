@@ -1,0 +1,25 @@
+# The phone's GNSS for Linux: mobarchy-location (the Android container's GNSS HAL, served to
+# GeoClue as NMEA) and GeoClue's configuration for it.
+#   tools/pkg-build os/location --out <repo>
+pkgname=mobarchy-location
+pkgver=0.1
+pkgrel=2
+pkgdesc="The phone's GNSS (GPS, Galileo, ...) for GeoClue, from the Android container's GNSS HAL"
+arch=(aarch64)
+depends=(glib2 libgbinder geoclue)
+makedepends=(pkgconf)
+backup=(etc/geoclue/conf.d/90-mobarchy.conf)
+options=(!debug)
+
+prepare() {
+    rm -rf "$srcdir/location" && mkdir -p "$srcdir/location"
+    cp "$startdir"/{Makefile,mobarchy-location.c,mobarchy-location.service,90-mobarchy.conf} "$srcdir/location"
+}
+
+build() {
+    make -C "$srcdir/location"
+}
+
+package() {
+    make -C "$srcdir/location" DESTDIR="$pkgdir" install
+}

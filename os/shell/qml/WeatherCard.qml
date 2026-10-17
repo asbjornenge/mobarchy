@@ -1,24 +1,64 @@
 import QtQuick
 import Mobarchy.Shell
 
-// The weather where the owner is: Open-Meteo (free, no key, nothing about the owner but the
-// place). The place is in home.json ("weather": {name, latitude, longitude}); until there is
-// one, the card asks for it.
+// The weather where the owner is: by default where the phone is (GeoClue: the phone's GNSS,
+// ADR 0033), or a place the owner chose (home.json "weather": {name, latitude, longitude}).
+// Open-Meteo has the weather (free, no key) and OpenStreetMap's Nominatim the place's name;
+// both are told only the place, to about a kilometre. Tapped, the card offers to choose.
 BoardCard {
     id: card
 
     required property HomeConfig config
-    readonly property var place: config.config.weather ?? null
+    readonly property var chosen: config.config.weather && config.config.weather.latitude !== undefined
+                                  ? config.config.weather : null
+    // where the phone was last (kept, for the weather at once after a restart)
+    readonly property var here: config.config.weather_here ?? null
+    readonly property var place: chosen ?? here
     property var now: null      // {temp, code, day, high, low}
     property string failure
+    property bool asking: false     // choosing a place
 
-    title: place ? place.name : qsTr("Weather")
+    GeoLocation {
+        id: geo
+        accuracyLevel: 4    // a city's worth is enough for the weather
+        onChanged: card.located()
+        onFailed: (reason) => { if (!card.place) card.failure = qsTr("No position yet") }
+    }
+    function round(x) { return Math.round(x * 100) / 100 }
+    // a fix: if it is somewhere else (5 km or so), the place's name, then the weather there
+    function located() {
+        const lat = round(geo.latitude), lon = round(geo.longitude)
+        if (here && Math.abs(here.latitude - lat) < 0.05 && Math.abs(here.longitude - lon) < 0.05)
+            return refresh()
+        const r = new XMLHttpRequest()
+        r.onreadystatechange = () => {
+            if (r.readyState !== XMLHttpRequest.DONE)
+                return
+            let name = qsTr("Here")
+            try {
+                const a = JSON.parse(r.responseText).address
+                name = a.city || a.town || a.village || a.municipality || a.county || name
+            } catch (e) {}
+            card.config.set("weather_here", { name: name, latitude: lat, longitude: lon })
+        }
+        r.open("GET", "https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&lat=" + lat + "&lon=" + lon)
+        r.setRequestHeader("User-Agent", "Mobarchy (phone OS; weather)")
+        r.send()
+    }
+    function useHere() {
+        config.set("weather", null)
+        asking = false
+        geo.refresh()
+    }
+    onTapped: asking = !asking
+
+    title: place ? (chosen ? "" : "󰍎 ") + place.name : qsTr("Weather")
     icon: now ? look(now.code, now.day)[0] : "󰖐"
     compactIcon: ""     // (the scene says it)
     compactValue: now ? now.temp + "°" : "—"
-    compactCaption: now ? qsTr("%1 · H %2° L %3°").arg(place.name).arg(now.high).arg(now.low)
+    compactCaption: now ? qsTr("%1 · H %2° L %3°").arg((chosen ? "" : "󰍎 ") + place.name).arg(now.high).arg(now.low)
                         : qsTr("Getting the weather …")
-    contentWhenCompact: !place || failure !== ""
+    contentWhenCompact: !place || failure !== "" || asking
 
     // WMO weather codes -> an icon (day, night) and a word
     function look(code, day) {
@@ -56,7 +96,7 @@ BoardCard {
     function refresh() {
         if (!place)
             return
-        get("https://api.open-meteo.com/v1/forecast?latitude=" + place.latitude + "&longitude=" + place.longitude
+        get("https://api.open-meteo.com/v1/forecast?latitude=" + round(place.latitude) + "&longitude=" + round(place.longitude)
             + "&current=temperature_2m,weather_code,is_day&daily=temperature_2m_max,temperature_2m_min"
             + "&forecast_days=1&timezone=auto", (d) => {
             card.now = { temp: Math.round(d.current.temperature_2m), code: d.current.weather_code,
@@ -74,12 +114,18 @@ BoardCard {
             }
             const p = d.results[0]
             card.config.set("weather", { name: p.name, latitude: p.latitude, longitude: p.longitude })
+            card.asking = false
         })
     }
 
     onPlaceChanged: { now = null; refresh() }
-    Component.onCompleted: refresh()
-    Timer { interval: 30 * 60 * 1000; running: card.place !== null; repeat: true; onTriggered: card.refresh() }
+    Component.onCompleted: { refresh(); if (!chosen) geo.refresh() }
+    // every half hour: where the phone is now (when that is the place), and the weather
+    Timer {
+        interval: 30 * 60 * 1000; repeat: true
+        running: card.place !== null || !card.chosen
+        onTriggered: card.chosen ? card.refresh() : geo.refresh()
+    }
 
     // --- the weather ---
     Text {
@@ -104,7 +150,7 @@ BoardCard {
         ground: card.color
     }
     Column {
-        visible: card.now !== null
+        visible: card.now !== null && !card.asking
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         spacing: 2
         Text {
@@ -121,9 +167,9 @@ BoardCard {
         }
     }
 
-    // --- no place yet, or no answer ---
+    // --- no place yet, no answer, or choosing one ---
     Column {
-        visible: card.now === null
+        visible: card.now === null || card.asking
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         spacing: 8
         Text {
@@ -132,31 +178,50 @@ BoardCard {
             wrapMode: Text.Wrap
             maximumLineCount: card.compact ? 1 : 3
             elide: Text.ElideRight
-            text: card.failure || (card.place ? qsTr("Getting the weather …") : qsTr("Where are you?"))
+            text: card.failure || (card.asking ? qsTr("The weather for …")
+                                   : card.place ? qsTr("Getting the weather …") : qsTr("Finding where you are …"))
             color: Theme.muted
             font { family: Theme.font; pixelSize: 13 }
         }
-        Rectangle {
-            visible: !card.place || card.failure !== ""
+        Row {
+            visible: !card.place || card.failure !== "" || card.asking
             width: parent.width
-            height: 36
-            radius: 18
-            color: Theme.bg
-            border.color: placeInput.activeFocus ? Theme.accent : Theme.line
-            TextInput {
-                id: placeInput
-                anchors { fill: parent; leftMargin: 14; rightMargin: 14 }
-                verticalAlignment: TextInput.AlignVCenter
-                clip: true
-                color: Theme.fg
-                font { family: Theme.font; pixelSize: 13 }
-                onAccepted: { card.choose(text); focus = false }
+            spacing: 8
+            // where the phone is
+            Rectangle {
+                width: 36; height: 36; radius: 18
+                color: hereTap.pressed ? Theme.line : Theme.bg
+                border.color: !card.chosen ? Theme.accent : Theme.line
                 Text {
-                    anchors.verticalCenter: parent.verticalCenter
-                    visible: !placeInput.text && !placeInput.activeFocus
-                    text: card.compact ? qsTr("Your city, for the weather") : qsTr("City")
-                    color: Theme.muted
-                    font: placeInput.font
+                    anchors.centerIn: parent
+                    text: geo.busy ? "󰔟" : "󰍎"
+                    color: Theme.accent
+                    font { family: Theme.font; pixelSize: 16 }
+                }
+                MouseArea { id: hereTap; anchors.fill: parent; onClicked: card.useHere() }
+            }
+            // or a place by its name
+            Rectangle {
+                width: parent.width - 44
+                height: 36
+                radius: 18
+                color: Theme.bg
+                border.color: placeInput.activeFocus ? Theme.accent : Theme.line
+                TextInput {
+                    id: placeInput
+                    anchors { fill: parent; leftMargin: 14; rightMargin: 14 }
+                    verticalAlignment: TextInput.AlignVCenter
+                    clip: true
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 13 }
+                    onAccepted: { card.choose(text); focus = false }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: !placeInput.text && !placeInput.activeFocus
+                        text: qsTr("City")
+                        color: Theme.muted
+                        font: placeInput.font
+                    }
                 }
             }
         }

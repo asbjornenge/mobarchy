@@ -63,7 +63,7 @@ INIT_DIRS = ["system/etc/init", "system_ext/etc/init", "product/etc/init", "vend
 
 # Android's ids (system/core/libcutils/include/private/android_filesystem_config.h)
 AID = {"root": 0, "system": 1000, "radio": 1001, "graphics": 1003, "audio": 1005, "camera": 1006,
-       "input": 1004, "log": 1007, "media": 1013, "drmrpc": 1026, "mediadrm": 1031, "mediacodec": 1046,
+       "input": 1004, "log": 1007, "media": 1013, "gps": 1021, "drmrpc": 1026, "mediadrm": 1031, "mediacodec": 1046,
        "cameraserver": 1047,
        "shell": 2000, "inet": 3003}
 

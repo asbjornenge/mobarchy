@@ -1,0 +1,24 @@
+# The phone's GNSS for GeoClue (mobarchy-location: the Android container's GNSS HAL, served
+# as NMEA on /run/mobarchy-location/nmea.sock). The GNSS runs only while GeoClue listens.
+[Unit]
+Description=Mobarchy location (the GNSS, for GeoClue)
+After=mobarchy-android.service
+Wants=mobarchy-android.service
+
+[Service]
+ExecStart=/usr/lib/mobarchy/mobarchy-location
+DynamicUser=yes
+RuntimeDirectory=mobarchy-location
+RuntimeDirectoryMode=0755
+StateDirectory=mobarchy-location
+Restart=on-failure
+RestartSec=5
+# (it talks to the container's binder only)
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

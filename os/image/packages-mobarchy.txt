@@ -31,5 +31,7 @@ mobarchy-android-mesa
 # fprintd's PAM module (sudo)
 mobarchy-android-fingerprint
 mobarchy-pam-fprintd
+# Location (ADR 0033): the phone's GNSS for GeoClue; it brings geoclue
+mobarchy-location
 # The cameras on the Linux side (ADR 0018): the bridge, PipeWire sources, photos (os/camera)
 mobarchy-camera

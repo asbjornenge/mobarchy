@@ -97,6 +97,8 @@ QtObject {
     onLockedWithPinChanged: pinLock.setLocked(lockedWithPin)
     readonly property Volume volume: Volume {}
     readonly property Notifications notifications: Notifications {}
+    // GeoClue's agent: which apps may know where the phone is (ADR 0033)
+    readonly property LocationAgent locationAgent: LocationAgent {}
     readonly property Banner banner: Banner {
         notifications: shell.notifications
         suppressed: shell.lockScreen.shown || shell.quick.shown
