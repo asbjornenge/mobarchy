@@ -1,0 +1,281 @@
+#!/usr/bin/env python3
+"""comet's call audio (ADR 0031): while a call is up, connect the modem to the speakers and
+the microphones through AoC, the way Android's audio HAL does; put everything back after.
+
+AoC starts call audio when its voice endpoint (PCM device 4, EP5, "voice-call-downlink-0")
+is opened and prepared: the driver then binds the modem ("Start voice call", Audio DSP State
+"Telephony"). Around that, the routes come from the device's own mixer_paths.xml (copied by
+audio-up into /var/lib/mobarchy/audio):
+
+  earpiece  "speaker-earpiece (VOICE)": the top amp alone, lower gain; the bottom amp off
+  speaker   "speaker (VOICE)": both amps
+  and       "voice-call-downlink-0 -> speaker" (EP5 to the amps),
+            "microphones -> voice-call-uplink-0" (the mics to EP4, the uplink)
+
+Every control a call changes is read first and written back when the call ends, so music
+and the microphones are as they were.
+
+It follows oFono on the system bus (calls dialing/alerting/active/held mean audio), and
+offers org.mobarchy.CallAudio on the session bus, so the Phone app can switch to the
+speaker and mute the microphone without knowing this device:
+
+  properties  Active (b), Speaker (b), Muted (b)
+  methods     SetSpeaker(b), SetMuted(b)
+"""
+import ctypes
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+import gi
+
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib  # noqa: E402
+
+MIXER_PATHS = "/var/lib/mobarchy/audio/mixer_paths.xml"
+VOICE_PCM = b"hw:0,4"
+# from the ringing tone on (alerting) to the end; not while the network is still setting the
+# call up (dialing), when the voice path is not there yet
+AUDIO_STATES = ("alerting", "active", "held")
+EARPIECE = ["speaker-earpiece (VOICE)"]
+SPEAKER = ["speaker (VOICE)"]
+CALL_ROUTES = ["voice-call-downlink-0 -> speaker", "microphones -> voice-call-uplink-0"]
+# set besides the paths: the bottom amp is off for the earpiece
+EXTRA = {"Voice Call Mic Source": "Builtin_MIC"}
+
+IFACE = """
+<node>
+  <interface name="org.mobarchy.CallAudio">
+    <property name="Active" type="b" access="read"/>
+    <property name="Speaker" type="b" access="read"/>
+    <property name="Muted" type="b" access="read"/>
+    <method name="SetSpeaker"><arg name="on" type="b" direction="in"/></method>
+    <method name="SetMuted"><arg name="on" type="b" direction="in"/></method>
+  </interface>
+</node>
+"""
+
+
+class VoiceEndpoint:
+    """AoC's voice endpoint, held open and prepared (alsa-lib, not aplay): preparing it is
+    what starts the call audio (prepare_phonecall), closing it stops it. Nothing is written:
+    AoC takes no samples from it, and a writer would stall and fail after ~100 ms of ALSA's
+    timeout."""
+
+    def __init__(self):
+        self.lib = ctypes.CDLL("libasound.so.2")
+        self.pcm = ctypes.c_void_p()
+
+    def open(self) -> None:
+        err = self.lib.snd_pcm_open(ctypes.byref(self.pcm), VOICE_PCM, 0, 0)  # playback
+        if err < 0:
+            raise OSError(-err, f"snd_pcm_open: {self.strerror(err)}")
+        # S16_LE (2), RW interleaved (3), stereo, 48 kHz, no resampling, 100 ms: hw_params,
+        # sw_params and prepare
+        err = self.lib.snd_pcm_set_params(self.pcm, 2, 3, 2, 48000, 0, 100000)
+        if err < 0:
+            self.close()
+            raise OSError(-err, f"snd_pcm_set_params: {self.strerror(err)}")
+
+    def close(self) -> None:
+        if self.pcm:
+            self.lib.snd_pcm_close(self.pcm)
+            self.pcm = ctypes.c_void_p()
+
+    def strerror(self, err: int) -> str:
+        self.lib.snd_strerror.restype = ctypes.c_char_p
+        return self.lib.snd_strerror(err).decode()
+
+
+def log(msg: str) -> None:
+    print(f"call-audio: {msg}", flush=True)
+
+
+def amixer(*args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["amixer", "-c0", *args], capture_output=True, text=True)
+
+
+def cget(name: str) -> str | None:
+    for line in amixer("cget", f"name={name}").stdout.splitlines():
+        if line.strip().startswith(": values="):
+            return line.split("=", 1)[1]
+    return None
+
+
+def cset(name: str, value: str) -> None:
+    if amixer("cset", f"name={name}", "--", value).returncode != 0:
+        log(f"  could not set {name} = {value}")
+
+
+class Paths:
+    def __init__(self, path: str):
+        root = ET.parse(path).getroot()
+        self.paths = {p.get("name"): p for p in root.findall("path")}
+
+    def controls(self, names: list[str]) -> list[tuple[str, str]]:
+        """The (control, value) pairs of these paths, nested paths included, in order."""
+        out = []
+
+        def walk(elem):
+            for c in elem:
+                if c.tag == "ctl":
+                    out.append((c.get("name"), c.get("value")))
+                elif c.tag == "path" and c.get("name") in self.paths:
+                    walk(self.paths[c.get("name")])
+
+        for n in names:
+            if n in self.paths:
+                walk(self.paths[n])
+            else:
+                log(f"  no path {n!r} in mixer_paths.xml")
+        return out
+
+
+class CallAudio:
+    def __init__(self):
+        self.paths = Paths(MIXER_PATHS)
+        self.calls: dict[str, str] = {}  # call path -> state
+        self.active = False
+        self.speaker = False
+        self.muted = False
+        self.saved: dict[str, str] = {}
+        self.voice = VoiceEndpoint()
+        self.session = None
+
+    # --- the mixer -------------------------------------------------------------------
+
+    def route(self) -> list[tuple[str, str]]:
+        amps = self.paths.controls(SPEAKER if self.speaker else EARPIECE)
+        if not self.speaker:
+            amps.append(("R Main AMP Enable Switch", "0"))
+        return amps + self.paths.controls(CALL_ROUTES) + list(EXTRA.items()) \
+            + [("Voice Call Mic Mute", "on" if self.muted else "off")]
+
+    def every_control(self) -> set[str]:
+        both = self.paths.controls(SPEAKER) + self.paths.controls(EARPIECE)
+        return {n for n, _ in both + self.route()} | {"R Main AMP Enable Switch"}
+
+    def apply(self) -> None:
+        for name, value in self.route():
+            cset(name, value)
+
+    def start(self) -> None:
+        log("call: audio on (" + ("speaker" if self.speaker else "earpiece") + ")")
+        self.saved = {n: v for n in self.every_control() if (v := cget(n)) is not None}
+        self.apply()
+        try:
+            self.voice.open()
+        except OSError as e:
+            log(f"  the voice endpoint did not open: {e}")
+        self.active = True
+        self.changed("Active")
+
+    def stop(self) -> None:
+        log("call: audio off")
+        self.voice.close()
+        for name, value in self.saved.items():
+            cset(name, value)
+        self.saved = {}
+        self.active = False
+        self.speaker = False
+        self.muted = False
+        self.changed("Active", "Speaker", "Muted")
+
+    # --- oFono ------------------------------------------------------------------------
+
+    def update(self) -> None:
+        want = any(s in AUDIO_STATES for s in self.calls.values())
+        if want and not self.active:
+            self.start()
+        elif not want and self.active:
+            self.stop()
+
+    def on_ofono(self, conn, sender, path, iface, member, params):
+        if member == "CallAdded":
+            call, props = params.unpack()
+            self.calls[call] = props.get("State", "")
+        elif member == "CallRemoved":
+            self.calls.pop(params.unpack()[0], None)
+        elif member == "PropertyChanged" and iface == "org.ofono.VoiceCall":
+            name, value = params.unpack()
+            if name == "State":
+                self.calls[path] = value
+        else:
+            return
+        self.update()
+
+    def load_calls(self, system) -> None:
+        try:
+            modems = system.call_sync("org.ofono", "/", "org.ofono.Manager", "GetModems",
+                                      None, None, Gio.DBusCallFlags.NONE, -1, None).unpack()[0]
+        except GLib.Error as e:
+            log(f"oFono not there yet: {e.message}")
+            return
+        for modem, _ in modems:
+            try:
+                calls = system.call_sync("org.ofono", modem, "org.ofono.VoiceCallManager",
+                                         "GetCalls", None, None, Gio.DBusCallFlags.NONE, -1,
+                                         None).unpack()[0]
+            except GLib.Error:
+                continue
+            for call, props in calls:
+                self.calls[call] = props.get("State", "")
+        self.update()
+
+    # --- org.mobarchy.CallAudio --------------------------------------------------------
+
+    def changed(self, *names: str) -> None:
+        if not self.session:
+            return
+        values = {n: GLib.Variant("b", getattr(self, n.lower())) for n in names}
+        self.session.emit_signal(None, "/org/mobarchy/CallAudio",
+                                 "org.freedesktop.DBus.Properties", "PropertiesChanged",
+                                 GLib.Variant("(sa{sv}as)", ("org.mobarchy.CallAudio", values, [])))
+
+    def method(self, conn, sender, path, iface, member, params, invocation):
+        on = params.unpack()[0]
+        if member == "SetSpeaker":
+            self.speaker = on
+            if self.active:
+                self.apply()
+            self.changed("Speaker")
+        elif member == "SetMuted":
+            self.muted = on
+            if self.active:
+                cset("Voice Call Mic Mute", "on" if on else "off")
+            self.changed("Muted")
+        invocation.return_value(None)
+
+    def get_property(self, conn, sender, path, iface, name):
+        return GLib.Variant("b", getattr(self, name.lower()))
+
+
+def main() -> None:
+    ca = CallAudio()
+    system = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    for member in ("CallAdded", "CallRemoved", "PropertyChanged"):
+        system.signal_subscribe("org.ofono", None, member, None, None,
+                                Gio.DBusSignalFlags.NONE, ca.on_ofono)
+    # oFono (re)starting: read the calls again
+    Gio.bus_watch_name_on_connection(system, "org.ofono", Gio.BusNameWatcherFlags.NONE,
+                                     lambda *a: ca.load_calls(system), None)
+
+    def acquired(conn, name):
+        ca.session = conn
+        node = Gio.DBusNodeInfo.new_for_xml(IFACE)
+        conn.register_object("/org/mobarchy/CallAudio", node.interfaces[0], ca.method,
+                             ca.get_property, None)
+
+    Gio.bus_own_name(Gio.BusType.SESSION, "org.mobarchy.CallAudio",
+                     Gio.BusNameOwnerFlags.NONE, acquired, None, None)
+    log("following oFono's calls")
+    loop = GLib.MainLoop()
+    try:
+        loop.run()
+    finally:
+        if ca.active:
+            ca.stop()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

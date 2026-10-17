@@ -63,6 +63,16 @@ QDBusConnection bus() { return QDBusConnection::systemBus(); }
 // a{sy} demarshalling needs care); pinRetries stays -1 (unknown) for now.
 int retriesFor(const QVariant &, const QString &) { return -1; }
 
+// the digits of a phone number ("+47 912 34 567" -> "4791234567")
+QString digits(const QString &number)
+{
+    QString d;
+    for (const QChar c : number)
+        if (c.isDigit())
+            d += c;
+    return d;
+}
+
 // a value in an a{sv} may arrive as a QDBusArgument (an array, a nested dict); read it as a
 // string list when that is what it is (e.g. the modem's Interfaces).
 QStringList asStringList(const QVariant &v)
@@ -108,6 +118,61 @@ Telephony::Telephony(QObject *parent)
     bus().connect(Service, QStringLiteral("/"), Manager, QStringLiteral("ModemRemoved"), this,
                   SLOT(modemRemoved(QDBusObjectPath)));
     findModems();
+
+    // the device's call audio, on the session bus
+    const QString ca = QStringLiteral("org.mobarchy.CallAudio");
+    auto *caWatch = new QDBusServiceWatcher(ca, QDBusConnection::sessionBus(),
+                                            QDBusServiceWatcher::WatchForOwnerChange, this);
+    connect(caWatch, &QDBusServiceWatcher::serviceOwnerChanged, this, &Telephony::readCallAudio);
+    QDBusConnection::sessionBus().connect(ca, QStringLiteral("/org/mobarchy/CallAudio"),
+        QStringLiteral("org.freedesktop.DBus.Properties"), QStringLiteral("PropertiesChanged"), this,
+        SLOT(callAudioChanged(QString, QVariantMap, QStringList)));
+    readCallAudio();
+}
+
+void Telephony::readCallAudio()
+{
+    QDBusMessage m = QDBusMessage::createMethodCall(QStringLiteral("org.mobarchy.CallAudio"),
+        QStringLiteral("/org/mobarchy/CallAudio"), QStringLiteral("org.freedesktop.DBus.Properties"),
+        QStringLiteral("GetAll"));
+    m << QStringLiteral("org.mobarchy.CallAudio");
+    auto *w = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(m), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *w) {
+        QDBusPendingReply<QVariantMap> r = *w;
+        m_callAudio = !r.isError();
+        if (m_callAudio)
+            callAudioChanged(QString(), r.value(), {});
+        else
+            emit audioChanged();
+        w->deleteLater();
+    });
+}
+
+void Telephony::callAudioChanged(const QString &, const QVariantMap &changed, const QStringList &)
+{
+    if (changed.contains(QStringLiteral("Speaker")))
+        m_speaker = changed.value(QStringLiteral("Speaker")).toBool();
+    if (changed.contains(QStringLiteral("Muted")))
+        m_muted = changed.value(QStringLiteral("Muted")).toBool();
+    emit audioChanged();
+}
+
+void Telephony::setSpeaker(bool on)
+{
+    QDBusMessage m = QDBusMessage::createMethodCall(QStringLiteral("org.mobarchy.CallAudio"),
+        QStringLiteral("/org/mobarchy/CallAudio"), QStringLiteral("org.mobarchy.CallAudio"),
+        QStringLiteral("SetSpeaker"));
+    m << on;
+    QDBusConnection::sessionBus().asyncCall(m);
+}
+
+void Telephony::setMuted(bool on)
+{
+    QDBusMessage m = QDBusMessage::createMethodCall(QStringLiteral("org.mobarchy.CallAudio"),
+        QStringLiteral("/org/mobarchy/CallAudio"), QStringLiteral("org.mobarchy.CallAudio"),
+        QStringLiteral("SetMuted"));
+    m << on;
+    QDBusConnection::sessionBus().asyncCall(m);
 }
 
 void Telephony::serviceUp()
@@ -470,11 +535,24 @@ void Telephony::storeMessage(const QString &number, const QString &text, bool in
     QFile in(path);
     if (in.open(QIODevice::ReadOnly))
         root = QJsonDocument::fromJson(in.readAll()).object();
-    QJsonArray thread = root.value(number).toArray();
+    // One thread per person however the number is written (+4791234567 from the network,
+    // 91234567 as typed): numbers are the same thread when their last 8 digits are; the
+    // thread keeps the fullest form (with the country code).
+    QString key = number;
+    const QString tail = digits(number).right(8);
+    for (auto it = root.begin(); it != root.end(); ++it) {
+        if (tail.size() == 8 && digits(it.key()).right(8) == tail) {
+            key = it.key();
+            break;
+        }
+    }
+    QJsonArray thread = root.value(key).toArray();
     thread.append(QJsonObject{{QStringLiteral("text"), text},
                               {QStringLiteral("incoming"), incoming},
                               {QStringLiteral("time"), QDateTime::currentSecsSinceEpoch()}});
-    root[number] = thread;
+    root.remove(key);
+    const QString fullest = digits(number).size() > digits(key).size() ? number : key;
+    root[fullest] = thread;
     QSaveFile out(path);
     if (out.open(QIODevice::WriteOnly)) {
         out.write(QJsonDocument(root).toJson(QJsonDocument::Compact));

@@ -1,0 +1,9 @@
+[Unit]
+Description=comet call audio: the modem to the speakers and mics while a call is up (ADR 0031)
+# alongside the shell, in the owner's session (org.mobarchy.CallAudio on the session bus)
+PartOf=mobarchy-shell.service
+
+[Service]
+ExecStart=/usr/lib/mobarchy/call-audio
+Restart=on-failure
+RestartSec=2

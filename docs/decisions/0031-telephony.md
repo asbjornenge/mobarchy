@@ -1,7 +1,7 @@
 # 0031: Telephony — calls and SMS through ofono
 
-- Status: in progress (branch; the modem reads the SIM, network registration is being
-  debugged)
+- Status: in progress (branch): SMS in and out, calls in and out with audio; the
+  microphone in a call and VoLTE still to check
 - Date: 2026-10-16
 
 ## Context
@@ -48,13 +48,33 @@ modem, the RIL, the protocol); the shell is a client.
   ringing screen that works over the lock screen (the alarm's pattern, ADR 0028); the power
   key silences the ringer.
 
-## Open / to debug
+## Call audio (comet)
 
-- **Network registration.** The modem is `Online` and the SIM is read, but it does not yet
-  register (`Status: unregistered`). A vendor modem service in the container,
-  `vendor.modem_ml_svc_sit`, crash-loops (exit 1); it is the likely cause. This is the one
-  real blocker to end-to-end calls/SMS and is tracked separately (it is a modem/RIL matter,
-  not the UI).
+Call audio is the device's: on comet it goes through AoC, the DSP that also plays music.
+AoC starts call audio when its **voice endpoint** (PCM device 4, EP5,
+"voice-call-downlink-0") is opened and prepared: the driver binds the modem to AoC ("Start
+voice call", `Audio DSP State` "Telephony") and tells the modem the voice call is on;
+closing it stops both. The switches alone (`Voice Call Mic Source`, the routes) do nothing
+without it. `call-audio` (devices/comet, a user service beside the shell) follows oFono's
+calls: from alerting to the end it holds the endpoint prepared (alsa-lib, nothing written:
+AoC takes no samples, and a writer stalls and fails within seconds) and applies the
+device's own mixer_paths.xml routes: "speaker-earpiece (VOICE)" (the top amp alone, the
+earpiece) or "speaker (VOICE)" (both amps), "voice-call-downlink-0 -> speaker" and
+"microphones -> voice-call-uplink-0". Every control it changes is read first and written
+back after the call. It offers `org.mobarchy.CallAudio` on the session bus (`Speaker`,
+`Muted`, `SetSpeaker`, `SetMuted`); the Phone app's Speaker and Mute buttons use it, and
+show only on a device that has it.
+
+## Open
+
+- **The microphone in a call** is routed (EP4, the uplink) but not yet confirmed by someone
+  on the other end.
+- **VoLTE.** Calls fall back to 2G (circuit-switched); 4G/5G voice needs IMS, which the
+  container does not run.
+- **Mobile data** is not set up (`ConnectionManager` not attached; wifi only).
+- Network registration took a while after the modem came up, but came by itself;
+  `vendor.modem_ml_svc_sit` crash-looping in the container turned out not to matter for it.
+- The SIM's "tries left" (`Retries`, a{sy}) is not read yet.
 
 ## Consequences
 

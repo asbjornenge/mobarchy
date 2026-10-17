@@ -226,7 +226,43 @@ Window {
                     font { family: Theme.font; pixelSize: 16 }
                 }
             }
+            // mute and speaker (when the device has call audio)
+            Row {
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: hangupButton.top; bottomMargin: 40 }
+                spacing: 48
+                visible: tel.callAudio
+                Repeater {
+                    model: [
+                        { label: qsTr("Mute"), icon: "󰍭", on: tel.muted, toggle: () => tel.setMuted(!tel.muted) },
+                        { label: qsTr("Speaker"), icon: "󰕾", on: tel.speaker, toggle: () => tel.setSpeaker(!tel.speaker) }
+                    ]
+                    delegate: Column {
+                        id: opt
+                        required property var modelData
+                        spacing: 8
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 68; height: 68; radius: 34
+                            color: opt.modelData.on ? Theme.fg : Theme.panel
+                            Text {
+                                anchors.centerIn: parent
+                                text: opt.modelData.icon
+                                color: opt.modelData.on ? Theme.bg : Theme.fg
+                                font { family: Theme.font; pixelSize: 28 }
+                            }
+                            TapHandler { onTapped: opt.modelData.toggle() }
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: opt.modelData.label
+                            color: Theme.muted
+                            font { family: Theme.font; pixelSize: 13 }
+                        }
+                    }
+                }
+            }
             Rectangle {
+                id: hangupButton
                 anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 60 }
                 width: 78; height: 78; radius: 39; color: Theme.red
                 Text { anchors.centerIn: parent; text: "✕"; color: "white"; font.pixelSize: 30 }

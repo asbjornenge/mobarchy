@@ -44,7 +44,7 @@ LayerWindow {
         const icons = ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
         return icons[Math.round(system.battery / 10)]
     }
-    // the mobile network: "5G ▂▄▆", "No SIM", "No service" (nothing when there is no modem)
+    // the mobile network: "5G", "4G", "No SIM", "No service" (nothing when there is no modem)
     readonly property string cellText: {
         const t = telephony
         if (!t.available) return ""
@@ -54,8 +54,7 @@ LayerWindow {
             return t.registration === "searching" ? "Searching" : "No service"
         const tech = ({ nr: "5G", lte: "4G", umts: "3G", hspa: "3G", hsdpa: "3G", hsupa: "3G",
                         edge: "E", gprs: "G", gsm: "2G" })[t.technology] ?? ""
-        const bars = Math.max(1, Math.min(4, Math.ceil(t.signalStrength / 25)))
-        return (tech ? tech + " " : "") + "▂▄▆█".substring(0, bars) + (t.registration === "roaming" ? " R" : "")
+        return (tech || "Mobile") + (t.registration === "roaming" ? " R" : "")
     }
     readonly property string wifiIcon: !system.wifiConnected ? "󰤮"
         : system.wifiStrength < 0 ? "󰤨" : ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"][system.wifiStrength]

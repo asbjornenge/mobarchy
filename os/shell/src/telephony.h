@@ -40,6 +40,11 @@ class Telephony : public QObject
     // this instance keeps incoming SMS in messages.json (the shell's; the apps' are false,
     // so a message is stored once however many are running)
     Q_PROPERTY(bool keeper MEMBER m_keeper)
+    // the device's call audio (org.mobarchy.CallAudio on the session bus, when the device
+    // has it): the loudspeaker instead of the earpiece, the microphone muted
+    Q_PROPERTY(bool callAudio READ callAudio NOTIFY audioChanged)
+    Q_PROPERTY(bool speaker READ speaker NOTIFY audioChanged)
+    Q_PROPERTY(bool muted READ muted NOTIFY audioChanged)
     // the calls now: [{path, state, number, name, incoming, active}], newest last
     Q_PROPERTY(QVariantList calls READ calls NOTIFY callsChanged)
 
@@ -55,6 +60,11 @@ public:
     QString registration() const { return m_registration; }
     int signalStrength() const { return m_signal; }
     QString technology() const { return m_technology; }
+    bool callAudio() const { return m_callAudio; }
+    bool speaker() const { return m_speaker; }
+    bool muted() const { return m_muted; }
+    Q_INVOKABLE void setSpeaker(bool on);
+    Q_INVOKABLE void setMuted(bool on);
     QVariantList calls() const { return m_calls; }
 
     // unlock the SIM: type is pinRequired ("pin"/"puk"/...); for a PUK, newPin is set too
@@ -77,6 +87,7 @@ signals:
     void changed();
     void callsChanged();
     void messagesChanged();
+    void audioChanged();
     // a call is ringing (the Phone app / lock screen shows it, rings; the alarm's pattern)
     void incomingCall(const QString &path, const QString &number);
     void messageReceived(const QString &from, const QString &text);
@@ -94,6 +105,8 @@ private slots:
     void incomingMessage(const QString &text, const QVariantMap &info);
     void serviceUp();
     void serviceDown();
+    void callAudioChanged(const QString &iface, const QVariantMap &changed, const QStringList &);
+    void readCallAudio();
 
 private:
     void findModems();
@@ -117,6 +130,7 @@ private:
     int m_signal = 0;
     QString m_technology;
     bool m_keeper = false;
+    bool m_callAudio = false, m_speaker = false, m_muted = false;
     struct Call {
         QString state, number, name;
     };
