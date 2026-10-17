@@ -96,6 +96,17 @@ void Accounts::addGoogle()
     run(tr("Sign in with Google in the browser …"), {QStringLiteral("add-google")}, {}, true);
 }
 
+void Accounts::addNextcloud(const QString &url)
+{
+    // the command opens the browser at the server's login page, and waits for it
+    run(tr("Sign in to Nextcloud in the browser …"), {QStringLiteral("add-nextcloud"), url.trimmed()}, {}, true);
+}
+
+void Accounts::openUrl(const QString &url)
+{
+    QProcess::startDetached(QStringLiteral("mobarchy-open"), {url});
+}
+
 void Accounts::setGoogleClient(const QString &clientId, const QString &clientSecret)
 {
     run(tr("Saving …"), {QStringLiteral("google-client"), clientId.trimmed()}, clientSecret);

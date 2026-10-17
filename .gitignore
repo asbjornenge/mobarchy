@@ -6,3 +6,6 @@ __pycache__/
 *.iso
 /out/
 .env
+
+# the builder's private files for packages (OAuth clients, ...): never in the repository
+/agent/private/

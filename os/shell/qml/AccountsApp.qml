@@ -3,8 +3,9 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Mobarchy.Shell
 
-// Accounts (ADR 0032): the owner's internet accounts, whose contacts the phone keeps: iCloud
-// (an app-specific password), Google (signing in in the browser) and other CardDAV servers.
+// Accounts (ADR 0032): the owner's internet accounts, whose contacts the phone keeps: Google and
+// Nextcloud (signing in in the browser), iCloud (an app-specific password) and other CardDAV
+// servers.
 // Read-only: nothing is written to the accounts. Each address book can be turned off. Its own
 // window (mobarchy-shell --accounts); the work is mobarchy-accounts' (Accounts).
 Window {
@@ -19,7 +20,7 @@ Window {
         onAdded: win.page = "list"
     }
 
-    // "list", "icloud", "google", "carddav"
+    // "list", "icloud", "google", "nextcloud", "carddav"
     property string page: "list"
 
     function ago(epoch) {
@@ -100,7 +101,8 @@ Window {
         }
         Text {
             anchors { left: parent.left; leftMargin: win.page === "list" ? 20 : 52; verticalCenter: parent.verticalCenter }
-            text: ({ list: qsTr("Accounts"), icloud: "iCloud", google: "Google", carddav: qsTr("Other (CardDAV)") })[win.page]
+            text: ({ list: qsTr("Accounts"), icloud: "iCloud", google: "Google", nextcloud: "Nextcloud",
+                    carddav: qsTr("Other (CardDAV)") })[win.page]
             color: Theme.fg
             font { family: Theme.font; pixelSize: 24; bold: true }
         }
@@ -140,7 +142,7 @@ Window {
 
             Help {
                 visible: accounts.accounts.length === 0
-                text: qsTr("Add your iCloud and Google accounts to have their contacts on the phone: in Phone, in Messages and for Frigg. Nothing on the accounts is changed.")
+                text: qsTr("Add your Google, iCloud and Nextcloud accounts to have their contacts on the phone: in Phone, in Messages and for Frigg. Nothing on the accounts is changed.")
             }
 
             Repeater {
@@ -157,7 +159,8 @@ Window {
                         anchors { left: parent.left; right: parent.right; top: parent.top; margins: 14 }
                         spacing: 6
                         Text {
-                            text: ({ icloud: "󰀸  iCloud", google: "󰊭  Google", carddav: "󰃭  CardDAV" })[card.modelData.type] ?? card.modelData.type
+                            text: ({ icloud: "󰀸  iCloud", google: "󰊭  Google", nextcloud: "󰅟  Nextcloud",
+                                    carddav: "󰃭  CardDAV" })[card.modelData.type] ?? card.modelData.type
                             color: Theme.muted
                             font { family: Theme.font; pixelSize: 13 }
                         }
@@ -217,10 +220,14 @@ Window {
             }
             Row {
                 spacing: 10
-                Button { label: "iCloud"; primary: false; onClicked: win.page = "icloud" }
                 Button { label: "Google"; primary: false; onClicked: win.page = "google" }
+                Button { label: "iCloud"; primary: false; onClicked: win.page = "icloud" }
             }
-            Button { label: qsTr("Other (CardDAV)"); primary: false; onClicked: win.page = "carddav" }
+            Row {
+                spacing: 10
+                Button { label: "Nextcloud"; primary: false; onClicked: win.page = "nextcloud" }
+                Button { label: qsTr("Other (CardDAV)"); primary: false; onClicked: win.page = "carddav" }
+            }
             Button {
                 visible: accounts.accounts.length > 0
                 label: qsTr("Sync now")
@@ -236,8 +243,15 @@ Window {
         visible: win.page === "icloud"
         spacing: 12
         Help {
-            text: qsTr("iCloud needs an <b>app-specific password</b>, not your Apple ID password: make one at <b>appleid.apple.com</b> → Sign-In and Security → App-Specific Passwords.")
+            text: qsTr("Apple lets other apps in with an <b>app-specific password</b> only (not your Apple ID password). Three steps:")
         }
+        Help { text: qsTr("<b>1.</b> Open Apple's page and sign in: Sign-In and Security → App-Specific Passwords → +, name it \"Mobarchy\".") }
+        Button {
+            label: qsTr("Open Apple's page")
+            primary: false
+            onClicked: accounts.openUrl("https://account.apple.com/account/manage")
+        }
+        Help { text: qsTr("<b>2.</b> Copy the password Apple shows (xxxx-xxxx-xxxx-xxxx). <b>3.</b> Come back here and paste it.") }
         Field { id: appleId; hint: qsTr("Apple ID (e-mail)") }
         Field { id: applePw; hint: qsTr("App-specific password"); secret: true }
         Button {
@@ -255,7 +269,7 @@ Window {
         // a client first: once, for every Google account
         Help {
             visible: !accounts.googleClient
-            text: qsTr("Google wants your own sign-in client, made once for all your Google accounts: in <b>console.cloud.google.com</b>, a project with the <b>CardDAV API</b> on, an OAuth consent screen (External, published), and an OAuth client of type <b>Desktop app</b>. Give its id and secret here.")
+            text: qsTr("This build of Mobarchy has no Google sign-in client of its own, so Google wants yours, made once for all your Google accounts: in <b>console.cloud.google.com</b>, a project with the <b>CardDAV API</b> on, an OAuth consent screen (External, published), and an OAuth client of type <b>Desktop app</b>. Give its id and secret here.")
         }
         Field { id: clientId; visible: !accounts.googleClient; hint: qsTr("Client ID (….apps.googleusercontent.com)") }
         Field { id: clientSecret; visible: !accounts.googleClient; hint: qsTr("Client secret"); secret: true }
@@ -267,7 +281,7 @@ Window {
         }
         Help {
             visible: accounts.googleClient
-            text: qsTr("Sign in in the browser, and allow the phone to read your contacts. Google may say the app is not verified: it is yours, so go on (Advanced → Go to …).")
+            text: qsTr("Sign in to Google in the browser, and allow Mobarchy to read your contacts. Nothing on the account is changed. Add as many Google accounts as you like, one at a time.")
         }
         Button {
             visible: accounts.googleClient
@@ -277,12 +291,26 @@ Window {
         }
     }
 
+    // --- Nextcloud: signing in in the browser ---
+    Column {
+        anchors { left: parent.left; right: parent.right; top: status.bottom; margins: 16 }
+        visible: win.page === "nextcloud"
+        spacing: 12
+        Help { text: qsTr("Your Nextcloud's address. You sign in in the browser, and Nextcloud gives the phone a password of its own (you can revoke it in Nextcloud's security settings).") }
+        Field { id: ncUrl; hint: "cloud.example.org" }
+        Button {
+            label: qsTr("Sign in")
+            enabled: accounts.busy === "" && ncUrl.text !== ""
+            onClicked: accounts.addNextcloud(ncUrl.text)
+        }
+    }
+
     // --- another CardDAV server ---
     Column {
         anchors { left: parent.left; right: parent.right; top: status.bottom; margins: 16 }
         visible: win.page === "carddav"
         spacing: 12
-        Help { text: qsTr("A server with CardDAV (Nextcloud, Fastmail, …): its address, your user name and a password (an app password where the server has them).") }
+        Help { text: qsTr("A server with CardDAV (Fastmail, Radicale, …): its address, your user name and a password (an app password where the server has them).") }
         Field { id: davUrl; hint: "https://…" }
         Field { id: davUser; hint: qsTr("User name") }
         Field { id: davPw; hint: qsTr("Password"); secret: true }

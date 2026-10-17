@@ -18,6 +18,7 @@ class Server:
         self.cards = {"/home/book1/a.vcf": ("e1", CARD.format(name="Per Olsen", tel="+4791234567")),
                       "/home/book2/b.vcf": ("e2", CARD.format(name="Kari Nordmann", tel="22334455"))}
         self.reports = 0
+        self.polls = 0
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -43,7 +44,7 @@ class Server:
                 p = self.path
                 if p == "/":
                     return self.reply(301, headers={"Location": "/dav/"})
-                if p == "/dav/":
+                if p in ("/dav/", "/remote.php/dav"):
                     return self.ms("<d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:current-user-principal>"
                                    "<d:href>/principal/</d:href></d:current-user-principal></d:prop></d:propstat></d:response>")
                 if p == "/principal/":
@@ -61,6 +62,20 @@ class Server:
                                     f"</d:prop></d:propstat></d:response>"
                                     for h, (e, _) in outer.cards.items() if h.startswith(p))
                     return self.ms(f"<d:response><d:href>{p}</d:href></d:response>" + items)
+                self.reply(404)
+
+            def do_POST(self):
+                # Nextcloud's Login Flow v2: the poll answers once the owner has signed in
+                form = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+                if self.path == "/index.php/login/v2":
+                    return self.reply(200, json.dumps({"poll": {"token": "t0k", "endpoint": outer.url + "poll"},
+                                                       "login": outer.url + "login/flow"}))
+                if self.path == "/poll" and form == "token=t0k":
+                    outer.polls += 1
+                    if outer.polls < 2:
+                        return self.reply(404)
+                    return self.reply(200, json.dumps({"server": outer.url.rstrip("/"), "loginName": "me@icloud.com",
+                                                       "appPassword": "app-pw"}))
                 self.reply(404)
 
             def do_REPORT(self):
@@ -144,3 +159,31 @@ def test_google_client_id_is_checked(server):
         accounts.set_google_client("nope", "secret")
     assert accounts.set_google_client("123-abc.apps.googleusercontent.com", "s\n") == {"google_client": True}
     assert accounts.list_accounts()["google_client"]
+
+
+def test_nextcloud_login_flow(server):
+    opened = []
+    out = accounts.add_nextcloud(server.url, open_browser=opened.append, interval=0)
+    assert opened == [server.url + "login/flow"]
+    acc = out["accounts"][0]
+    assert acc["type"] == "nextcloud" and acc["contacts"] == 2 and acc["error"] == ""
+
+
+def test_nextcloud_must_be_https(server):
+    with pytest.raises(accounts.AccountError, match="https"):
+        accounts.add_nextcloud("http://cloud.example.org")
+
+
+def test_mobarchy_google_client(server, tmp_path, monkeypatch):
+    f = tmp_path / "google-client.json"
+    monkeypatch.setenv("MOBARCHY_GOOGLE_CLIENT", str(f))
+    assert not accounts.list_accounts()["google_client"]
+    f.write_text(json.dumps({"client_id": "1-m.apps.googleusercontent.com", "client_secret": "GOCSPX-m"}))
+    assert accounts.list_accounts()["google_client"]
+    assert accounts.google_client() == ("1-m.apps.googleusercontent.com", "GOCSPX-m")
+    accounts.set_google_client("2-own.apps.googleusercontent.com", "own\n")  # the owner's own wins
+    assert accounts.google_client() == ("2-own.apps.googleusercontent.com", "own")
+
+
+def test_icloud_password_as_copied(server):
+    assert accounts.add_icloud("me@icloud.com", " app- pw \n")["accounts"][0]["error"] == ""

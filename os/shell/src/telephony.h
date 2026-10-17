@@ -135,6 +135,7 @@ private:
     QStringList m_interfaces;        // the modem's ofono interfaces now
     bool m_online = false;
     bool m_simPresent = false;
+    int m_simChecks = 0;             // asked again while the modem has not read the SIM
     QString m_pinRequired = QStringLiteral("none");
     int m_pinRetries = -1;
     QString m_operator;

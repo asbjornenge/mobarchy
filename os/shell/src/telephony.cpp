@@ -250,6 +250,7 @@ void Telephony::useModem(const QString &path, const QVariantMap &properties)
     qCInfo(lcTel) << "modem" << path;
     m_modem = path;
     m_online = properties.value(QStringLiteral("Online")).toBool();
+    m_simChecks = 0;
 
     bus().connect(Service, m_modem, ModemIface, QStringLiteral("PropertyChanged"), this,
                   SLOT(modemPropertyChanged(QString, QDBusVariant)));
@@ -317,8 +318,18 @@ void Telephony::refreshSim()
             m_pinRequired = p.value(QStringLiteral("PinRequired"), QStringLiteral("none")).toString();
             m_pinRetries = retriesFor(p.value(QStringLiteral("Retries")), m_pinRequired);
             emit changed();
-            if (!m_simPresent)
+            if (!m_simPresent) {
                 lookForSim();
+                // Just after boot the modem has not read the card yet, and oFono does not
+                // always say when it has (no PropertyChanged for Present): ask again for a
+                // minute, or the SIM stays "No SIM" and its PIN is never asked for.
+                const QString modem = m_modem;
+                if (m_simChecks++ < 12)
+                    QTimer::singleShot(5000, this, [this, modem] {
+                        if (m_modem == modem && !m_simPresent && m_interfaces.contains(SimIface))
+                            refreshSim();
+                    });
+            }
         }
         w->deleteLater();
     });
@@ -395,6 +406,8 @@ void Telephony::modemPropertyChanged(const QString &name, const QDBusVariant &va
     if (name == QLatin1String("Online")) {
         m_online = value.variant().toBool();
         QTimer::singleShot(1000, this, &Telephony::enforceRadio);
+        if (!m_simPresent && m_interfaces.contains(SimIface))
+            refreshSim();
     }
     else if (name == QLatin1String("Interfaces"))
         watchInterfaces(asStringList(value.variant()));

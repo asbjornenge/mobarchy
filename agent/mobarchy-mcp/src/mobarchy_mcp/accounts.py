@@ -7,11 +7,14 @@ servers, read-only, kept on the phone beside the owner's own.
   ~/.cache/mobarchy/carddav/<id>.json     etags and cards, to fetch only what changed
 
 Sign-in:
-- iCloud and other CardDAV servers: a user name and a password (for iCloud an app-specific
-  password, appleid.apple.com), checked against the server before it is kept.
-- Google: OAuth in the phone's browser (installed-app flow, loopback redirect, PKCE). Google
-  wants a client registered by the owner (Google Cloud, a "Desktop app" client): its id and
-  secret are set once (`google-client`) and serve every Google account.
+- Google: OAuth in the phone's browser (installed-app flow, loopback redirect, PKCE), with
+  Mobarchy's own OAuth client (in the package, /usr/share/mobarchy/accounts, put there when the
+  package is built: it is not in the source). An owner may use their own client instead
+  (`google-client`).
+- Nextcloud: its Login Flow v2 in the browser, which gives the phone an app password.
+- iCloud: Apple has no sign-in for others' apps; an app-specific password (made at
+  account.apple.com), checked against the server before it is kept.
+- Other CardDAV servers: a user name and a password, checked the same way.
 
 Nothing is ever written to the servers. `mobarchy-accounts`, the command, prints JSON."""
 
@@ -43,6 +46,10 @@ GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 GOOGLE_SCOPES = "https://www.googleapis.com/auth/carddav openid email"
 KEYRING = "mobarchy-accounts"
+# Mobarchy's Google OAuth client: {"client_id", "client_secret"}. A "Desktop app" client's
+# secret is not a secret in Google's sense (every copy of the app has it), but it stays out
+# of the source all the same: the package build puts it here.
+SYSTEM_GOOGLE_CLIENT = "/usr/share/mobarchy/accounts/google-client.json"
 
 
 class AccountError(Exception):
@@ -136,12 +143,24 @@ def _post(url: str, form: dict) -> dict:
         raise AccountError(f"cannot reach Google: {e.reason}") from e
 
 
+def _system_google_client() -> dict:
+    try:
+        c = json.loads(Path(os.environ.get("MOBARCHY_GOOGLE_CLIENT", SYSTEM_GOOGLE_CLIENT)).read_text())
+    except (OSError, ValueError):
+        return {}
+    return c if c.get("client_id") and c.get("client_secret") else {}
+
+
 def google_client() -> tuple[str, str]:
-    cfg = load_config().get("google", {})
-    if not cfg.get("client_id"):
-        raise AccountError("no Google client yet: set one up in Google Cloud (a Desktop app OAuth "
-                           "client) and give its id and secret (mobarchy-accounts google-client)")
-    return cfg["client_id"], secret_get("google-client-secret")
+    """The owner's own client if they set one, else Mobarchy's."""
+    own = load_config().get("google", {})
+    if own.get("client_id"):
+        return own["client_id"], secret_get("google-client-secret")
+    system = _system_google_client()
+    if system:
+        return system["client_id"], system["client_secret"]
+    raise AccountError("this build has no Google client: set one up in Google Cloud (a Desktop app "
+                       "OAuth client) and give its id and secret (mobarchy-accounts google-client)")
 
 
 class _Bearer:
@@ -251,7 +270,7 @@ def _summary(a: dict) -> dict:
 
 def list_accounts() -> dict:
     cfg = load_config()
-    return {"google_client": bool(cfg.get("google", {}).get("client_id")),
+    return {"google_client": bool(cfg.get("google", {}).get("client_id") or _system_google_client()),
             "accounts": [_summary(a) for a in cfg.get("accounts", [])]}
 
 
@@ -291,7 +310,7 @@ def _id(kind: str, user: str) -> str:
 
 def add_icloud(apple_id: str, app_password: str) -> dict:
     apple_id = apple_id.strip()
-    pw = app_password.strip()
+    pw = re.sub(r"\s+", "", app_password)  # as copied: "abcd-efgh-ijkl-mnop", spaces or not
     if not apple_id or not pw:
         raise AccountError("give the Apple ID and an app-specific password (appleid.apple.com)")
     return _add({"id": _id("icloud", apple_id), "type": "icloud", "user": apple_id}, pw)
@@ -302,6 +321,51 @@ def add_carddav(url: str, user: str, password: str) -> dict:
         raise AccountError("the server's address must start with https://")
     return _add({"id": _id("carddav", f"{user}@{urllib.parse.urlsplit(url).netloc}"), "type": "carddav",
                  "user": user.strip(), "url": url.strip()}, password)
+
+
+# --- Nextcloud: Login Flow v2 ---------------------------------------------------------------
+
+def _nc_post(url: str, form: dict | None = None) -> tuple[int, dict]:
+    req = urllib.request.Request(url, data=urllib.parse.urlencode(form or {}).encode(), method="POST",
+                                 headers={"User-Agent": "Mobarchy", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, json.loads(r.read() or b"{}")
+    except urllib.error.HTTPError as e:
+        return e.code, {}
+    except (urllib.error.URLError, ValueError) as e:
+        raise AccountError(f"cannot reach {urllib.parse.urlsplit(url).netloc}: {getattr(e, 'reason', e)}") from e
+
+
+def nextcloud_sign_in(url: str, open_browser=_open_browser, timeout: float = 600,
+                      interval: float = 2) -> dict:
+    """Login Flow v2: the server gives a login page and a poll token; the owner signs in (and
+    allows the phone) in the browser, and the poll then answers with an app password that is
+    the phone's alone (it shows, and can be revoked, in Nextcloud's security settings)."""
+    url = url.strip().rstrip("/")
+    if not url.startswith("http"):
+        url = "https://" + url
+    if not url.startswith("https://") and urllib.parse.urlsplit(url).hostname not in ("127.0.0.1", "localhost"):
+        raise AccountError("the server's address must start with https://")
+    status, start = _nc_post(url + "/index.php/login/v2")
+    if status != 200 or "login" not in start:
+        raise AccountError(f"{urllib.parse.urlsplit(url).netloc} does not look like a Nextcloud server")
+    print(json.dumps({"open": start["login"]}), flush=True)
+    open_browser(start["login"])
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status, got = _nc_post(start["poll"]["endpoint"], {"token": start["poll"]["token"]})
+        if status == 200 and got.get("appPassword"):
+            return {"server": got["server"].rstrip("/"), "user": got["loginName"], "password": got["appPassword"]}
+        time.sleep(interval)
+    raise AccountError("Nextcloud sign-in did not finish in time")
+
+
+def add_nextcloud(url: str, **kwargs) -> dict:
+    got = nextcloud_sign_in(url, **kwargs)
+    host = urllib.parse.urlsplit(got["server"]).netloc
+    return _add({"id": _id("nextcloud", f"{got['user']}@{host}"), "type": "nextcloud", "user": got["user"],
+                 "url": got["server"] + "/remote.php/dav"}, got["password"])
 
 
 def add_google(**kwargs) -> dict:
@@ -414,6 +478,8 @@ def main(argv: list[str] | None = None) -> int:
     g = sub.add_parser("google-client", help="the owner's Google OAuth client (secret on stdin)")
     g.add_argument("client_id")
     sub.add_parser("add-google")
+    n = sub.add_parser("add-nextcloud", help="signing in in the browser (Login Flow v2)")
+    n.add_argument("url")
     i = sub.add_parser("add-icloud", help="the app-specific password on stdin")
     i.add_argument("apple_id")
     c = sub.add_parser("add-carddav", help="the password on stdin")
@@ -435,6 +501,8 @@ def main(argv: list[str] | None = None) -> int:
             out = set_google_client(a.client_id, sys.stdin.readline())
         elif a.cmd == "add-google":
             out = add_google()
+        elif a.cmd == "add-nextcloud":
+            out = add_nextcloud(a.url)
         elif a.cmd == "add-icloud":
             out = add_icloud(a.apple_id, sys.stdin.readline())
         elif a.cmd == "add-carddav":
