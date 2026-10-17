@@ -4,7 +4,7 @@ import QtQuick
 import Mobarchy.Shell
 
 // The home board: widgets in a grid of square cells (4 across on a phone's screen, 8 on a
-// wide one), each card 2 or 4 cells wide and high. Cards are placed in order, each in the
+// wide one), each card 2 or 4 cells wide and 1, 2 or 4 high. Cards are placed in order, each in the
 // first gap it fits; a card with nothing to show is left out and the rest close up.
 //
 // Which cards, in what order and size: home.json's "board", [{kind, cols, rows}] (Mobarchy's
@@ -39,9 +39,9 @@ Flickable {
     rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
 
     readonly property var defaults: [
-        { kind: "weather", cols: 2, rows: 2 }, { kind: "alarm", cols: 2, rows: 2 },
-        { kind: "media", cols: 4, rows: 2 }, { kind: "recent", cols: 4, rows: 2 },
-        { kind: "messages", cols: 4, rows: 2 }, { kind: "battery", cols: 2, rows: 2 }]
+        { kind: "weather", cols: 2, rows: 1 }, { kind: "alarm", cols: 2, rows: 1 },
+        { kind: "media", cols: 4, rows: 2 }, { kind: "recent", cols: 4, rows: 1 },
+        { kind: "messages", cols: 4, rows: 2 }, { kind: "battery", cols: 2, rows: 1 }]
     // the board as the owner has it: known kinds only
     // (a list from home.json is a sequence, not an Array: Array.from)
     readonly property var entries: (config.config.board ? Array.from(config.config.board) : defaults)
@@ -269,13 +269,13 @@ Flickable {
 
         WeatherCard {
             id: weather
-            kind: "weather"; name: qsTr("Weather"); sizes: [[2, 2], [4, 2]]
+            kind: "weather"; name: qsTr("Weather"); sizes: [[2, 1], [2, 2], [4, 2]]
             config: board.config
             Placed { card: weather }
         }
         NextAlarmCard {
             id: alarm
-            kind: "alarm"; name: qsTr("Alarm and timer"); sizes: [[2, 2], [4, 2]]
+            kind: "alarm"; name: qsTr("Alarm and timer"); sizes: [[2, 1], [2, 2]]
             alarms: board.alarms; apps: board.apps
             Placed { card: alarm }
         }
@@ -287,7 +287,7 @@ Flickable {
         }
         RecentAppsCard {
             id: recent
-            kind: "recent"; name: qsTr("Recent apps"); sizes: [[4, 2]]
+            kind: "recent"; name: qsTr("Recent apps"); sizes: [[4, 1], [4, 2]]
             toplevels: board.toplevels; apps: board.apps; config: board.config
             Placed { card: recent }
         }
@@ -299,7 +299,7 @@ Flickable {
         }
         BatteryCard {
             id: battery
-            kind: "battery"; name: qsTr("Battery"); sizes: [[2, 2], [4, 2]]
+            kind: "battery"; name: qsTr("Battery"); sizes: [[2, 1], [2, 2]]
             system: board.system
             Placed { card: battery }
         }

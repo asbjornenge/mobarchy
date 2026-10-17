@@ -2,7 +2,8 @@ import QtQuick
 import Mobarchy.Shell
 
 // A widget on the home board: a flat card in the theme's colours, with a small title, that
-// takes `cols` x `rows` of the board's square cells (2x2 small, 4x2 medium, 4x4 large).
+// takes `cols` x `rows` of the board's square cells (2x1 compact, 2x2 small, 4x2 medium,
+// 4x4 large). A compact card has no title: what it shows says what it is.
 // The board places it; a card with nothing to show sets `wanted` false and is left out.
 // Held, the board goes into editing: the card can then be dragged, resized and removed.
 Rectangle {
@@ -16,6 +17,16 @@ Rectangle {
     property int cols: sizes[0][0]
     property int rows: sizes[0][1]
     property bool wanted: true
+    readonly property bool compact: rows === 1
+    // what a compact card shows instead of its content: an icon and a value on a line, and a
+    // caption under them
+    property string compactIcon: icon
+    property color compactIconColor: Theme.accent
+    property string compactValue
+    property string compactCaption
+    // compact, but the content after all (a card that needs to ask for something)
+    property bool contentWhenCompact: false
+    readonly property bool showsContent: !compact || contentWhenCompact
     property string title
     property string icon
     // tapping the card (not its own controls)
@@ -53,7 +64,7 @@ Rectangle {
 
     Row {
         id: head
-        visible: card.title !== ""
+        visible: card.title !== "" && !card.compact
         anchors { left: parent.left; top: parent.top; leftMargin: 18; topMargin: 16 }
         spacing: 7
         Text {
@@ -73,9 +84,40 @@ Rectangle {
 
     Item {
         id: body
-        anchors { fill: parent; leftMargin: 18; rightMargin: 18; bottomMargin: 16
-                  topMargin: card.title !== "" ? 40 : 16 }
+        anchors { fill: parent; leftMargin: card.compact ? 16 : 18; rightMargin: card.compact ? 16 : 18
+                  bottomMargin: card.compact ? 12 : 16
+                  topMargin: card.compact ? 12 : card.title !== "" ? 40 : 16 }
+        visible: card.showsContent
         opacity: card.editing ? 0.35 : 1
+    }
+    Column {
+        visible: !card.showsContent
+        anchors { left: parent.left; right: parent.right; verticalCenter: parent.verticalCenter
+                  leftMargin: 16; rightMargin: 16 }
+        opacity: card.editing ? 0.35 : 1
+        spacing: 1
+        Row {
+            spacing: 8
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: card.compactIcon
+                color: card.compactIconColor
+                font { family: Theme.font; pixelSize: 20 }
+            }
+            Text {
+                anchors.verticalCenter: parent.verticalCenter
+                text: card.compactValue
+                color: Theme.fg
+                font { family: Theme.font; pixelSize: 24; weight: Font.Light }
+            }
+        }
+        Text {
+            width: parent.width
+            elide: Text.ElideRight
+            text: card.compactCaption
+            color: Theme.muted
+            font { family: Theme.font; pixelSize: 12 }
+        }
     }
 
     // --- editing: over the content, which takes no touches then ----------------------------

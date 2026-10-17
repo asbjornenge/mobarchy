@@ -11,6 +11,10 @@ BoardCard {
     title: system.charging ? qsTr("Charging") : qsTr("Battery")
     icon: system.charging ? "󰂄" : "󰁹"
 
+    compactValue: system.battery + "%"
+    compactIconColor: level
+    compactCaption: system.wifiConnected ? system.wifiName : qsTr("No Wi-Fi")
+
     readonly property color level: system.battery <= 15 && !system.charging ? Theme.red
                                  : system.charging ? Theme.green : Theme.accent
 

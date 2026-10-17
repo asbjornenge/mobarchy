@@ -13,12 +13,13 @@ BoardCard {
     required property AppModel apps
     required property HomeConfig config
 
-    // two rows of four, without a title: the icons say what it is
+    // a row of four (two rows in a taller card), without a title: the icons say what it is
     readonly property int across: 4
-    readonly property int shown: across * 2
+    readonly property int shown: across * (rows >= 2 ? 2 : 1)
     readonly property var recent: (config.config.recent ?? []).filter(id => apps.nameForAppId(id) !== "")
 
     wanted: recent.length > 0
+    contentWhenCompact: true
 
     Connections {
         target: card.toplevels
@@ -40,19 +41,19 @@ BoardCard {
                 id: app
                 required property string modelData
                 width: parent.width / card.across
-                height: 66
+                height: 60
                 scale: appTap.pressed ? 0.9 : 1
                 Behavior on scale { NumberAnimation { duration: 100 } }
                 Image {
                     id: appIcon
                     anchors { horizontalCenter: parent.horizontalCenter; top: parent.top }
-                    width: 44; height: 44
-                    sourceSize { width: 88; height: 88 }
+                    width: 40; height: 40
+                    sourceSize { width: 80; height: 80 }
                     source: "image://icon/" + card.apps.iconForAppId(app.modelData)
                     asynchronous: true
                 }
                 Text {
-                    anchors { top: appIcon.bottom; topMargin: 6; horizontalCenter: parent.horizontalCenter }
+                    anchors { top: appIcon.bottom; topMargin: 5; horizontalCenter: parent.horizontalCenter }
                     width: parent.width - 4
                     horizontalAlignment: Text.AlignHCenter
                     elide: Text.ElideRight

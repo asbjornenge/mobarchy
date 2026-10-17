@@ -17,6 +17,9 @@ BoardCard {
     title: timer ? (timer.label || qsTr("Timer")) : qsTr("Alarm")
     icon: timer ? "󰔛" : "󰀠"
     onTapped: apps.launch("org.mobarchy.Clock")
+    compactValue: timer ? remaining(timer.ends)
+                        : hasAlarm ? alarms.nextAlarm.toLocaleTimeString(Qt.locale(), "HH:mm") : "—"
+    compactCaption: timer ? (timer.label || qsTr("Timer")) : hasAlarm ? day(alarms.nextAlarm) : qsTr("No alarm")
 
     Timer {
         interval: 1000

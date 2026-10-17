@@ -13,7 +13,11 @@ BoardCard {
     property string failure
 
     title: place ? place.name : qsTr("Weather")
-    icon: "󰖐"
+    icon: now ? look(now.code, now.day)[0] : "󰖐"
+    compactValue: now ? now.temp + "°" : "—"
+    compactCaption: now ? qsTr("%1 · H %2° L %3°").arg(place.name).arg(now.high).arg(now.low)
+                        : qsTr("Getting the weather …")
+    contentWhenCompact: !place || failure !== ""
 
     // WMO weather codes -> an icon (day, night) and a word
     function look(code, day) {
@@ -116,8 +120,11 @@ BoardCard {
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
         spacing: 8
         Text {
+            visible: !card.compact || card.failure !== ""
             width: parent.width
             wrapMode: Text.Wrap
+            maximumLineCount: card.compact ? 1 : 3
+            elide: Text.ElideRight
             text: card.failure || (card.place ? qsTr("Getting the weather …") : qsTr("Where are you?"))
             color: Theme.muted
             font { family: Theme.font; pixelSize: 13 }
@@ -140,7 +147,7 @@ BoardCard {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     visible: !placeInput.text && !placeInput.activeFocus
-                    text: qsTr("City")
+                    text: card.compact ? qsTr("Your city, for the weather") : qsTr("City")
                     color: Theme.muted
                     font: placeInput.font
                 }
