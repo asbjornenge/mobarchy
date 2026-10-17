@@ -240,8 +240,18 @@ void PinLock::change(const QString &oldPin, const QString &newPin)
     }
     auto apply = [this, oldPin, newPin] {
         QString error;
-        // The keyring first: if that fails, the password stays as it was.
-        if (!rekey(m_hasPin ? oldPin : QString(), newPin, &error) || !setPassword(newPin, &error)) {
+        // The keyring first: if that fails, the password stays as it was. Without a PIN the
+        // keyring has an empty password, unless it came from a backup of a phone that had
+        // one: then it opens with that PIN, which the owner most likely sets again.
+        bool keyed = rekey(m_hasPin ? oldPin : QString(), newPin, &error);
+        if (!keyed && !m_hasPin) {
+            QString again;
+            keyed = rekey(newPin, newPin, &again);
+            if (!keyed)
+                error = tr("The keyring is locked with an earlier PIN (from before a restore): "
+                           "set that PIN, the one the phone had before.");
+        }
+        if (!keyed || !setPassword(newPin, &error)) {
             emit changed(false, error);
             return;
         }
