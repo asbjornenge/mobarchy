@@ -367,7 +367,8 @@ def prepare(conf):
         overlay = RUN / "overlay"
         shutil.rmtree(overlay, ignore_errors=True)
         overlay.mkdir()
-        run(conf["overlay_hook"], env={**os.environ, "ANDROID_ROOT": str(ROOT), "OVERLAY": str(overlay)})
+        run(conf["overlay_hook"], env={**os.environ, "ANDROID_ROOT": str(ROOT), "OVERLAY": str(overlay),
+                                       "ANDROID_STATE": str(STATE)})
         for f in sorted(p for p in overlay.rglob("*") if p.is_file()):
             target = ROOT / f.relative_to(overlay)
             if not target.is_file():

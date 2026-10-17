@@ -15,6 +15,12 @@ the display itself (DRM). Its VINTF declarations (IDisplay) are emptied, so HALs
 when there is one see there is none, instead of waiting for it forever (the sensor HAL, for
 the light sensor under the panel).
 
+Trusty storage: Android's init links persist/ss/0 to the trusty_persist partition by
+Android's path (/dev/block/platform/13200000.ufs/by-name/...); the container has it at
+/dev/block/by-name/, and the storage proxy (fingerprints) refuses a link that points
+elsewhere. The persist copy (a vendor dir, $ANDROID_STATE/vendor/persist) gets the
+container's link; only a link is changed, never data.
+
 GPU compute: Mali's OpenCL driver (in libGLES_mali.so) needs Mali's own kernel driver
 (kbase), and crashes without it; Mobarchy drives the GPU with panthor (ADR 0008). Its ICD
 entry names Mesa's OpenCL (rusticl, in the container's /odm/lib64) instead (ADR 0017).
@@ -63,3 +69,13 @@ for original in sorted((root / "vendor/etc/Khronos/OpenCL/vendors").glob("*.icd"
     target = overlay / original.relative_to(root)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(RUSTICL + "\n")
+
+TRUSTY_PERSIST = "/dev/block/by-name/trusty_persist"
+state = os.environ.get("ANDROID_STATE")
+if state:
+    link = Path(state) / "vendor/persist/ss/0"
+    if link.is_symlink() and os.readlink(link) != TRUSTY_PERSIST:
+        st = link.lstat()
+        link.unlink()
+        link.symlink_to(TRUSTY_PERSIST)
+        os.lchown(link, st.st_uid, st.st_gid)
