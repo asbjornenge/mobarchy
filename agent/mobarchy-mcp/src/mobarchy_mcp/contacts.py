@@ -1,7 +1,11 @@
-"""The owner's contacts (ADR 0031): one vCard file, the format every phone and iCloud exports,
+"""The owner's contacts (ADR 0031, 0032): vCard files, the format every phone and iCloud exports,
 that the shell (Phone, Messages) and the agent both read:
 
-  ~/.local/share/mobarchy/contacts.vcf
+  ~/.local/share/mobarchy/contacts.vcf        the owner's own (written here)
+  ~/.local/share/mobarchy/contacts/<id>.vcf   each internet account's (written by accounts.py)
+  ~/.local/share/mobarchy/relations.json      the owner's word for people: {"far": "Per Olsen"}
+
+Reading takes them all, one person per name (numbers from every source together).
 
 A card is kept as its own lines, so what this module does not understand (photos, Apple's
 item groups, notes) survives a rewrite untouched. It reads FN/N, TEL, EMAIL, NICKNAME, ORG,
@@ -15,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import json
 import os
 import re
 import unicodedata
@@ -28,8 +33,23 @@ class ContactError(Exception):
     pass
 
 
+def _data() -> Path:
+    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "mobarchy"
+
+
 def path() -> Path:
-    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "mobarchy/contacts.vcf"
+    return _data() / "contacts.vcf"
+
+
+def relations_path() -> Path:
+    return _data() / "relations.json"
+
+
+def load_relations() -> dict[str, str]:
+    try:
+        return json.loads(relations_path().read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
 
 
 # --- vCard ----------------------------------------------------------------------------------
@@ -71,6 +91,8 @@ def split_line(line: str) -> tuple[str, dict[str, str], str]:
 @dataclass
 class Card:
     lines: list[str] = field(default_factory=list)  # BEGIN..END, unfolded
+    # the owner's words for this person, from relations.json (load())
+    words: list[str] = field(default_factory=list)
 
     def values(self, prop: str) -> list[tuple[dict[str, str], str]]:
         out = []
@@ -107,7 +129,8 @@ class Card:
 
     @property
     def relations(self) -> list[str]:
-        return [unescape(v).strip() for _, v in self.values(RELATION) if v.strip()]
+        own = [unescape(v).strip() for _, v in self.values(RELATION) if v.strip()]
+        return own + [w for w in self.words if w not in own]
 
     @property
     def nicknames(self) -> list[str]:
@@ -162,11 +185,37 @@ def serialize(cards: list[Card]) -> str:
 
 # --- the file -------------------------------------------------------------------------------
 
-def load() -> list[Card]:
+def load_local() -> list[Card]:
     try:
         return parse(path().read_text(encoding="utf-8", errors="replace"))
     except FileNotFoundError:
         return []
+
+
+def load() -> list[Card]:
+    """Everyone: the owner's own cards and the accounts', one card per name (a person in two
+    places gets the numbers of both), with the owner's words for them."""
+    cards = load_local()
+    by_name = {fold_text(c.name): c for c in cards if c.name}
+    for f in sorted((_data() / "contacts").glob("*.vcf")):
+        for c in parse(f.read_text(encoding="utf-8", errors="replace")):
+            if not c.name:
+                continue
+            have = by_name.get(fold_text(c.name))
+            if have is None:
+                cards.append(c)
+                by_name[fold_text(c.name)] = c
+                continue
+            have.lines = list(have.lines)  # merged only in memory
+            for line in c.lines:
+                if split_line(line)[0] == "TEL" and not any(
+                        same_number(unescape(split_line(line)[2]), p["number"]) for p in have.phones):
+                    have.add_line(line)
+    for word, name in load_relations().items():
+        c = by_name.get(fold_text(name))
+        if c is not None:
+            c.words.append(word)
+    return cards
 
 
 @contextlib.contextmanager
@@ -175,7 +224,7 @@ def editing():
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(f"{p}.lock", "w") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
-        cards = load()
+        cards = load_local()
         yield cards
         tmp = p.with_suffix(".vcf.tmp")
         tmp.write_text(serialize(cards), encoding="utf-8")
@@ -280,31 +329,46 @@ def add(name: str, phones: list[str], email: str = "", relation: str = "") -> di
 
 
 def set_relation(name: str, relation: str) -> dict:
-    """The owner's word for this person ("far"); one person per word: it moves from anyone
-    who had it."""
+    """The owner's word for this person ("far"), for anyone in the contacts (an account's too);
+    one person per word: it moves from anyone who had it."""
     relation = relation.strip()
     if not relation:
         raise ContactError("say what the person is to the owner (e.g. far, mamma, sjef)")
-    with editing() as cards:
-        card = _find(cards, name)
-        for c in cards:
+    card = _find(load(), name)
+    with editing() as local:  # the lock; and an old X-MOBARCHY-RELATION with this word goes
+        for c in local:
             c.remove(RELATION, relation)
-        card.add_line(f"{RELATION}:{escape(relation)}")
-        return card.summary()
+        words = {w: n for w, n in load_relations().items() if fold_text(w) != fold_text(relation)}
+        words[relation] = card.name
+        relations_path().write_text(json.dumps(words, ensure_ascii=False, indent=1))
+    return next(c.summary() for c in load() if c.name == card.name)
 
 
 def add_phone(name: str, number: str, kind: str = "cell") -> dict:
+    """A number for someone: on the owner's own card; for an account's contact, on an own card
+    with the same name (shown together; the account is never written)."""
+    person = _find(load(), name)
+    if any(same_number(number, p["number"]) for p in person.phones):
+        return person.summary()
     with editing() as cards:
-        card = _find(cards, name)
-        if any(same_number(number, p["number"]) for p in card.phones):
-            return card.summary()
-        card.add_line(f"TEL;TYPE={kind.upper()}:{number.strip()}")
-        return card.summary()
+        own = next((c for c in cards if fold_text(c.name) == fold_text(person.name)), None)
+        if own is None:
+            own = Card(["BEGIN:VCARD", "VERSION:3.0", f"FN:{escape(person.name)}", "END:VCARD"])
+            cards.append(own)
+        own.add_line(f"TEL;TYPE={kind.upper()}:{number.strip()}")
+    return next(c.summary() for c in load() if c.name == person.name)
 
 
 def delete(name: str) -> dict:
+    """The owner's own card (an account's contacts are the account's: delete them there)."""
     with editing() as cards:
-        card = _find(cards, name)
+        try:
+            card = _find(cards, name)
+        except ContactError:
+            if any(fold_text(c.name) == fold_text(name) for c in load()):
+                raise ContactError(f"{name} comes from an internet account (iCloud, Google): "
+                                   "delete them there") from None
+            raise
         cards.remove(card)
         return {"deleted": card.name}
 
@@ -332,4 +396,4 @@ def import_vcards(text: str) -> dict:
                         same_number(unescape(split_line(line)[2]), p["number"]) for p in have.phones):
                     have.add_line(line)
                     merged += 1
-    return {"added": added, "numbers_merged": merged, "total": len(load())}
+    return {"added": added, "numbers_merged": merged, "total": len(load_local())}

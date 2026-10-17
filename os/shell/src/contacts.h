@@ -1,7 +1,8 @@
-// The owner's contacts (ADR 0031): ~/.local/share/mobarchy/contacts.vcf, the vCard file the
-// agent's tools also read and write (mobarchy-mcp contacts.py). Read-only here: the names, the
-// phone numbers and the owner's word for each person (X-MOBARCHY-RELATION); followed, so a
-// contact Frigg adds shows at once.
+// The owner's contacts (ADR 0031, 0032): the owner's own vCard file
+// (~/.local/share/mobarchy/contacts.vcf, the agent's tools write it) and each internet
+// account's (contacts/<id>.vcf, from mobarchy-accounts), one person per name; the owner's
+// words for people from relations.json ("far"). Read-only here; followed, so a contact Frigg
+// adds or a sync brings shows at once.
 #pragma once
 
 #include <QFileSystemWatcher>

@@ -1,0 +1,7 @@
+[Unit]
+Description=Fetch the contacts of the owner's internet accounts (ADR 0032)
+ConditionPathExists=%h/.config/mobarchy/accounts.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mobarchy-accounts sync

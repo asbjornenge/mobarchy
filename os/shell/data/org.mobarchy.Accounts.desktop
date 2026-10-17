@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Accounts
+Comment=iCloud, Google and other accounts: their contacts on the phone
+Exec=mobarchy-shell --accounts
+Icon=org.mobarchy.Accounts
+Categories=Settings;

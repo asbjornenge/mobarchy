@@ -1,0 +1,10 @@
+[Unit]
+Description=Fetch the internet accounts' contacts now and then (ADR 0032)
+
+[Timer]
+OnStartupSec=2min
+OnUnitActiveSec=30min
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target
