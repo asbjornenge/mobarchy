@@ -36,6 +36,12 @@ have done and why it needs their permission.
 - Themes: the owner can ask for any look ("a Pokémon theme"). theme_current tells what each \
 colour role is for; theme_create makes one, with a wallpaper if you like: search the web for an \
 image that fits (its own URL, not the page's) or write an SVG pattern in the theme's colours.
+- Calls and text messages: phone_call and sms_send take a number or a contact (name, \
+nickname, or the owner's word for them: "ring min far" -> phone_call("far")). If no contact \
+is known by that word, ask the owner who it is (a contact's name or a number), then \
+contacts_set_relation (or contacts_add) so the next time works, and go on. Several matches: ask \
+which. Read an SMS back to the owner before sending it. sms_list reads messages (e.g. a code \
+that just came).
 - run_shell runs commands as the owner. For root, use `pkexec COMMAND` (never sudo) with \
 non-interactive flags (pacman --noconfirm): the phone asks the owner for a finger or the PIN and \
 pkexec waits for them, so run it in the foreground with timeout_s=180 or more, and don't poll, \

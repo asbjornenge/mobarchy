@@ -78,102 +78,286 @@ Window {
         sourceComponent: callScreen
     }
 
-    // 4) the dialer
+    // 4) the phone: the keypad, the contacts and the recent calls, in tabs
+    property string tab: "keypad"
+    property var recents: []
+    function reloadRecents() { recents = tel.recentCalls() }
+    Connections { target: tel; function onCallsChanged() { Qt.callLater(win.reloadRecents) } }
+    Component.onCompleted: reloadRecents()
+    function call(number) { if (number !== "") { tel.dial(number); win.entry = "" } }
+    function timeText(epoch) {
+        const d = new Date(epoch * 1000), now = new Date()
+        return d.toDateString() === now.toDateString() ? Qt.formatTime(d, "HH:mm")
+             : Qt.formatDate(d, "d. MMM")
+    }
+
+    Contacts { id: contacts }
+
     Item {
         anchors.fill: parent
         visible: tel.pinRequired === "none" && tel.calls.length === 0
 
-        // operator + signal
-        Row {
-            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 28 }
-            spacing: 8
-            Text {
-                text: tel.registration === "registered" || tel.registration === "roaming"
-                      ? (tel.operatorName !== "" ? tel.operatorName : qsTr("Mobile"))
-                      : (tel.registration === "searching" ? qsTr("Searching…") : qsTr("No service"))
-                color: tel.registration === "registered" || tel.registration === "roaming" ? Theme.fg : Theme.muted
-                font { family: Theme.font; pixelSize: 15 }
-            }
-            Text {
-                visible: tel.signalStrength > 0
-                text: "▂▄▆█".substring(0, Math.max(1, Math.ceil(tel.signalStrength / 25)))
-                color: Theme.green
-                font { family: Theme.font; pixelSize: 15 }
-            }
-        }
-
-        // the dialled number
+        // the operator
         Text {
-            id: entryText
-            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 110 }
-            width: parent.width - 120
-            horizontalAlignment: Text.AlignHCenter
-            text: win.entry
-            color: Theme.fg
-            font { family: Theme.font; pixelSize: 40 }
-            elide: Text.ElideLeft
+            id: operatorLine
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 24 }
+            text: tel.registration === "registered" || tel.registration === "roaming"
+                  ? (tel.operatorName !== "" ? tel.operatorName : qsTr("Mobile"))
+                  : (tel.registration === "searching" ? qsTr("Searching…") : qsTr("No service"))
+            color: tel.registration === "registered" || tel.registration === "roaming" ? Theme.muted : Theme.red
+            font { family: Theme.font; pixelSize: 14 }
         }
 
-        // keypad
-        Grid {
-            id: pad
-            anchors { horizontalCenter: parent.horizontalCenter; bottom: callRow.top; bottomMargin: 24 }
-            columns: 3
-            spacing: 18
-            readonly property var keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"]
-            readonly property var sub: { "2": "ABC", "3": "DEF", "4": "GHI", "5": "JKL", "6": "MNO",
-                                         "7": "PQRS", "8": "TUV", "9": "WXYZ", "0": "+" }
-            Repeater {
-                model: pad.keys
-                delegate: Rectangle {
-                    id: key
-                    required property string modelData
-                    width: 78; height: 78; radius: 39
-                    color: keyTap.pressed ? Theme.line : Theme.panel
-                    Column {
-                        anchors.centerIn: parent
-                        Text {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            text: key.modelData
-                            color: Theme.fg
-                            font { family: Theme.font; pixelSize: 30 }
+        // --- the keypad ---
+        Item {
+            anchors { left: parent.left; right: parent.right; top: operatorLine.bottom; bottom: tabs.top }
+            visible: win.tab === "keypad"
+
+            Column {
+                anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 50 }
+                width: parent.width - 80
+                spacing: 6
+                Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    text: win.entry
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 40 }
+                    elide: Text.ElideLeft
+                }
+                Text {
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    text: win.entry.length >= 6 ? contacts.nameFor(win.entry) : ""
+                    color: Theme.accent
+                    font { family: Theme.font; pixelSize: 16 }
+                }
+            }
+
+            Grid {
+                id: pad
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: callRow.top; bottomMargin: 20 }
+                columns: 3
+                spacing: 18
+                readonly property var keys: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"]
+                readonly property var sub: { "2": "ABC", "3": "DEF", "4": "GHI", "5": "JKL", "6": "MNO",
+                                             "7": "PQRS", "8": "TUV", "9": "WXYZ", "0": "+" }
+                Repeater {
+                    model: pad.keys
+                    delegate: Rectangle {
+                        id: key
+                        required property string modelData
+                        width: 76; height: 76; radius: 38
+                        color: keyTap.pressed ? Theme.line : Theme.panel
+                        Column {
+                            anchors.centerIn: parent
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: key.modelData
+                                color: Theme.fg
+                                font { family: Theme.font; pixelSize: 30 }
+                            }
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: pad.sub[key.modelData] ?? ""
+                                color: Theme.muted
+                                font { family: Theme.font; pixelSize: 9 }
+                            }
                         }
-                        Text {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            text: pad.sub[key.modelData] ?? ""
-                            color: Theme.muted
-                            font { family: Theme.font; pixelSize: 9 }
+                        TapHandler {
+                            id: keyTap
+                            onTapped: win.entry += key.modelData
+                            onLongPressed: if (key.modelData === "0") win.entry += "+"
                         }
                     }
+                }
+            }
+
+            Row {
+                id: callRow
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 18 }
+                spacing: 26
+                Item { width: 60; height: 60 }   // to centre the call button
+                Rectangle {
+                    width: 72; height: 72; radius: 36
+                    color: win.entry === "" ? Theme.line : Theme.green
+                    Text { anchors.centerIn: parent; text: "󰏲"; color: Theme.bg; font { family: Theme.font; pixelSize: 30 } }
+                    TapHandler { onTapped: win.call(win.entry) }
+                }
+                Rectangle {
+                    width: 60; height: 60; radius: 30
+                    color: "transparent"
+                    visible: win.entry !== ""
+                    Text { anchors.centerIn: parent; text: "⌫"; color: Theme.muted; font.pixelSize: 26 }
                     TapHandler {
-                        id: keyTap
-                        onTapped: win.entry += (key.modelData === "0" && win.entry === "" ? "" : "") + key.modelData
-                        onLongPressed: if (key.modelData === "0") win.entry += "+"
+                        onTapped: win.entry = win.entry.slice(0, -1)
+                        onLongPressed: win.entry = ""
                     }
                 }
             }
         }
 
-        // call + backspace
-        Row {
-            id: callRow
-            anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 26 }
-            spacing: 26
-            Item { width: 60; height: 60 }   // spacer to centre the call button
+        // --- the contacts ---
+        Item {
+            anchors { left: parent.left; right: parent.right; top: operatorLine.bottom; topMargin: 12; bottom: tabs.top }
+            visible: win.tab === "contacts"
+
             Rectangle {
-                width: 72; height: 72; radius: 36
-                color: win.entry === "" ? Theme.line : Theme.green
-                Text { anchors.centerIn: parent; text: "📞"; font.pixelSize: 30 }
-                TapHandler { onTapped: if (win.entry !== "") { tel.dial(win.entry); win.entry = "" } }
+                id: searchBox
+                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
+                height: 44; radius: 22
+                color: Theme.panel
+                TextInput {
+                    id: search
+                    anchors { fill: parent; leftMargin: 18; rightMargin: 18 }
+                    verticalAlignment: TextInput.AlignVCenter
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 16 }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        visible: parent.text === ""
+                        text: qsTr("Search contacts")
+                        color: Theme.muted
+                        font: parent.font
+                    }
+                }
             }
-            Rectangle {
-                width: 60; height: 60; radius: 30
-                color: "transparent"
-                visible: win.entry !== ""
-                Text { anchors.centerIn: parent; text: "⌫"; color: Theme.muted; font.pixelSize: 26 }
-                TapHandler {
-                    onTapped: win.entry = win.entry.slice(0, -1)
-                    onLongPressed: win.entry = ""
+            Text {
+                anchors { centerIn: parent }
+                width: parent.width - 60
+                visible: contacts.all.length === 0
+                horizontalAlignment: Text.AlignHCenter
+                wrapMode: Text.Wrap
+                text: qsTr("No contacts yet. Ask Frigg to add someone, or to import your contacts (a .vcf file).")
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 15 }
+            }
+            ListView {
+                anchors { left: parent.left; right: parent.right; top: searchBox.bottom; topMargin: 8; bottom: parent.bottom }
+                clip: true
+                boundsBehavior: Theme.boundsBehavior
+                model: contacts.filter(search.text)
+                delegate: Column {
+                    id: person
+                    required property var modelData
+                    width: ListView.view.width
+                    topPadding: 10; bottomPadding: 10
+                    Text {
+                        x: 20
+                        text: person.modelData.name + (person.modelData.relations.length
+                              ? "  · " + person.modelData.relations.join(", ") : "")
+                        color: Theme.fg
+                        font { family: Theme.font; pixelSize: 17 }
+                    }
+                    Repeater {
+                        model: person.modelData.phones
+                        delegate: Rectangle {
+                            id: num
+                            required property var modelData
+                            width: person.width; height: 40
+                            color: numTap.pressed ? Theme.panel : "transparent"
+                            Text {
+                                x: 20; anchors.verticalCenter: parent.verticalCenter
+                                text: num.modelData.number + (num.modelData.type ? "   " + num.modelData.type : "")
+                                color: Theme.muted
+                                font { family: Theme.font; pixelSize: 14 }
+                            }
+                            Text {
+                                anchors { right: parent.right; rightMargin: 24; verticalCenter: parent.verticalCenter }
+                                text: "󰏲"
+                                color: Theme.green
+                                font { family: Theme.font; pixelSize: 22 }
+                            }
+                            TapHandler { id: numTap; onTapped: win.call(num.modelData.number) }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- the recent calls ---
+        ListView {
+            anchors { left: parent.left; right: parent.right; top: operatorLine.bottom; topMargin: 12; bottom: tabs.top }
+            visible: win.tab === "recents"
+            clip: true
+            boundsBehavior: Theme.boundsBehavior
+            model: win.recents
+            delegate: Rectangle {
+                id: rec
+                required property var modelData
+                readonly property bool missed: !modelData.outgoing && !modelData.answered
+                readonly property string who: contacts.nameFor(modelData.number) || modelData.number
+                width: ListView.view.width; height: 60
+                color: recTap.pressed ? Theme.panel : "transparent"
+                Text {
+                    x: 20; anchors.verticalCenter: parent.verticalCenter
+                    text: rec.modelData.outgoing ? "󰁜" : "󰁆"   // ↗ out, ↙ in
+                    color: rec.missed ? Theme.red : Theme.muted
+                    font { family: Theme.font; pixelSize: 18 }
+                }
+                Column {
+                    x: 56; anchors.verticalCenter: parent.verticalCenter
+                    Text {
+                        text: rec.who
+                        color: rec.missed ? Theme.red : Theme.fg
+                        font { family: Theme.font; pixelSize: 16 }
+                    }
+                    Text {
+                        text: rec.missed ? qsTr("Missed") : rec.modelData.seconds > 0
+                              ? Math.floor(rec.modelData.seconds / 60) + ":" + String(rec.modelData.seconds % 60).padStart(2, "0")
+                              : (rec.modelData.outgoing ? qsTr("No answer") : "")
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 12 }
+                    }
+                }
+                Text {
+                    anchors { right: parent.right; rightMargin: 24; verticalCenter: parent.verticalCenter }
+                    text: win.timeText(rec.modelData.time)
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 13 }
+                }
+                TapHandler { id: recTap; onTapped: win.call(rec.modelData.number) }
+            }
+            Text {
+                anchors.centerIn: parent
+                visible: win.recents.length === 0
+                text: qsTr("No calls yet")
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 15 }
+            }
+        }
+
+        // the tabs
+        Row {
+            id: tabs
+            anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+            height: 64
+            Repeater {
+                model: [{ id: "keypad", label: qsTr("Keypad"), icon: "󰌌" },
+                        { id: "contacts", label: qsTr("Contacts"), icon: "󰀉" },
+                        { id: "recents", label: qsTr("Recent"), icon: "󰋚" }]
+                delegate: Item {
+                    id: tabItem
+                    required property var modelData
+                    width: tabs.width / 3; height: tabs.height
+                    readonly property bool on: win.tab === modelData.id
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 2
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: tabItem.modelData.icon
+                            color: tabItem.on ? Theme.accent : Theme.muted
+                            font { family: Theme.font; pixelSize: 22 }
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: tabItem.modelData.label
+                            color: tabItem.on ? Theme.accent : Theme.muted
+                            font { family: Theme.font; pixelSize: 11 }
+                        }
+                    }
+                    TapHandler { onTapped: { win.tab = tabItem.modelData.id; if (tabItem.modelData.id === "recents") win.reloadRecents() } }
                 }
             }
         }
@@ -189,8 +373,8 @@ Window {
                 spacing: 10
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: parent.parent.c && parent.parent.c.name !== "" ? parent.parent.c.name
-                          : (parent.parent.c ? parent.parent.c.number : "")
+                    text: parent.parent.c ? (contacts.nameFor(parent.parent.c.number) || parent.parent.c.name
+                                           || parent.parent.c.number) : ""
                     color: Theme.fg
                     font { family: Theme.font; pixelSize: 34 }
                 }
@@ -228,7 +412,8 @@ Window {
                 spacing: 12
                 Text {
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: parent.parent.c ? (parent.parent.c.name !== "" ? parent.parent.c.name : parent.parent.c.number) : ""
+                    text: parent.parent.c ? (contacts.nameFor(parent.parent.c.number) || parent.parent.c.name
+                                           || parent.parent.c.number) : ""
                     color: Theme.fg
                     font { family: Theme.font; pixelSize: 34 }
                 }

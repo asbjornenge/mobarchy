@@ -13,6 +13,7 @@
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -391,8 +392,14 @@ void Telephony::callAdded(const QDBusObjectPath &path, const QVariantMap &proper
 {
     const QString p = path.path();
     const bool isNew = !m_callMap.contains(p);
-    Call c;
+    Call c = m_callMap.value(p);
     c.state = properties.value(QStringLiteral("State")).toString();
+    if (isNew) {
+        c.outgoing = c.state == QLatin1String("dialing") || c.state == QLatin1String("alerting");
+        c.started = QDateTime::currentSecsSinceEpoch();
+    }
+    if (c.state == QLatin1String("active") && !c.answered)
+        c.answered = QDateTime::currentSecsSinceEpoch();
     c.number = properties.value(QStringLiteral("LineIdentification")).toString();
     c.name = properties.value(QStringLiteral("Name")).toString();
     m_callMap.insert(p, c);
@@ -409,8 +416,11 @@ void Telephony::callAdded(const QDBusObjectPath &path, const QVariantMap &proper
 void Telephony::callRemoved(const QDBusObjectPath &path)
 {
     const QString p = path.path();
-    if (!m_callMap.remove(p))
+    if (!m_callMap.contains(p))
         return;
+    if (m_keeper)
+        logCall(m_callMap.value(p));
+    m_callMap.remove(p);
     bus().disconnect(Service, p, CallIface, QStringLiteral("PropertyChanged"), this, nullptr);
     m_ringing.remove(p);
     rebuildCalls();
@@ -426,6 +436,8 @@ void Telephony::callPropertyChanged(const QString &name, const QDBusVariant &val
         return;
     if (name == QLatin1String("State")) {
         it->state = value.variant().toString();
+        if (it->state == QLatin1String("active") && !it->answered)
+            it->answered = QDateTime::currentSecsSinceEpoch();
         if (it->state == QLatin1String("incoming") && !m_ringing.contains(it.key())) {
             m_ringing.insert(it.key());
             emit incomingCall(it.key(), it->number);
@@ -513,6 +525,42 @@ void Telephony::sendMessage(const QString &to, const QString &text)
     }
     call(m_modem, MessageIface, QStringLiteral("SendMessage"), {to, text}, this, tr("Send message"));
     storeMessage(to, text, false);
+}
+
+static QString callsPath()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+           + QStringLiteral("/mobarchy/calls.json");
+}
+
+void Telephony::logCall(const Call &c)
+{
+    QJsonArray log;
+    QFile in(callsPath());
+    if (in.open(QIODevice::ReadOnly))
+        log = QJsonDocument::fromJson(in.readAll()).array();
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    log.prepend(QJsonObject{{QStringLiteral("number"), c.number},
+                            {QStringLiteral("time"), c.started ? c.started : now},
+                            {QStringLiteral("outgoing"), c.outgoing},
+                            {QStringLiteral("answered"), c.answered != 0},
+                            {QStringLiteral("seconds"), c.answered ? now - c.answered : 0}});
+    while (log.size() > 200)
+        log.removeLast();
+    QDir().mkpath(QFileInfo(callsPath()).absolutePath());
+    QSaveFile out(callsPath());
+    if (out.open(QIODevice::WriteOnly)) {
+        out.write(QJsonDocument(log).toJson(QJsonDocument::Compact));
+        out.commit();
+    }
+}
+
+QVariantList Telephony::recentCalls() const
+{
+    QFile in(callsPath());
+    if (!in.open(QIODevice::ReadOnly))
+        return {};
+    return QJsonDocument::fromJson(in.readAll()).array().toVariantList();
 }
 
 QVariantMap Telephony::threads() const

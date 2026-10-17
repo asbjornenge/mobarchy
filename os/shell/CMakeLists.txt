@@ -48,6 +48,7 @@ qt_add_qml_module(mobarchy-shell
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h
         src/clipboard.cpp src/clipboard.h
+        src/contacts.cpp src/contacts.h
         src/logind.cpp src/logind.h
         src/mediaplayers.cpp src/mediaplayers.h
         src/notifications.cpp src/notifications.h

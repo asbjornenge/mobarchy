@@ -22,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import alarms, approval, bluetooth, browser, themes, camera, clipboard, clock, media, network, photos, power, store, webapps
+from . import alarms, approval, bluetooth, browser, themes, camera, clipboard, clock, contacts, media, network, phone, photos, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -735,6 +735,96 @@ def timer_cancel(timer_id: str) -> dict:
         return alarms.cancel_timer(timer_id)
     except alarms.AlarmError as e:
         raise ToolError(str(e)) from e
+
+
+# --- contacts, calls and SMS (ADR 0031) -------------------------------------------------------
+
+def _phone(fn, *args):
+    try:
+        return fn(*args)
+    except (phone.PhoneError, contacts.ContactError) as e:
+        raise ToolError(str(e)) from e
+    except subprocess.TimeoutExpired as e:
+        raise ToolError("oFono (the modem) did not answer in time") from e
+
+
+@tool(Risk.READ, "Find a contact")
+def contacts_search(query: str) -> dict:
+    """The owner's contacts matching a name, part of one, a nickname, a number, or the owner's
+    word for someone ("far", "mamma", "sjefen"): name, numbers, e-mail, relations. Best match
+    first."""
+    return {"contacts": _phone(contacts.search, query)[:20]}
+
+
+@tool(Risk.ACT, "Add a contact")
+def contacts_add(name: str, phones: list[str], email: str = "", relation: str = "") -> dict:
+    """Add a person to the owner's contacts. relation: the owner's word for them, if they
+    said ("far", "kjæresten"), so asking for them that way finds them later."""
+    return _phone(contacts.add, name, phones, email, relation)
+
+
+@tool(Risk.ACT, "Remember who someone is")
+def contacts_set_relation(name: str, relation: str) -> dict:
+    """Remember the owner's word for one of their contacts: when they ask for "min far" and
+    no contact is known by that, ask who it is, then save it here (contact by name) so the
+    next time works by itself. One person per word: it moves from anyone who had it."""
+    return _phone(contacts.set_relation, name, relation)
+
+
+@tool(Risk.ACT, "Add a number to a contact")
+def contacts_add_phone(name: str, number: str, kind: str = "cell") -> dict:
+    """Give an existing contact another phone number (kind: cell, home, work)."""
+    return _phone(contacts.add_phone, name, number, kind)
+
+
+@tool(Risk.CONFIRM, "Delete a contact")
+def contacts_delete(name: str) -> dict:
+    """Delete a contact (by name)."""
+    return _phone(contacts.delete, name)
+
+
+@tool(Risk.READ, "Phone status")
+def phone_status() -> dict:
+    """The SIM, the mobile network (operator, 5G/4G, signal) and the calls going now."""
+    return _phone(phone.status)
+
+
+@tool(Risk.CONFIRM, "Make a call")
+def phone_call(who: str) -> dict:
+    """Call someone: a phone number, or a contact by name, nickname or the owner's word for
+    them ("far"). Several matches, or none: it says so; ask the owner which, or who that is
+    (then contacts_set_relation). The owner talks on the phone; the call shows in the Phone
+    app."""
+    result = _phone(phone.dial, who)
+    # the Phone app on the screen (hang up, speaker); the call goes on without it
+    entry = _desktop_entries().get("org.mobarchy.Phone")
+    if entry and not locked():
+        try:
+            compositor().launch(entry["exec"])
+        except (ToolError, comp.CompositorError):
+            pass
+    return result
+
+
+@tool(Risk.ACT, "Hang up")
+def phone_hangup() -> dict:
+    """End the call (all calls going now)."""
+    return _phone(phone.hangup)
+
+
+@tool(Risk.CONFIRM, "Send a text message")
+def sms_send(to: str, text: str) -> dict:
+    """Send an SMS: to a phone number, or a contact by name, nickname or the owner's word for
+    them ("far"). Read the message back to the owner before sending; it shows in Messages."""
+    return _phone(phone.send_sms, to, text)
+
+
+@tool(Risk.READ, "Read text messages")
+def sms_list(who: str = "", limit: int = 20) -> dict:
+    """The newest text messages (SMS), in and out, of one person (name, number or the owner's
+    word for them) or of everyone; with who it is from or to. For a code that just arrived:
+    the newest few."""
+    return _phone(phone.list_sms, who, limit)
 
 
 @tool(Risk.CONFIRM, "Run shell command")

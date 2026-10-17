@@ -19,6 +19,7 @@ Window {
         onMessagesChanged: win.reload()
     }
 
+    Contacts { id: contacts }
     property var threadData: ({})
     property var numbers: []
     property string open: ""          // the thread being read ("" = the list)
@@ -68,7 +69,7 @@ Window {
                 Column {
                     anchors { left: parent.left; leftMargin: 20; right: parent.right; rightMargin: 20; verticalCenter: parent.verticalCenter }
                     spacing: 3
-                    Text { text: row.modelData; color: Theme.fg; font { family: Theme.font; pixelSize: 16 } }
+                    Text { text: contacts.nameFor(row.modelData) || row.modelData; color: Theme.fg; font { family: Theme.font; pixelSize: 16 } }
                     Text {
                         width: parent.width
                         text: (row.last && row.last.incoming ? "" : "→ ") + (row.last ? row.last.text : "")
@@ -101,7 +102,7 @@ Window {
             Text {
                 visible: win.open !== ""
                 anchors.centerIn: parent
-                text: win.open
+                text: contacts.nameFor(win.open) || win.open
                 color: Theme.fg; font { family: Theme.font; pixelSize: 17 }
             }
             TextInput {

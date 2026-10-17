@@ -82,6 +82,9 @@ public:
     Q_INVOKABLE void sendMessage(const QString &to, const QString &text);
     // the SMS threads: { number: [{text, incoming, time}] } (from messages.json, ADR 0031)
     Q_INVOKABLE QVariantMap threads() const;
+    // the calls made and taken, newest first: [{number, time (epoch s), outgoing, answered,
+    // seconds}] (calls.json, kept by the shell's instance)
+    Q_INVOKABLE QVariantList recentCalls() const;
 
 signals:
     void changed();
@@ -133,7 +136,11 @@ private:
     bool m_callAudio = false, m_speaker = false, m_muted = false;
     struct Call {
         QString state, number, name;
+        bool outgoing = false;   // its first state was dialing/alerting
+        qint64 started = 0;      // epoch s
+        qint64 answered = 0;     // epoch s it became active, 0 if never
     };
+    void logCall(const Call &c);
     QHash<QString, Call> m_callMap;  // path -> call
     QVariantList m_calls;
     QSet<QString> m_ringing;         // paths we've already announced as incoming
