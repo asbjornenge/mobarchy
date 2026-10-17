@@ -90,13 +90,12 @@ BoardCard {
         color: Theme.fg
         font { family: Theme.font; pixelSize: 44; weight: Font.Light }
     }
-    // the weather, alive: at the top right, or at the right of a compact card
+    // the weather, alive: at the top right
     WeatherScene {
         parent: card
         visible: card.now !== null && !card.editing
         anchors { right: parent.right; rightMargin: card.compact ? 12 : 14
-                  top: card.compact ? undefined : parent.top; topMargin: 12
-                  verticalCenter: card.compact ? parent.verticalCenter : undefined }
+                  top: parent.top; topMargin: card.compact ? 8 : 12 }
         width: card.compact ? Math.min(40, card.height - 30) : 52
         height: width
         code: card.now ? card.now.code : 0
