@@ -235,6 +235,7 @@ void Telephony::useModem(const QString &path, const QVariantMap &properties)
 
     watchInterfaces(asStringList(properties.value(QStringLiteral("Interfaces"))));
     emit changed();
+    enforceRadio();  // the modem starts offline
 }
 
 void Telephony::dropModem()
@@ -319,6 +320,32 @@ void Telephony::resetPin(const QString &puk, const QString &newPin)
 
 // ---- network / radio ----
 
+void Telephony::setRadio(bool on)
+{
+    if (on == m_radio)
+        return;
+    m_radio = on;
+    emit changed();
+    enforceRadio();
+}
+
+void Telephony::enforceRadio()
+{
+    if (!m_keeper || m_modem.isEmpty() || m_online == m_radio)
+        return;
+    qCInfo(lcTel) << "radio" << (m_radio ? "on" : "off");
+    setOnline(m_radio);
+    // the modem may be busy (just switched the other way): look again in a while, until it
+    // is as wanted
+    if (!m_radioCheck) {
+        m_radioCheck = new QTimer(this);
+        m_radioCheck->setSingleShot(true);
+        m_radioCheck->setInterval(3000);
+        connect(m_radioCheck, &QTimer::timeout, this, &Telephony::enforceRadio);
+    }
+    m_radioCheck->start();
+}
+
 void Telephony::setOnline(bool on)
 {
     if (m_modem.isEmpty())
@@ -329,8 +356,10 @@ void Telephony::setOnline(bool on)
 
 void Telephony::modemPropertyChanged(const QString &name, const QDBusVariant &value)
 {
-    if (name == QLatin1String("Online"))
+    if (name == QLatin1String("Online")) {
         m_online = value.variant().toBool();
+        QTimer::singleShot(1000, this, &Telephony::enforceRadio);
+    }
     else if (name == QLatin1String("Interfaces"))
         watchInterfaces(asStringList(value.variant()));
     else

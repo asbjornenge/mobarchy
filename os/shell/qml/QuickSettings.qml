@@ -15,6 +15,9 @@ Sheet {
     required property Power power
     required property Wifi wifi
     required property Rfkill rfkill
+    required property Telephony telephony
+    // flight (bool) and mobile (bool), kept across restarts (Main)
+    required property var radioSettings
     required property Bluetooth bluetooth
     required property MediaPlayers media
     required property PinLock pinLock
@@ -522,10 +525,17 @@ Sheet {
                             Tile {
                                 icon: "󰀝"
                                 label: qsTr("Flight mode")
-                                detail: quick.rfkill.flightMode ? qsTr("On") : qsTr("Off")
-                                active: quick.rfkill.flightMode
-                                supported: quick.rfkill.available
-                                onClicked: quick.rfkill.flightMode = !quick.rfkill.flightMode
+                                detail: quick.radioSettings.flight ? qsTr("On") : qsTr("Off")
+                                active: quick.radioSettings.flight
+                                supported: quick.rfkill.available || quick.telephony.available
+                                onClicked: {
+                                    // the mobile radio follows the setting (Telephony.radio);
+                                    // Wi-Fi and Bluetooth go down, and come back as they were
+                                    const on = !quick.radioSettings.flight
+                                    quick.radioSettings.flight = on
+                                    if (quick.rfkill.available)
+                                        quick.rfkill.flightMode = on
+                                }
                             }
                             Tile {
                                 icon: quick.pinLock.hasPin ? "󰌾" : "󰍁"
@@ -551,10 +561,24 @@ Sheet {
                                 onClicked: quick.rotation.setLocked(!quick.rotation.locked)
                             }
                             Tile {
+                                readonly property var t: quick.telephony
+                                readonly property string tech: ({ nr: "5G", lte: "4G", umts: "3G", hspa: "3G",
+                                    edge: "2G", gprs: "2G", gsm: "2G" })[t.technology] ?? ""
                                 icon: "󰒢"
                                 label: qsTr("Mobile network")
-                                detail: qsTr("Not supported yet")
-                                supported: false
+                                detail: quick.radioSettings.flight ? qsTr("Flight mode")
+                                      : !quick.radioSettings.mobile ? qsTr("Off")
+                                      : !t.simPresent ? qsTr("No SIM")
+                                      : t.pinRequired !== "none" ? qsTr("SIM locked")
+                                      : t.registration === "registered" || t.registration === "roaming"
+                                        ? (t.operatorName || qsTr("Mobile")) + (tech ? " · " + tech : "")
+                                      : t.registration === "searching" || !t.online ? qsTr("Searching …")
+                                      : qsTr("No service")
+                                active: !quick.radioSettings.flight && quick.radioSettings.mobile
+                                        && (t.registration === "registered" || t.registration === "roaming")
+                                supported: t.available
+                                onClicked: if (!quick.radioSettings.flight)
+                                               quick.radioSettings.mobile = !quick.radioSettings.mobile
                             }
                             Tile {
                                 icon: quick.volume.muted ? "󰖁" : "󰕾"

@@ -10,6 +10,7 @@ LayerWindow {
     required property Device device
     required property Notifications notifications
     required property Telephony telephony
+    property bool flight: false
     // the microphone is on for Frigg (waiting for "Hei Frigg", or talking)
     property bool listening: false
     // an alarm is set (Alarms.nextAlarm valid)
@@ -47,7 +48,9 @@ LayerWindow {
     // the mobile network: "5G", "4G", "No SIM", "No service" (nothing when there is no modem)
     readonly property string cellText: {
         const t = telephony
+        if (bar.flight) return "󰀝"
         if (!t.available) return ""
+        if (!t.radio) return ""
         if (!t.simPresent) return "No SIM"
         if (t.pinRequired !== "none") return "SIM locked"
         if (t.registration !== "registered" && t.registration !== "roaming")

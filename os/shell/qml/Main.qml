@@ -1,3 +1,4 @@
+import QtCore
 import QtQuick
 import Mobarchy.Shell
 
@@ -245,14 +246,24 @@ QtObject {
 
     // Calls and SMS (ADR 0031): the shell's own instance keeps incoming SMS, and a ringing
     // call brings up the Phone app (and the screen).
+    // flight mode and the mobile network switch, kept across restarts. Flight mode is a state
+    // of its own (as on other phones): it takes the mobile radio, Wi-Fi and Bluetooth down,
+    // and Wi-Fi or Bluetooth can be turned on again during it; the mobile radio stays off.
+    readonly property Settings radioSettings: Settings {
+        location: StandardPaths.writableLocation(StandardPaths.GenericStateLocation) + "/mobarchy/radio.ini"
+        property bool flight: false
+        property bool mobile: true
+    }
     readonly property Telephony telephony: Telephony {
         keeper: true
+        radio: !shell.radioSettings.flight && shell.radioSettings.mobile
         onIncomingCall: { shell.wake(); shell.apps.launch("org.mobarchy.Phone") }
     }
 
     readonly property StatusBar statusBar: StatusBar {
         system: shell.system
         telephony: shell.telephony
+        flight: shell.radioSettings.flight
         quick: shell.quick
         device: shell.device
         notifications: shell.notifications
@@ -279,6 +290,8 @@ QtObject {
         power: shell.power
         wifi: shell.wifi
         rfkill: shell.rfkill
+        telephony: shell.telephony
+        radioSettings: shell.radioSettings
         bluetooth: shell.bluetooth
         media: shell.media
         pinLock: shell.pinLock
