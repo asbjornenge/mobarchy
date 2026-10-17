@@ -9,15 +9,30 @@ BoardCard {
 
     wanted: system.battery >= 0
     title: system.charging ? qsTr("Charging") : qsTr("Battery")
-    icon: system.charging ? "󰂄" : "󰁹"
+    icon: ""
 
     compactValue: system.battery + "%"
-    compactIconColor: level
+    compactIcon: ""
+    compactGraphic: Component {
+        BatteryIcon {
+            width: 30; height: 15
+            level: card.system.battery
+            charging: card.system.charging
+            animate: card.live
+        }
+    }
     compactCaption: system.wifiConnected ? system.wifiName : qsTr("No Wi-Fi")
 
     readonly property color level: system.battery <= 15 && !system.charging ? Theme.red
                                  : system.charging ? Theme.green : Theme.accent
 
+    BatteryIcon {
+        anchors { right: parent.right; top: parent.top; topMargin: 4 }
+        width: 40; height: 20
+        level: card.system.battery
+        charging: card.system.charging
+        animate: card.live
+    }
     Text {
         anchors { left: parent.left; top: parent.top; topMargin: -2 }
         text: card.system.battery + "%"

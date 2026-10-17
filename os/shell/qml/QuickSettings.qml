@@ -413,11 +413,22 @@ Sheet {
                             Column {
                                 anchors { right: parent.right; verticalCenter: parent.verticalCenter }
                                 visible: quick.system.battery >= 0
-                                Text {
+                                Row {
                                     anchors.right: parent.right
-                                    text: (quick.system.charging ? "󰂄 " : "󰁹 ") + quick.system.battery + "%"
-                                    color: quick.system.battery <= 15 && !quick.system.charging ? Theme.red : Theme.fg
-                                    font { family: Theme.font; pixelSize: 18 }
+                                    spacing: 8
+                                    BatteryIcon {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        width: 30; height: 15
+                                        level: quick.system.battery
+                                        charging: quick.system.charging
+                                        animate: quick.visible
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: quick.system.battery + "%"
+                                        color: quick.system.battery <= 15 && !quick.system.charging ? Theme.red : Theme.fg
+                                        font { family: Theme.font; pixelSize: 18 }
+                                    }
                                 }
                                 Text {
                                     anchors.right: parent.right

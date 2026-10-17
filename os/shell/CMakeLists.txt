@@ -116,6 +116,7 @@ qt_add_qml_module(mobarchy-shell
         qml/NextAlarmCard.qml
         qml/MessagesCard.qml
         qml/BatteryCard.qml
+        qml/BatteryIcon.qml
         qml/RecentAppsCard.qml
         qml/Store.qml
         qml/KeyboardPanel.qml

@@ -174,13 +174,22 @@ LayerWindow {
                 font { family: Theme.font; pixelSize: 15 }
             }
             Item { width: 1; height: 18 }
-            Text {
+            Row {
                 anchors.horizontalCenter: parent.horizontalCenter
                 visible: lock.system.battery >= 0
-                text: (lock.system.charging ? "󰂄 " : "󰁹 ") + lock.system.battery + "%"
-                      + (lock.system.charging ? "  " + qsTr("Charging") : "")
-                color: Theme.fg
-                font { family: Theme.font; pixelSize: 15 }
+                spacing: 8
+                BatteryIcon {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 26; height: 13
+                    level: lock.system.battery
+                    charging: lock.system.charging
+                }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: lock.system.battery + "%" + (lock.system.charging ? "  " + qsTr("Charging") : "")
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 15 }
+                }
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter

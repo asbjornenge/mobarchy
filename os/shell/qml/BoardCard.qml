@@ -24,6 +24,8 @@ Rectangle {
     property color compactIconColor: Theme.accent
     property string compactValue
     property string compactCaption
+    // drawn instead of the icon (a battery that shows its charge)
+    property Component compactGraphic: null
     // compact, but the content after all (a card that needs to ask for something)
     property bool contentWhenCompact: false
     readonly property bool showsContent: !compact || contentWhenCompact
@@ -100,8 +102,15 @@ Rectangle {
         spacing: 1
         Row {
             spacing: 8
+            Loader {
+                anchors.verticalCenter: parent.verticalCenter
+                active: card.compactGraphic !== null
+                visible: active
+                sourceComponent: card.compactGraphic
+            }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
+                visible: card.compactIcon !== ""
                 text: card.compactIcon
                 color: card.compactIconColor
                 font { family: Theme.font; pixelSize: 20 }

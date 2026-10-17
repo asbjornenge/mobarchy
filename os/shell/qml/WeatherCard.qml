@@ -97,7 +97,7 @@ BoardCard {
         anchors { right: parent.right; rightMargin: card.compact ? 12 : 14
                   top: card.compact ? undefined : parent.top; topMargin: 12
                   verticalCenter: card.compact ? parent.verticalCenter : undefined }
-        width: card.compact ? Math.min(56, card.height - 16) : 64
+        width: card.compact ? Math.min(40, card.height - 30) : 52
         height: width
         code: card.now ? card.now.code : 0
         day: card.now ? card.now.day : true
