@@ -11,9 +11,10 @@ BoardCard {
     required property Telephony telephony
     required property AppModel apps
 
-    property var items: []      // [{who, text, time, kind: "sms" | "missed"}]
+    property var all: []        // [{who, text, time, kind: "sms" | "missed"}], newest first
+    // as many as there is room for: two, or five in a large card
+    readonly property var items: all.slice(0, rows >= 4 ? 5 : 2)
 
-    cols: 4
     wanted: items.length > 0
     title: qsTr("Messages")
     icon: "󰍡"
@@ -37,7 +38,7 @@ BoardCard {
                            time: c.time, text: qsTr("Missed call") })
         }
         out.sort((a, b) => b.time - a.time)
-        items = out.slice(0, 2)
+        all = out.slice(0, 5)
     }
     function ago(epoch) {
         const at = new Date(epoch * 1000)

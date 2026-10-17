@@ -18,7 +18,6 @@ BoardCard {
     readonly property int shown: across * 2
     readonly property var recent: (config.config.recent ?? []).filter(id => apps.nameForAppId(id) !== "")
 
-    cols: 4
     wanted: recent.length > 0
 
     Connections {

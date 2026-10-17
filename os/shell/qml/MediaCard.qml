@@ -9,7 +9,6 @@ BoardCard {
     required property MediaPlayers player
     required property AppModel apps
 
-    cols: 4
     wanted: player.available && (player.title.length > 0 || player.identity.length > 0)
     onTapped: if (player.desktopEntry) apps.launch(player.desktopEntry)
 

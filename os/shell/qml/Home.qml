@@ -719,6 +719,8 @@ Window {
         height: 52
         radius: 26
         z: 5
+        // (not while the board is being arranged)
+        visible: !board.editing
         color: Theme.panel
         border.color: ask.activeFocus ? Theme.accent : Theme.line
 
