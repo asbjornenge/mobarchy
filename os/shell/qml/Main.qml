@@ -196,6 +196,7 @@ QtObject {
         switcher.close()
         quick.close()
         keyboard.visible = false
+        home.collapse()     // home is the widgets: the conversation goes back into its pill
         if (!home.visible)
             home.show()
         toplevels.activateOwn(home.title)
@@ -280,6 +281,12 @@ QtObject {
         agent: shell.agent
         talk: shell.talk
         keyboard: shell.keyboard
+        media: shell.media
+        alarms: shell.alarms
+        telephony: shell.telephony
+        system: shell.system
+        apps: shell.apps
+        toplevels: shell.toplevels
         onCopyOffered: (text) => shell.copyBar.offer(text)
     }
     readonly property Drawer drawer: Drawer {

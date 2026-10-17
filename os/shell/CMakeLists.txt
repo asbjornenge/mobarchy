@@ -42,6 +42,7 @@ qt_add_qml_module(mobarchy-shell
         src/bluetooth.cpp src/bluetooth.h
         src/camera.cpp src/camera.h
         src/haptics.cpp src/haptics.h
+        src/homeconfig.cpp src/homeconfig.h
         src/orientation.cpp src/orientation.h
         src/torch.cpp src/torch.h
         src/fingerprint.cpp src/fingerprint.h
@@ -107,6 +108,14 @@ qt_add_qml_module(mobarchy-shell
         qml/AppSwitcher.qml
         qml/FriggSettings.qml
         qml/Home.qml
+        qml/HomeBoard.qml
+        qml/BoardCard.qml
+        qml/WeatherCard.qml
+        qml/MediaCard.qml
+        qml/NextAlarmCard.qml
+        qml/MessagesCard.qml
+        qml/BatteryCard.qml
+        qml/RecentAppsCard.qml
         qml/Store.qml
         qml/KeyboardPanel.qml
         qml/CopyBar.qml

@@ -4,7 +4,10 @@ import QtQuick
 import QtQuick.Window
 import Mobarchy.Shell
 
-// Home: the agent. A feed of what it says and does, and a field to ask it something.
+// Home: widgets (HomeBoard), and the agent one tap away. At the bottom a pill, "Ask Frigg …";
+// tapped (or something asked or said) it grows into a sheet with the conversation: a feed of
+// what the agent says and does, and the field to ask it something. Swiped down (or home) it
+// shrinks back into the pill.
 // A normal window, not a layer surface: text input (and the on-screen keyboard) only
 // works there on Hyprland (ADR 0006).
 //
@@ -16,6 +19,12 @@ Window {
     required property Agent agent
     required property Talk talk
     required property Keyboard keyboard
+    required property MediaPlayers media
+    required property Alarms alarms
+    required property Telephony telephony
+    required property SystemStatus system
+    required property AppModel apps
+    required property ToplevelModel toplevels
     // Text selected in the conversation: the shell's Copy button offers it.
     signal copyOffered(string text)
     property bool dragging: false   // a selection handle is being dragged
@@ -24,8 +33,8 @@ Window {
     color: Theme.bg
     Component.onCompleted: show()
 
-    // The theme's wallpaper (ADR 0025), dimmed further than the lock screen's: the
-    // conversation is text to read.
+    // The theme's wallpaper (ADR 0025): behind the widgets dimmed a little, behind the
+    // conversation (text to read) more.
     Image {
         anchors.fill: parent
         visible: Theme.wallpaper !== ""
@@ -38,7 +47,97 @@ Window {
         anchors.fill: parent
         visible: Theme.wallpaper !== ""
         color: Theme.bg
-        opacity: 0.7
+        opacity: 0.6 + 0.3 * home.open
+    }
+
+    // --- the sheet: 0 = the pill, 1 = the conversation ----------------------------------------
+    // (Until an agent is chosen, the sheet is where one is chosen.)
+    property real open: 0
+    property bool sheetDragging: false
+    readonly property real chatOpacity: Math.max(0, (open - 0.35) / 0.65)
+    Behavior on open {
+        enabled: !home.sheetDragging
+        NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
+    }
+    function expand() { open = 1 }
+    function collapse() {
+        picking = false
+        browsing = false
+        ask.focus = false
+        keyboard.visible = false
+        open = 0
+    }
+    // The finger moves the sheet; let go, it settles by how far it got or how it was thrown.
+    function settle(velocity) {
+        sheetDragging = false
+        if (velocity < -600) expand()
+        else if (velocity > 600) collapse()
+        else if (open > 0.5) expand()
+        else collapse()
+    }
+
+    HomeConfig { id: homeConfig }
+
+    HomeBoard {
+        id: board
+        anchors.fill: parent
+        visible: home.open < 1
+        opacity: 1 - home.open
+        scale: 1 - 0.06 * home.open
+        interactive: home.open === 0
+        config: homeConfig
+        media: home.media
+        alarms: home.alarms
+        telephony: home.telephony
+        system: home.system
+        apps: home.apps
+        toplevels: home.toplevels
+        bottomInset: composer.height + 32
+    }
+
+    // The sheet's ground, from the pill's place and shape to (nearly) the whole window.
+    Rectangle {
+        id: sheet
+        readonly property real topGap: 8
+        visible: home.open > 0
+        x: composer.x * (1 - home.open)
+        y: composer.y + (topGap - composer.y) * home.open
+        width: composer.width + (home.width - composer.width) * home.open
+        height: composer.height + (home.height - topGap - composer.height) * home.open
+        radius: 24 + 4 * home.open
+        color: Qt.alpha(Theme.bgDark, 0.6 + 0.35 * home.open)
+        border.color: Theme.line
+
+        // the grip: drag (or tap) to put the conversation away
+        Item {
+            id: grip
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: 28
+            visible: home.open > 0.5
+            Rectangle {
+                anchors.centerIn: parent
+                width: 40; height: 5; radius: 2.5
+                color: Theme.muted
+                opacity: 0.6
+            }
+            TapHandler { onTapped: home.collapse() }
+        }
+    }
+    // Pulling the conversation down by its top (the grip and the header).
+    Item {
+        anchors { left: parent.left; right: parent.right; top: parent.top }
+        height: sheet.topGap + grip.height + 4
+        visible: home.open > 0.5
+        z: 4
+        DragHandler {
+            target: null
+            yAxis.enabled: true
+            xAxis.enabled: false
+            onActiveChanged: if (active) home.sheetDragging = true
+                             else home.settle(centroid.velocity.y)
+            onTranslationChanged: if (active) home.open = Math.max(0, Math.min(1, 1 - translation.y / (home.height * 0.7)))
+        }
+        TapHandler { onTapped: home.collapse() }
     }
 
     readonly property var current: agentById(agent.active)
@@ -103,6 +202,7 @@ Window {
         if (!task || agent.running || !chosen)
             return
         feed.append({ who: "you", body: task })
+        expand()
         ask.text = ""
         ask.focus = false
         keyboard.visible = false
@@ -124,9 +224,11 @@ Window {
     // --- header: the active agent, and a new conversation ---------------------------------
     Item {
         id: header
-        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16
+                  topMargin: sheet.topGap + grip.height }
         height: 40
-        visible: home.chosen
+        visible: home.chosen && home.open > 0
+        opacity: home.chatOpacity
 
         Rectangle {
             id: chip
@@ -210,7 +312,8 @@ Window {
         spacing: 10
         clip: true
         model: feed
-        visible: home.chosen
+        visible: home.chosen && home.open > 0
+        opacity: home.chatOpacity
         // No current item: otherwise the view animates its (invisible) highlight towards
         // it and renders at full frame rate for seconds.
         currentIndex: -1
@@ -383,7 +486,8 @@ Window {
 
     // --- earlier conversations -----------------------------------------------------------------
     Rectangle {
-        visible: home.browsing && home.chosen
+        visible: home.browsing && home.chosen && home.open > 0
+        opacity: home.chatOpacity
         anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: composer.top
                   margins: 16; topMargin: 8 }
         z: 3
@@ -511,7 +615,8 @@ Window {
     // First run: in the middle of the screen. Later: as a list under the chip.
     Column {
         id: chooser
-        visible: !home.chosen || home.picking
+        visible: (!home.chosen || home.picking) && home.open > 0
+        opacity: home.chatOpacity
         anchors.horizontalCenter: parent.horizontalCenter
         y: home.chosen ? header.y + header.height + 8 : Math.max(24, (parent.height - height) / 2 - 40)
         width: Math.min(parent.width - 32, 420)
@@ -610,12 +715,29 @@ Window {
     // --- ask ---------------------------------------------------------------------------------
     Rectangle {
         id: composer
-        visible: home.chosen || home.agent.awaitingCode
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom; margins: 16 }
-        height: 48
-        radius: 24
+        height: 52
+        radius: 26
+        z: 5
         color: Theme.panel
         border.color: ask.activeFocus ? Theme.accent : Theme.line
+
+        // no agent yet: the pill opens the sheet, to choose one
+        MouseArea {
+            anchors.fill: parent
+            enabled: !home.chosen && !home.agent.awaitingCode
+            onClicked: home.expand()
+        }
+        // the pill: pulled up, it opens the conversation
+        DragHandler {
+            target: null
+            enabled: home.open < 0.5
+            yAxis.enabled: true
+            xAxis.enabled: false
+            onActiveChanged: if (active) home.sheetDragging = true
+                             else home.settle(centroid.velocity.y)
+            onTranslationChanged: if (active) home.open = Math.max(0, Math.min(1, -translation.y / (home.height * 0.6)))
+        }
 
         // Cancel talking.
         MouseArea {
@@ -641,10 +763,13 @@ Window {
             selectionColor: Theme.accent
             font { family: Theme.font; pixelSize: 15 }
             onAccepted: home.submit()
+            enabled: home.chosen || home.agent.awaitingCode
+            onActiveFocusChanged: if (activeFocus) home.expand()
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: !ask.text && !ask.activeFocus
-                text: home.agent.awaitingCode ? qsTr("Paste the code from the login page …")
+                text: !home.chosen && !home.agent.awaitingCode ? qsTr("Choose your agent …")
+                    : home.agent.awaitingCode ? qsTr("Paste the code from the login page …")
                     : home.agent.running ? qsTr("Working …")
                     : qsTr("Ask %1 …").arg(home.current ? home.current.name : "Mobarchy")
                 color: Theme.muted
