@@ -17,7 +17,11 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSaveFile>
+#include <QLoggingCategory>
 #include <QStandardPaths>
+#include <QTimer>
+
+Q_LOGGING_CATEGORY(lcTel, "mobarchy.telephony")
 
 // ofono lists objects (modems, calls) as an array of (path, properties).
 struct OfonoObject {
@@ -79,8 +83,10 @@ void call(const QString &path, const QString &iface, const QString &method,
     auto *w = new QDBusPendingCallWatcher(bus().asyncCall(m), t);
     QObject::connect(w, &QDBusPendingCallWatcher::finished, t, [t, what](QDBusPendingCallWatcher *w) {
         QDBusPendingReply<> r = *w;
-        if (r.isError())
+        if (r.isError()) {
+            qCWarning(lcTel) << what << "failed:" << r.error().name() << r.error().message();
             emit t->failed(what, r.error().message());
+        }
         w->deleteLater();
     });
 }
@@ -144,6 +150,7 @@ void Telephony::modemRemoved(const QDBusObjectPath &path)
 
 void Telephony::useModem(const QString &path, const QVariantMap &properties)
 {
+    qCInfo(lcTel) << "modem" << path;
     m_modem = path;
     m_online = properties.value(QStringLiteral("Online")).toBool();
 
@@ -277,6 +284,7 @@ void Telephony::refreshNetwork()
             m_registration = p.value(QStringLiteral("Status"), m_registration).toString();
             m_operator = p.value(QStringLiteral("Name")).toString();
             m_signal = p.value(QStringLiteral("Strength")).toInt();
+            m_technology = p.value(QStringLiteral("Technology")).toString();
             emit changed();
         }
         w->deleteLater();
@@ -291,6 +299,8 @@ void Telephony::networkPropertyChanged(const QString &name, const QDBusVariant &
         m_operator = value.variant().toString();
     else if (name == QLatin1String("Strength"))
         m_signal = value.variant().toInt();
+    else if (name == QLatin1String("Technology"))
+        m_technology = value.variant().toString();
     else
         return;
     emit changed();
@@ -367,14 +377,21 @@ void Telephony::callPropertyChanged(const QString &name, const QDBusVariant &val
 void Telephony::incomingMessage(const QString &text, const QVariantMap &info)
 {
     const QString from = info.value(QStringLiteral("Sender")).toString();
-    storeMessage(from, text, true);
+    qCInfo(lcTel) << "SMS from" << from;
+    if (m_keeper)
+        storeMessage(from, text, true);
+    else  // the shell's instance writes it; show it once that is done
+        QTimer::singleShot(500, this, &Telephony::messagesChanged);
     emit messageReceived(from, text);
 }
 
 void Telephony::dial(const QString &number)
 {
-    if (m_modem.isEmpty() || number.isEmpty())
+    qCInfo(lcTel) << "dial" << number << "on" << m_modem;
+    if (m_modem.isEmpty() || number.isEmpty()) {
+        emit failed(tr("Call"), m_modem.isEmpty() ? tr("no modem") : tr("no number"));
         return;
+    }
     call(m_modem, CallManagerIface, QStringLiteral("Dial"), {number, QStringLiteral("")}, this, tr("Call"));
 }
 
@@ -424,8 +441,11 @@ void Telephony::rebuildCalls()
 
 void Telephony::sendMessage(const QString &to, const QString &text)
 {
-    if (m_modem.isEmpty() || to.isEmpty())
+    qCInfo(lcTel) << "SMS to" << to << "on" << m_modem;
+    if (m_modem.isEmpty() || to.isEmpty()) {
+        emit failed(tr("Send message"), m_modem.isEmpty() ? tr("no modem") : tr("no number"));
         return;
+    }
     call(m_modem, MessageIface, QStringLiteral("SendMessage"), {to, text}, this, tr("Send message"));
     storeMessage(to, text, false);
 }

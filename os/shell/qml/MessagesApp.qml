@@ -19,14 +19,14 @@ Window {
         onMessagesChanged: win.reload()
     }
 
-    property var data: ({})
+    property var threadData: ({})
     property var numbers: []
     property string open: ""          // the thread being read ("" = the list)
     property string compose: ""       // a new thread's number while typing it
 
     function reload() {
-        data = tel.threads()
-        numbers = Object.keys(data).sort()
+        threadData = tel.threads()
+        numbers = Object.keys(threadData).sort()
     }
     Component.onCompleted: reload()
 
@@ -62,7 +62,7 @@ Window {
                 height: 68
                 color: rowTap.pressed ? Theme.panel : "transparent"
                 readonly property var last: {
-                    const t = win.data[modelData]
+                    const t = win.threadData[modelData]
                     return t && t.length ? t[t.length - 1] : null
                 }
                 Column {
@@ -123,7 +123,7 @@ Window {
             clip: true
             spacing: 8
             boundsBehavior: Theme.boundsBehavior
-            model: win.open !== "" ? (win.data[win.open] ?? []) : []
+            model: win.open !== "" ? (win.threadData[win.open] ?? []) : []
             delegate: Row {
                 required property var modelData
                 width: thread.width

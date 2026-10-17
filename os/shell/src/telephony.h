@@ -35,6 +35,11 @@ class Telephony : public QObject
     // "unregistered", "registered", "searching", "denied", "unknown", "roaming"
     Q_PROPERTY(QString registration READ registration NOTIFY changed)
     Q_PROPERTY(int signalStrength READ signalStrength NOTIFY changed)  // 0..100
+    // "nr" (5G), "lte" (4G), "umts"/"hspa" (3G), "gsm"/"edge" (2G), "" (unknown)
+    Q_PROPERTY(QString technology READ technology NOTIFY changed)
+    // this instance keeps incoming SMS in messages.json (the shell's; the apps' are false,
+    // so a message is stored once however many are running)
+    Q_PROPERTY(bool keeper MEMBER m_keeper)
     // the calls now: [{path, state, number, name, incoming, active}], newest last
     Q_PROPERTY(QVariantList calls READ calls NOTIFY callsChanged)
 
@@ -49,6 +54,7 @@ public:
     QString operatorName() const { return m_operator; }
     QString registration() const { return m_registration; }
     int signalStrength() const { return m_signal; }
+    QString technology() const { return m_technology; }
     QVariantList calls() const { return m_calls; }
 
     // unlock the SIM: type is pinRequired ("pin"/"puk"/...); for a PUK, newPin is set too
@@ -109,6 +115,8 @@ private:
     QString m_operator;
     QString m_registration = QStringLiteral("unregistered");
     int m_signal = 0;
+    QString m_technology;
+    bool m_keeper = false;
     struct Call {
         QString state, number, name;
     };

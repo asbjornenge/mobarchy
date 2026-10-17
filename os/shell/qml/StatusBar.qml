@@ -9,6 +9,7 @@ LayerWindow {
     required property Sheet quick
     required property Device device
     required property Notifications notifications
+    required property Telephony telephony
     // the microphone is on for Frigg (waiting for "Hei Frigg", or talking)
     property bool listening: false
     // an alarm is set (Alarms.nextAlarm valid)
@@ -43,6 +44,19 @@ LayerWindow {
         const icons = ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
         return icons[Math.round(system.battery / 10)]
     }
+    // the mobile network: "5G ▂▄▆", "No SIM", "No service" (nothing when there is no modem)
+    readonly property string cellText: {
+        const t = telephony
+        if (!t.available) return ""
+        if (!t.simPresent) return "No SIM"
+        if (t.pinRequired !== "none") return "SIM locked"
+        if (t.registration !== "registered" && t.registration !== "roaming")
+            return t.registration === "searching" ? "Searching" : "No service"
+        const tech = ({ nr: "5G", lte: "4G", umts: "3G", hspa: "3G", hsdpa: "3G", hsupa: "3G",
+                        edge: "E", gprs: "G", gsm: "2G" })[t.technology] ?? ""
+        const bars = Math.max(1, Math.min(4, Math.ceil(t.signalStrength / 25)))
+        return (tech ? tech + " " : "") + "▂▄▆█".substring(0, bars) + (t.registration === "roaming" ? " R" : "")
+    }
     readonly property string wifiIcon: !system.wifiConnected ? "󰤮"
         : system.wifiStrength < 0 ? "󰤨" : ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"][system.wifiStrength]
 
@@ -68,7 +82,7 @@ LayerWindow {
     }
     Text {
         anchors { right: parent.right; rightMargin: 16; verticalCenter: row.verticalCenter }
-        text: (bar.listening ? "󰍬   " : "") + (bar.alarmSet ? "󰀠   " : "") + bar.wifiIcon + "   " + bar.batteryIcon + (bar.system.battery >= 0 ? " " + bar.system.battery + "%" : "")
+        text: (bar.listening ? "󰍬   " : "") + (bar.alarmSet ? "󰀠   " : "") + (bar.cellText ? bar.cellText + "   " : "") + bar.wifiIcon + "   " + bar.batteryIcon + (bar.system.battery >= 0 ? " " + bar.system.battery + "%" : "")
         color: Theme.fg
         font { family: Theme.font; pixelSize: 13 }
     }

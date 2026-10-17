@@ -243,8 +243,16 @@ QtObject {
         volume: shell.volume
     }
 
+    // Calls and SMS (ADR 0031): the shell's own instance keeps incoming SMS, and a ringing
+    // call brings up the Phone app (and the screen).
+    readonly property Telephony telephony: Telephony {
+        keeper: true
+        onIncomingCall: { shell.wake(); shell.apps.launch("org.mobarchy.Phone") }
+    }
+
     readonly property StatusBar statusBar: StatusBar {
         system: shell.system
+        telephony: shell.telephony
         quick: shell.quick
         device: shell.device
         notifications: shell.notifications
