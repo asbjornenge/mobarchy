@@ -114,14 +114,19 @@ def apply(folded: bool) -> None:
     current = (subprocess.run(["hyprctl", "-j", "activeworkspace"], capture_output=True,
                               text=True).stdout or "{}")
     show = json.loads(current).get("id")
-    write_rules(folded, 0)
     # The reload is applied asynchronously, and Hyprland reshuffles workspaces itself
-    # when a monitor goes away: wait for the new layout before gathering them.
-    for _ in range(50):
-        names = [m["name"] for m in hyprjson("monitors")]
-        if on[0] in names and off[0] not in names:
-            break
-        time.sleep(0.1)
+    # when a monitor goes away: wait for the new layout before gathering them. A reload
+    # that did not take (one of several in a burst) is done again.
+    for attempt in range(3):
+        write_rules(folded, 0)
+        for _ in range(30):
+            names = [m["name"] for m in hyprjson("monitors")]
+            if on[0] in names and off[0] not in names:
+                break
+            time.sleep(0.1)
+        else:
+            continue
+        break
     hyprctl("dispatch", "focusmonitor", on[0])
     gather_workspaces(on[0], show)
 
@@ -133,4 +138,13 @@ if __name__ == "__main__":
         sys.exit(0)
     if mode == "auto":
         time.sleep(1.5)  # at session start, let Hyprland finish bringing up its outputs first
-    apply(lid_closed() if mode == "auto" else mode == "folded")
+    # One at a time: the hinge sensor can flap (folded, unfolded, folded within a second),
+    # and runs that overlap undo each other's reloads. The one whose turn it is applies the
+    # hinge as it is then, not as its event said (which may be stale by now).
+    with open(os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "mobarchy-fold.lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            folded = lid_closed()
+        except OSError:
+            folded = mode == "folded"
+        apply(folded)
