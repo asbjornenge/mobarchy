@@ -37,14 +37,23 @@ def _props(data: dict) -> dict:
 
 
 def modem() -> str:
-    """The modem in use: the one that is online with a SIM (the first, otherwise)."""
+    """The modem in use: the one with a SIM (online first); a dual-SIM phone has an empty
+    slot too, and oFono does not always list the SIM's first."""
     modems = _busctl("/", "org.ofono.Manager", "GetModems")["data"][0]
     if not modems:
         raise PhoneError("no modem (oFono has none)")
-    for path, props in modems:
-        if _props(props).get("Online"):
+
+    def has_sim(path: str) -> bool:
+        try:
+            return bool(_props(_busctl(path, "org.ofono.SimManager", "GetProperties")["data"][0]).get("Present"))
+        except PhoneError:
+            return False
+
+    with_sim = [(path, _props(props)) for path, props in modems if has_sim(path)]
+    for path, props in with_sim:
+        if props.get("Online"):
             return path
-    return modems[0][0]
+    return with_sim[0][0] if with_sim else modems[0][0]
 
 
 def status() -> dict:

@@ -130,6 +130,8 @@ private:
     void storeMessage(const QString &number, const QString &text, bool incoming);
 
     QString m_modem;                 // the active modem's object path ("/ril_0")
+    QHash<QString, QVariantMap> m_modems;  // every modem oFono has: path -> properties
+    void lookForSim();               // the active modem has no SIM: use one that has
     QStringList m_interfaces;        // the modem's ofono interfaces now
     bool m_online = false;
     bool m_simPresent = false;

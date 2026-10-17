@@ -183,6 +183,7 @@ void Telephony::serviceUp()
 
 void Telephony::serviceDown()
 {
+    m_modems.clear();
     dropModem();
 }
 
@@ -195,6 +196,10 @@ void Telephony::findModems()
         QDBusPendingReply<OfonoObjectList> r = *w;
         if (!r.isError()) {
             const OfonoObjectList modems = r.value();
+            for (const OfonoObject &o : modems)
+                m_modems.insert(o.path.path(), o.properties);
+            // the first for now; refreshSim moves to one with a SIM if this one has none
+            // (a dual-SIM phone lists its empty slot first at times)
             if (!modems.isEmpty() && m_modem.isEmpty())
                 useModem(modems.first().path.path(), modems.first().properties);
         }
@@ -204,12 +209,38 @@ void Telephony::findModems()
 
 void Telephony::modemAdded(const QDBusObjectPath &path, const QVariantMap &properties)
 {
+    m_modems.insert(path.path(), properties);
     if (m_modem.isEmpty())
         useModem(path.path(), properties);
+    else if (!m_simPresent)
+        lookForSim();
+}
+
+void Telephony::lookForSim()
+{
+    for (auto it = m_modems.cbegin(); it != m_modems.cend(); ++it) {
+        const QString path = it.key();
+        if (path == m_modem)
+            continue;
+        QDBusMessage m = QDBusMessage::createMethodCall(Service, path, SimIface, QStringLiteral("GetProperties"));
+        auto *w = new QDBusPendingCallWatcher(bus().asyncCall(m), this);
+        connect(w, &QDBusPendingCallWatcher::finished, this, [this, path](QDBusPendingCallWatcher *w) {
+            QDBusPendingReply<QVariantMap> r = *w;
+            if (!r.isError() && r.value().value(QStringLiteral("Present")).toBool() && !m_simPresent
+                && m_modems.contains(path) && path != m_modem) {
+                qCInfo(lcTel) << "the SIM is in" << path << ", not" << m_modem;
+                const QVariantMap props = m_modems.value(path);
+                dropModem();
+                useModem(path, props);
+            }
+            w->deleteLater();
+        });
+    }
 }
 
 void Telephony::modemRemoved(const QDBusObjectPath &path)
 {
+    m_modems.remove(path.path());
     if (path.path() == m_modem)
         dropModem();
 }
@@ -286,6 +317,8 @@ void Telephony::refreshSim()
             m_pinRequired = p.value(QStringLiteral("PinRequired"), QStringLiteral("none")).toString();
             m_pinRetries = retriesFor(p.value(QStringLiteral("Retries")), m_pinRequired);
             emit changed();
+            if (!m_simPresent)
+                lookForSim();
         }
         w->deleteLater();
     });
@@ -293,8 +326,11 @@ void Telephony::refreshSim()
 
 void Telephony::simPropertyChanged(const QString &name, const QDBusVariant &value)
 {
-    if (name == QLatin1String("Present"))
+    if (name == QLatin1String("Present")) {
         m_simPresent = value.variant().toBool();
+        if (!m_simPresent)
+            QTimer::singleShot(0, this, &Telephony::lookForSim);
+    }
     else if (name == QLatin1String("PinRequired"))
         m_pinRequired = value.variant().toString();
     else if (name == QLatin1String("Retries"))

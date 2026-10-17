@@ -187,6 +187,30 @@ def decompressed(apex):
         return str(cache)
 
 
+def seed_vendor_dir(name, dest):
+    """A vendor directory the container works on (the modem's efs, persist, ...) starts as a
+    copy of the device's partition of that name: on a fresh image, or after /var was wiped.
+    The partition is mounted read-only without recovery (nothing is written to it), and the
+    copy is what the container then reads and writes, never the partition."""
+    dev = Path(f"/dev/disk/by-partlabel/{name}")
+    if not dev.exists():
+        return
+    print(f"{dest}: a first copy from the {name} partition (read-only)", flush=True)
+    tmp = RUN / f"seed-{name}"
+    tmp.mkdir(parents=True, exist_ok=True)
+    fstype = run("blkid", "-o", "value", "-s", "TYPE", str(dev), capture_output=True, text=True,
+                 check=False).stdout.strip() or "auto"
+    opts = "ro,norecovery" if fstype in ("f2fs", "ext4") else "ro"
+    run("mount", "-t", fstype, "-o", opts, str(dev), str(tmp))
+    try:
+        part = dest.with_name(dest.name + ".part")
+        shutil.rmtree(part, ignore_errors=True)
+        run("cp", "-a", f"{tmp}/.", str(part))
+        part.rename(dest)
+    finally:
+        run("umount", str(tmp), check=False)
+
+
 def mount_apexes():
     """Each .apex is a zip whose apex_payload.img is stored uncompressed: loop-mount it
     in place (read-only), as apexd does, at <name>@<version> and <name>.
@@ -314,7 +338,9 @@ def prepare(conf):
     for name, spec in conf.get("vendor_dirs", {}).items():
         src = STATE / "vendor" / name
         if not src.is_dir():
-            sys.exit(f"{src} is missing (see {SHARE}/README)")
+            seed_vendor_dir(name, src)
+        if not src.is_dir():
+            sys.exit(f"{src} is missing, and there is no {name} partition to copy it from")
         mount(src, ROOT / "mnt/vendor" / name, "bind", *(["ro"] if spec == "ro" else []))
     extra_nodes = []
     for name, partition in conf.get("vendor_images", {}).items():
