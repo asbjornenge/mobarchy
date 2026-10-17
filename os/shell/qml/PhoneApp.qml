@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtMultimedia
 import Mobarchy.Shell
 
 // Phone (ADR 0031): the dialer, the call, and the SIM's PIN, over ofono (Telephony). Its own
@@ -29,6 +30,18 @@ Window {
         return null
     }
     readonly property var activeCall: tel.calls.length > 0 ? tel.calls[tel.calls.length - 1] : null
+
+    // the ringback tone while an outgoing call waits for an answer (the phone makes its own:
+    // the network often plays none); call audio routes it to the earpiece from dialing on
+    readonly property bool waiting: activeCall !== null
+        && (activeCall.state === "dialing" || activeCall.state === "alerting")
+    MediaPlayer {
+        id: ringback
+        source: "qrc:/qt/qml/Mobarchy/Shell/data/sounds/ringback.wav"
+        loops: MediaPlayer.Infinite
+        audioOutput: AudioOutput { volume: 0.5 }
+    }
+    onWaitingChanged: waiting ? ringback.play() : ringback.stop()
 
     function stateText(s) {
         return ({ dialing: qsTr("Calling…"), alerting: qsTr("Ringing…"), active: qsTr("In call"),

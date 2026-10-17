@@ -34,9 +34,11 @@ from gi.repository import Gio, GLib  # noqa: E402
 
 MIXER_PATHS = "/var/lib/mobarchy/audio/mixer_paths.xml"
 VOICE_PCM = b"hw:0,4"
-# from the ringing tone on (alerting) to the end; not while the network is still setting the
-# call up (dialing), when the voice path is not there yet
-AUDIO_STATES = ("alerting", "active", "held")
+# The routes (earpiece or speaker) are set from dialing on, so the phone's own ringback tone
+# plays at the ear; the voice endpoint (the modem's audio) opens once the other phone rings
+# or answers: opening it while the network still sets the call up can end the call.
+ROUTE_STATES = ("dialing", "alerting", "active", "held")
+VOICE_STATES = ("alerting", "active", "held")
 EARPIECE = ["speaker-earpiece (VOICE)"]
 SPEAKER = ["speaker (VOICE)"]
 CALL_ROUTES = ["voice-call-downlink-0 -> speaker", "microphones -> voice-call-uplink-0"]
@@ -163,12 +165,17 @@ class CallAudio:
         log("call: audio on (" + ("speaker" if self.speaker else "earpiece") + ")")
         self.saved = {n: v for n in self.every_control() if (v := cget(n)) is not None}
         self.apply()
+        self.active = True
+        self.changed("Active")
+
+    def voice_on(self) -> None:
+        if self.voice.pcm:
+            return
+        log("  voice endpoint on")
         try:
             self.voice.open()
         except OSError as e:
             log(f"  the voice endpoint did not open: {e}")
-        self.active = True
-        self.changed("Active")
 
     def stop(self) -> None:
         log("call: audio off")
@@ -184,10 +191,13 @@ class CallAudio:
     # --- oFono ------------------------------------------------------------------------
 
     def update(self) -> None:
-        want = any(s in AUDIO_STATES for s in self.calls.values())
-        if want and not self.active:
-            self.start()
-        elif not want and self.active:
+        states = set(self.calls.values())
+        if states & set(ROUTE_STATES):
+            if not self.active:
+                self.start()
+            if states & set(VOICE_STATES):
+                self.voice_on()
+        elif self.active:
             self.stop()
 
     def on_ofono(self, conn, sender, path, iface, member, params):
@@ -270,6 +280,8 @@ def main() -> None:
                      Gio.BusNameOwnerFlags.NONE, acquired, None, None)
     log("following oFono's calls")
     loop = GLib.MainLoop()
+    # stopped (systemd restarting it, the session ending): put the controls back first
+    GLib.unix_signal_add(GLib.PRIORITY_HIGH, 15, loop.quit)  # SIGTERM
     try:
         loop.run()
     finally:

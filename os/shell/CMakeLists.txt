@@ -112,6 +112,7 @@ qt_add_qml_module(mobarchy-shell
     RESOURCES
         data/emoji.json
         data/sounds/alarm.wav
+        data/sounds/ringback.wav
 )
 qt6_generate_wayland_protocol_client_sources(mobarchy-shell
     FILES
