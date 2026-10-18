@@ -34,6 +34,7 @@ Rectangle {
     // tapping the card (not its own controls)
     signal tapped()
     default property alias content: body.data
+    readonly property alias contentItem: body
 
     // the board's editing
     property bool editing: false

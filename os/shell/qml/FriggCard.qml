@@ -11,16 +11,19 @@ BoardCard {
 
     readonly property color tint: talk.state === "speaking" ? Theme.green
                                 : talk.state === "thinking" ? Theme.magenta : Theme.accent
-    // wide: the orb at the left, words at the right; square or large: the orb, words under it
+    // wide: the orb at the left, words at the right; square or large: the orb alone, in the
+    // middle of the card
     readonly property bool wide: cols > rows
 
     onTapped: if (!talk.talking) talk.start()
 
     Item {
         id: stage
+        // (square: the whole card, not its content's margins, for the middle)
+        parent: card.wide ? card.contentItem : card
         anchors { left: parent.left; top: parent.top; bottom: parent.bottom
                   right: card.wide ? undefined : parent.right
-                  bottomMargin: card.wide ? 0 : 34 }
+                  margins: card.wide ? 0 : 14 }
         width: card.wide ? height : undefined
         Shape {     // the glow
             anchors.centerIn: orb
@@ -41,7 +44,7 @@ BoardCard {
         FriggOrb {
             id: orb
             anchors.centerIn: parent
-            width: Math.min(parent.width, parent.height) * 1.1
+            width: Math.min(parent.width, parent.height) * (card.wide ? 1.1 : 0.95)
             height: width
             points: card.rows >= 4 ? 380 : 280
             color: card.tint
@@ -52,7 +55,8 @@ BoardCard {
     }
 
     Column {
-        anchors { left: card.wide ? stage.right : parent.left; leftMargin: card.wide ? 14 : 0
+        visible: card.wide
+        anchors { left: parent.left; leftMargin: card.wide ? stage.width + 14 : 0
                   right: parent.right; bottom: card.wide ? undefined : parent.bottom
                   verticalCenter: card.wide ? parent.verticalCenter : undefined }
         spacing: 2
