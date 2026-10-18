@@ -39,8 +39,11 @@ everything on the Linux side asks.**
   the GNSS (`IGnssPsds.injectPsdsData`, long-term) before it starts when it is new to it.
   The server is told nothing but that a phone wants the file.
 - **GeoClue** (Arch's, in our repository with `libmm-glib`): its NMEA source reads that socket
-  (`nmea-socket`). Its network sources (IP, Wi-Fi, 3G, CDMA, ModemManager's GPS) are off:
-  nothing is sent anywhere to find the phone.
+  (`nmea-socket`). Indoors the GNSS hears no satellites; there GeoClue's Wi-Fi source finds
+  the phone from the networks around (wpa_supplicant on D-Bus, `-u`), looked up in
+  **BeaconDB** (open, non-profit, the successor to Mozilla's location service), as phones
+  do: the owner chose it (2026-10-18). It is told the networks around, not who asks; nothing
+  is submitted to it. The IP, 3G, CDMA and ModemManager sources are off.
 - **The shell is GeoClue's agent** (`LocationAgent`): GeoClue answers no app while there is
   no agent. Allowed for now: the shell and the agent layer (`org.mobarchy.Agent`), and apps
   the owner allowed in `~/.config/mobarchy/location.json`. Asking the owner ("Allow X to
