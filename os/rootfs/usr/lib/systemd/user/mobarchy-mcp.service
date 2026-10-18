@@ -3,6 +3,9 @@ Description=Mobarchy MCP server (OS tool layer)
 PartOf=graphical-session.target
 
 [Service]
+# Essential to the session, not an app: out of app.slice, where systemd-oomd picks what
+# to kill (ADR 0035).
+Slice=session.slice
 # The Wayland session imports WAYLAND_DISPLAY etc. into the user manager before starting this unit.
 Environment=MOBARCHY_MCP_HOST=127.0.0.1
 EnvironmentFile=-/etc/mobarchy/mcp.env

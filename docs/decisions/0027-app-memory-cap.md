@@ -40,6 +40,7 @@ A percentage, not a size, so it fits any device without device code.
   `ManagedOOMPreference=avoid` is honoured only on cgroups owned by root, so the shell
   could not be kept out. Several apps together can still fill the phone; if that happens
   in use, move the shell to a slice of its own and enable oomd for `app.slice`.
+  (Done in ADR 0035: the shell is in `session.slice`, oomd watches `app.slice`.)
 - **The Android container** (telephony, camera) is a system service, outside this.
 
 ## Consequences

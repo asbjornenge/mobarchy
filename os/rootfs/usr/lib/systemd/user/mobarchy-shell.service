@@ -8,6 +8,9 @@ StartLimitIntervalSec=60
 StartLimitBurst=20
 
 [Service]
+# Essential to the session, not an app: out of app.slice, where systemd-oomd picks what
+# to kill (ADR 0035).
+Slice=session.slice
 ExecStart=/usr/bin/mobarchy-shell
 Restart=always
 RestartSec=1

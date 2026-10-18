@@ -16,6 +16,8 @@ ttf-dejavu
 noto-fonts
 noto-fonts-emoji
 libinput
+# Memory: compressed swap (ADR 0035; systemd-oomd is part of systemd)
+zram-generator
 # The shell (os/shell, ADR 0009)
 qt6-declarative
 qt6-wayland
