@@ -57,15 +57,16 @@ BoardCard {
                   verticalCenter: card.wide ? parent.verticalCenter : undefined }
         spacing: 2
         Text {
-            anchors.horizontalCenter: card.wide ? undefined : parent.horizontalCenter
+            width: parent.width
+            horizontalAlignment: card.wide ? Text.AlignLeft : Text.AlignHCenter
             text: "FRIGG"
             color: card.tint
             font { family: Theme.font; pixelSize: 14; bold: true; letterSpacing: 3 }
         }
         Text {
             visible: card.wide || card.rows >= 4
-            anchors.horizontalCenter: card.wide ? undefined : parent.horizontalCenter
-            width: card.wide ? parent.width : implicitWidth
+            width: parent.width
+            horizontalAlignment: card.wide ? Text.AlignLeft : Text.AlignHCenter
             elide: Text.ElideRight
             text: ({ listening: qsTr("Listening"), thinking: qsTr("Thinking …"), speaking: qsTr("Speaking"),
                      starting: qsTr("Waking up …") })[card.talk.state] ?? qsTr("Tap to talk")

@@ -94,7 +94,7 @@ void FriggOrb::turnBy(double dx, double dy)
 {
     const double perPixel = M_PI / qMax(1.0, qMin(width(), height()));    // half a turn across it
     m_spin -= dx * perPixel;
-    m_tilt = qBound(-1.2, m_tilt + dy * perPixel, 1.2);
+    m_tilt = qBound(-1.2, m_tilt - dy * perPixel, 1.2);
     m_spinSpeed = m_tiltSpeed = 0;
     update();
 }
@@ -103,7 +103,7 @@ void FriggOrb::release(double vx, double vy)
 {
     const double perPixel = M_PI / qMax(1.0, qMin(width(), height()));
     m_spinSpeed = -vx * perPixel;
-    m_tiltSpeed = vy * perPixel;
+    m_tiltSpeed = -vy * perPixel;
 }
 
 // points spread evenly on a sphere (a Fibonacci lattice), a little uneven so it looks alive,
