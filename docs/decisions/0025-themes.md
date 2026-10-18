@@ -27,6 +27,9 @@ are written out, and they stay.
   active theme, fills what it leaves out from Mobarchy's own, and watches the files. The
   `Theme` singletons bind to it. A switch recolours the shell (with Store and Camera) and
   the browser at once, without a restart.
+- **Cards.** A theme says how the home board draws its widgets: `"cards": "filled"` (the
+  panel colour; the default) or `"outline"` (no fill, a thin line: airy, best without a busy
+  wallpaper). `theme_create` takes it, `theme_cards` changes it on the owner's themes.
 - **Wallpaper.** The lock screen and the agent's home screen show the theme's wallpaper,
   dimmed with the theme's background so the clock and the conversation stay readable.
 - **The Themes app** (`mobarchy-shell --themes`, like the Store): a card per theme in its

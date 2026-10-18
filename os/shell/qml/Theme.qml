@@ -18,6 +18,8 @@ QtObject {
     readonly property string font: source.font
     // the wallpaper (lock screen, home), "" without one
     readonly property string wallpaper: source.wallpaper
+    // the home board's cards: "filled" or "outline"
+    readonly property string cards: source.cards
 
     // Scrolling like a phone: a flick throws the list (Qt's defaults are a desktop's, a
     // slow wheel-like glide), and the ends are firm: a finger can pull past one (Qt halves

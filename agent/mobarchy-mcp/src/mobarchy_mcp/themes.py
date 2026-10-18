@@ -102,7 +102,7 @@ def current() -> dict:
     t, own = _themes().get(i, ({}, False))
     return {"id": i, "name": t.get("name", i), "description": t.get("description", ""), "own": own,
             "colors": t.get("colors", {}), "font": t.get("font", DEFAULT_FONT),
-            "wallpaper": t.get("wallpaper", ""), "roles": ROLES}
+            "wallpaper": t.get("wallpaper", ""), "cards": t.get("cards", "filled"), "roles": ROLES}
 
 
 def set_theme(theme_id: str) -> dict:
@@ -225,8 +225,25 @@ def set_wallpaper(theme_id: str, wallpaper: str) -> dict:
     return {"id": theme_id, "wallpaper": theme.get("wallpaper", "")}
 
 
+CARDS = ("filled", "outline")
+
+
+def set_cards(theme_id: str, cards: str) -> dict:
+    """How one of the owner's themes draws the home board's cards: "filled" or "outline"."""
+    if cards not in CARDS:
+        raise ThemeError('cards: "filled" (the panel colour) or "outline" (a thin line only)')
+    themes = _themes()
+    if theme_id not in themes or not themes[theme_id][1]:
+        raise ThemeError(f"{theme_id!r} is not one of the owner's themes (make one with theme_create)")
+    theme = dict(themes[theme_id][0])
+    theme["cards"] = cards
+    _write(user_dir() / f"{theme_id}.json", json.dumps(theme, indent=2, ensure_ascii=False) + "\n")
+    return {"id": theme_id, "cards": cards}
+
+
 def create_theme(theme_id: str, name: str, colors: dict, font: str | None = None,
-                 description: str = "", activate: bool = True, wallpaper: str = "") -> dict:
+                 description: str = "", activate: bool = True, wallpaper: str = "",
+                 cards: str = "filled") -> dict:
     if not ID.match(theme_id):
         raise ThemeError("id: lower-case letters, digits and dashes (e.g. pokemon-pikachu)")
     if theme_id in _themes() and not _themes()[theme_id][1]:
@@ -235,7 +252,9 @@ def create_theme(theme_id: str, name: str, colors: dict, font: str | None = None
     problems = check(colors, font)
     if problems:
         raise ThemeError("not readable enough or not complete: " + "; ".join(problems))
-    theme = {"name": name, "description": description, "colors": colors}
+    if cards not in CARDS:
+        raise ThemeError('cards: "filled" (the panel colour) or "outline" (a thin line only)')
+    theme = {"name": name, "description": description, "colors": colors, "cards": cards}
     if font:
         theme["font"] = font
     if wallpaper:

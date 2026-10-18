@@ -27,6 +27,8 @@ class ThemeSource : public QObject
     Q_PROPERTY(QString font READ font NOTIFY changed)
     // the wallpaper's URL, "" without one
     Q_PROPERTY(QString wallpaper READ wallpaper NOTIFY changed)
+    // the home board's cards: "filled" (the panel colour) or "outline" (a thin line only)
+    Q_PROPERTY(QString cards READ cards NOTIFY changed)
 
 public:
     explicit ThemeSource(QObject *parent = nullptr);
@@ -36,6 +38,7 @@ public:
     QVariantMap colors() const { return m_colors; }
     QString font() const { return m_font; }
     QString wallpaper() const { return m_wallpaper; }
+    QString cards() const { return m_cards; }
 
 signals:
     void changed();
@@ -45,7 +48,7 @@ private:
 
     QFileSystemWatcher m_watcher;
     QTimer m_settle;    // a theme written as several file events loads once
-    QString m_id, m_name, m_font, m_wallpaper;
+    QString m_id, m_name, m_font, m_wallpaper, m_cards;
     QVariantMap m_colors;
 };
 

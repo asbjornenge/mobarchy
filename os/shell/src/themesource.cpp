@@ -135,8 +135,12 @@ void ThemeSource::load()
     const QString font = theme.value(QStringLiteral("font"), DefaultFont).toString();
     const QString name = theme.value(QStringLiteral("name"), QStringLiteral("Mobarchy")).toString();
     const QString wallpaper = theme.value(QStringLiteral("wallpaper")).toString();
-    if (id == m_id && colors == m_colors && font == m_font && name == m_name && wallpaper == m_wallpaper)
+    const QString cards = theme.value(QStringLiteral("cards")).toString() == QLatin1String("outline")
+                          ? QStringLiteral("outline") : QStringLiteral("filled");
+    if (id == m_id && colors == m_colors && font == m_font && name == m_name && wallpaper == m_wallpaper
+        && cards == m_cards)
         return;
+    m_cards = cards;
     m_id = id;
     m_name = name;
     m_colors = colors;

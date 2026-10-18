@@ -6,9 +6,11 @@ import Mobarchy.Shell
 // The bottom edge: swipe up for the app drawer, swipe up and hold for the open apps (the
 // switcher), tap for home, and a keyboard toggle. While
 // the on-screen keyboard is up, a tap is taken for a space bar that was missed: it doesn't
-// go home (a swipe up still opens the drawer).
+// go home, two taps do (a swipe up still opens the drawer).
 LayerWindow {
     id: edge
+
+    property real lastTap: 0    // (two taps go home while the keyboard is up)
 
     required property Drawer drawer
     required property AppSwitcher switcher
@@ -82,7 +84,12 @@ LayerWindow {
             } else
                 edge.drawer.endDrag(velocity)
         }
-        onTapped: if (!edge.keyboard.visible) edge.home()
+        onTapped: {
+            const now = Date.now()
+            if (!edge.keyboard.visible || now - edge.lastTap < 400)
+                edge.home()
+            edge.lastTap = now
+        }
     }
 
     MouseArea {

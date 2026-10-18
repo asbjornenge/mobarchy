@@ -591,7 +591,8 @@ def theme_set(theme_id: str) -> dict:
 
 @tool(Risk.ACT, "Make a theme")
 def theme_create(theme_id: str, name: str, colors: dict[str, str], font: str = "",
-                 description: str = "", activate: bool = True, wallpaper: str = "") -> dict:
+                 description: str = "", activate: bool = True, wallpaper: str = "",
+                 cards: str = "filled") -> dict:
     """Make a theme (or replace one of the owner's) and switch to it: any style the owner asks
     for, e.g. "Pokémon", "solarized", "pink and gold".
 
@@ -605,9 +606,11 @@ def theme_create(theme_id: str, name: str, colors: dict[str, str], font: str = "
     wallpaper (optional; the lock screen and home, dimmed for the text): an image's own URL
     (JPEG, PNG, WebP; search the web for one that fits the style, portrait suits the phone),
     a file on the phone (e.g. a photo in ~/Pictures/Camera), or SVG text you write (a
-    pattern in the theme's colours)."""
+    pattern in the theme's colours).
+    cards: the home board's widgets, "filled" (the panel colour) or "outline" (no fill, a thin
+    line: airy, best without a busy wallpaper)."""
     try:
-        return themes.create_theme(theme_id, name, colors, font or None, description, activate, wallpaper)
+        return themes.create_theme(theme_id, name, colors, font or None, description, activate, wallpaper, cards)
     except themes.ThemeError as e:
         raise ToolError(str(e)) from e
 
@@ -618,6 +621,16 @@ def theme_wallpaper(theme_id: str, wallpaper: str) -> dict:
     file on the phone, or SVG text, as for theme_create."""
     try:
         return themes.set_wallpaper(theme_id, wallpaper)
+    except themes.ThemeError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Theme cards")
+def theme_cards(theme_id: str, cards: str) -> dict:
+    """How one of the owner's themes draws the home board's widgets: "filled" (the panel
+    colour) or "outline" (no fill, a thin line)."""
+    try:
+        return themes.set_cards(theme_id, cards)
     except themes.ThemeError as e:
         raise ToolError(str(e)) from e
 

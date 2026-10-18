@@ -97,3 +97,14 @@ def test_delete_takes_the_wallpaper(dirs):
     themes.create_theme("pika", "Pika", MOBARCHY, wallpaper=SVG)
     themes.delete_theme("pika")
     assert not list((dirs / "data/mobarchy/themes").glob("pika*"))
+
+
+def test_cards_filled_or_outline(dirs):
+    assert themes.current()["cards"] == "filled"
+    themes.create_theme("airy", "Airy", MOBARCHY, cards="outline")
+    assert themes.current()["cards"] == "outline"
+    assert themes.set_cards("airy", "filled") == {"id": "airy", "cards": "filled"}
+    with pytest.raises(themes.ThemeError):
+        themes.set_cards("airy", "glass")
+    with pytest.raises(themes.ThemeError):
+        themes.set_cards("mobarchy", "outline")     # (Mobarchy's own stays as it is)

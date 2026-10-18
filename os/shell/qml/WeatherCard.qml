@@ -153,7 +153,7 @@ BoardCard {
         code: card.now ? card.now.code : 0
         day: card.now ? card.now.day : true
         running: card.live && visible
-        ground: card.color
+        ground: card.outlined ? Theme.bg : card.color  // (an outlined card: the home's ground)
     }
     Column {
         visible: card.now !== null && !card.asking

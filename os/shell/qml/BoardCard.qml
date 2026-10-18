@@ -47,9 +47,11 @@ Rectangle {
     signal resizeAsked()
     signal dropped()
 
+    // as the theme has them: filled with the panel colour, or a thin line only (ADR 0025)
+    readonly property bool outlined: Theme.cards === "outline"
     radius: 24
-    color: Qt.alpha(Theme.panel, 0.97)
-    border.color: Qt.alpha(Theme.line, 0.8)
+    color: outlined ? "transparent" : Qt.alpha(Theme.panel, 0.97)
+    border.color: outlined ? Qt.alpha(Theme.fg, 0.16) : Qt.alpha(Theme.line, 0.8)
     border.width: 1
     scale: drag.active ? 1.04 : tap.pressed && !editing ? 0.97 : 1
     z: drag.active ? 10 : 0
