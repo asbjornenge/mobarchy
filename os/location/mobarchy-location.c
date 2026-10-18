@@ -43,6 +43,7 @@ static const char *const gnss_services[] = {
 enum {
     GNSS_SET_CALLBACK = 1,
     GNSS_CLOSE = 2,
+    GNSS_GET_EXTENSION_PSDS = 3,
     GNSS_START = 14,
     GNSS_STOP = 15,
     GNSS_INJECT_TIME = 16,
@@ -65,6 +66,14 @@ enum {
     CB_REQUEST_LOCATION = 10,
     CB_SET_SIGNAL_TYPE_CAPABILITIES = 11,
 };
+/* IGnssPsds (V3) */
+#define PSDS_IFACE "android.hardware.gnss.IGnssPsds"
+#define PSDS_LONG_TERM 1
+/* the predicted orbits (PSDS), fetched by mobarchy-location-psds: the GNSS's first fix in
+ * seconds, not the minutes of decoding them from the satellites */
+#define PSDS_FILE "/var/cache/mobarchy-location-psds/psds.bin"
+#define PSDS_MAX_AGE (7 * 24 * 3600)
+
 /* every AIDL interface's meta transactions */
 #define AIDL_GET_INTERFACE_VERSION 0x00fffffe
 #define AIDL_GET_INTERFACE_HASH 0x00fffffd
@@ -88,6 +97,8 @@ static struct {
     GBinderRemoteObject *remote;
     GBinderClient *client;
     GBinderLocalObject *callback;
+    GBinderClient *psds;    /* IGnssPsds, if the HAL has it */
+    time_t psds_given;      /* the PSDS file's mtime last given to the GNSS */
     gulong death_id;
     guint retry_id;
     gboolean running;       /* the GNSS is started */
@@ -208,11 +219,72 @@ keep_last(const Fix *f)
     g_free(text);
 }
 
+static void
+get_psds(void)
+{
+    int status = 0;
+    GBinderLocalRequest *req = gbinder_client_new_request(self.client);
+    GBinderRemoteReply *reply = gbinder_client_transact_sync_reply(self.client, GNSS_GET_EXTENSION_PSDS, req, &status);
+    gbinder_local_request_unref(req);
+    if (!reply)
+        return;
+    GBinderReader r;
+    gint32 exception = -1;
+    gbinder_remote_reply_init_reader(reply, &r);
+    if (gbinder_reader_read_int32(&r, &exception) && exception == 0) {
+        GBinderRemoteObject *psds = gbinder_reader_read_object(&r);
+        if (psds) {
+            self.psds = gbinder_client_new(psds, PSDS_IFACE);
+            gbinder_remote_object_unref(psds);
+        }
+    }
+    gbinder_remote_reply_unref(reply);
+    g_message(self.psds ? "the GNSS takes predicted orbits (PSDS)" : "no PSDS in this GNSS");
+}
+
+/* the predicted orbits, when there are fresh ones it has not had */
+static void
+inject_psds(void)
+{
+    struct stat st;
+    if (!self.psds || stat(PSDS_FILE, &st) != 0 || st.st_mtime == self.psds_given
+        || time(NULL) - st.st_mtime > PSDS_MAX_AGE)
+        return;
+    char *data = NULL;
+    gsize len = 0;
+    if (!g_file_get_contents(PSDS_FILE, &data, &len, NULL))
+        return;
+    GBinderLocalRequest *req = gbinder_client_new_request(self.psds);
+    GBinderWriter w;
+    gbinder_local_request_init_writer(req, &w);
+    gbinder_writer_append_int32(&w, PSDS_LONG_TERM);
+    gbinder_writer_append_byte_array(&w, data, (gint32)len);
+    int status = 0;
+    GBinderRemoteReply *reply = gbinder_client_transact_sync_reply(self.psds, 1 /* injectPsdsData */, req, &status);
+    gint32 exception = -1;
+    if (reply) {
+        GBinderReader r;
+        gbinder_remote_reply_init_reader(reply, &r);
+        gbinder_reader_read_int32(&r, &exception);
+        gbinder_remote_reply_unref(reply);
+    }
+    gbinder_local_request_unref(req);
+    g_free(data);
+    if (status == GBINDER_STATUS_OK && exception == 0) {
+        self.psds_given = st.st_mtime;
+        g_message("gave the GNSS predicted orbits (%zu bytes, %ld h old)", (size_t)len,
+                  (long)((time(NULL) - st.st_mtime) / 3600));
+    } else {
+        g_warning("injectPsdsData failed (status %d, exception %d)", status, exception);
+    }
+}
+
 static gboolean
 start_gnss(void)
 {
     inject_time();
     inject_last_location();
+    inject_psds();
 
     /* PositionModeOptions: MS_BASED (assisted where it can be, else on its own), periodic,
      * a fix a second */
@@ -499,6 +571,8 @@ drop_gnss(void)
     if (self.remote && self.death_id)
         gbinder_remote_object_remove_handler(self.remote, self.death_id);
     self.death_id = 0;
+    g_clear_pointer(&self.psds, gbinder_client_unref);
+    self.psds_given = 0;
     g_clear_pointer(&self.client, gbinder_client_unref);
     g_clear_pointer(&self.remote, gbinder_remote_object_unref);
     self.running = FALSE;
@@ -561,6 +635,7 @@ connect_gnss(void)
         return;
     }
     g_message("connected to the GNSS HAL");
+    get_psds();
     update_running();
 }
 

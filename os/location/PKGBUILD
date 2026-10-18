@@ -3,17 +3,17 @@
 #   tools/pkg-build os/location --out <repo>
 pkgname=mobarchy-location
 pkgver=0.1
-pkgrel=5
+pkgrel=7
 pkgdesc="The phone's GNSS (GPS, Galileo, ...) for GeoClue, from the Android container's GNSS HAL"
 arch=(aarch64)
-depends=(glib2 libgbinder geoclue)
+depends=(glib2 libgbinder geoclue python curl)
 makedepends=(pkgconf)
 backup=(etc/geoclue/conf.d/90-mobarchy.conf)
 options=(!debug)
 
 prepare() {
     rm -rf "$srcdir/location" && mkdir -p "$srcdir/location"
-    cp "$startdir"/{Makefile,mobarchy-location.c,mobarchy-location.service,90-mobarchy.conf} "$srcdir/location"
+    cp "$startdir"/{Makefile,mobarchy-location.c,mobarchy-location.service,mobarchy-location-psds,mobarchy-location-psds.service,mobarchy-location-psds.timer,mobarchy-location.sysusers,90-mobarchy.conf} "$srcdir/location"
 }
 
 build() {

@@ -1,5 +1,6 @@
 # The phone's GNSS for GeoClue (mobarchy-location: the Android container's GNSS HAL, served
 # as NMEA on /run/mobarchy-location/nmea.sock). The GNSS runs only while GeoClue listens.
+# (A user of its own, shared with mobarchy-location-psds: it reads the orbits that fetches.)
 [Unit]
 Description=Mobarchy location (the GNSS, for GeoClue)
 After=mobarchy-android.service
@@ -7,7 +8,7 @@ Wants=mobarchy-android.service
 
 [Service]
 ExecStart=/usr/lib/mobarchy/mobarchy-location
-DynamicUser=yes
+User=mobarchy-location
 RuntimeDirectory=mobarchy-location
 RuntimeDirectoryMode=0755
 StateDirectory=mobarchy-location

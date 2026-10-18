@@ -1,0 +1,12 @@
+#!/bin/sh
+# The GNSS's predicted orbits (PSDS: where each satellite will be, for days): fetched from
+# the device's PSDS server (device.toml [location] psds_url) into $CACHE_DIRECTORY, where
+# mobarchy-location gives them to the GNSS before it starts. With them a first fix takes
+# seconds instead of the minutes of decoding orbits from the satellites themselves.
+set -eu
+url=$(python3 -c 'import tomllib; print(tomllib.load(open("/etc/mobarchy/device.toml", "rb")).get("location", {}).get("psds_url", ""))')
+[ -n "$url" ] || { echo "no psds_url in device.toml: nothing to fetch"; exit 0; }
+dir=${CACHE_DIRECTORY:-/var/cache/mobarchy-location-psds}
+curl -fsS --max-time 120 --retry 3 -o "$dir/psds.tmp" "$url"
+mv "$dir/psds.tmp" "$dir/psds.bin"
+echo "fetched $(stat -c %s "$dir/psds.bin") bytes from $url"

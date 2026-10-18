@@ -1,0 +1,16 @@
+# The GNSS's predicted orbits, fetched (mobarchy-location-psds); its timer, daily.
+[Unit]
+Description=Mobarchy location: fetch the GNSS's predicted orbits (PSDS)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/mobarchy/mobarchy-location-psds
+User=mobarchy-location
+CacheDirectory=mobarchy-location-psds
+CacheDirectoryMode=0755
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

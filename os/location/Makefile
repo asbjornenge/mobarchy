@@ -7,9 +7,11 @@ LDLIBS = $(shell pkg-config --libs libgbinder gio-unix-2.0) -lm
 mobarchy-location: mobarchy-location.c
 
 install: mobarchy-location
-	install -Dm755 mobarchy-location -t $(DESTDIR)/usr/lib/mobarchy
-	install -Dm644 mobarchy-location.service -t $(DESTDIR)/usr/lib/systemd/system
+	install -Dm755 mobarchy-location mobarchy-location-psds -t $(DESTDIR)/usr/lib/mobarchy
+	install -Dm644 mobarchy-location.service mobarchy-location-psds.service mobarchy-location-psds.timer \
+		-t $(DESTDIR)/usr/lib/systemd/system
 	install -Dm644 90-mobarchy.conf -t $(DESTDIR)/etc/geoclue/conf.d
+	install -Dm644 mobarchy-location.sysusers $(DESTDIR)/usr/lib/sysusers.d/mobarchy-location.conf
 
 clean:
 	rm -f mobarchy-location

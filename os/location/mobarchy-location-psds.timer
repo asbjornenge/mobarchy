@@ -1,0 +1,11 @@
+[Unit]
+Description=Mobarchy location: the GNSS's predicted orbits, daily
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=1d
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

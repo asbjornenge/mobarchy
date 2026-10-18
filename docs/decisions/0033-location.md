@@ -29,7 +29,15 @@ everything on the Linux side asks.**
   `/run/mobarchy-location/nmea.sock`. The GNSS runs only while someone listens: the first
   client starts it, the last one gone stops it. Before starting it gives the GNSS the time
   and the last fix (kept in its state directory), so later fixes come in seconds, not the
-  minutes of a cold start. A systemd service (DynamicUser).
+  minutes of a cold start. A systemd service, as a user of its own (`mobarchy-location`).
+- **Predicted orbits (PSDS):** a GNSS decodes each satellite's orbit from its signal, which
+  takes minutes of open sky; Android gives it days of predicted orbits instead, from the
+  phone's PSDS server (Samsung's, `https://1.ssiloc.com/p4/42F3`, in Android's carrier
+  settings for this phone; the file is encrypted for the GNSS). `mobarchy-location-psds`
+  fetches it daily over the network (a systemd timer; the URL from `device.toml`
+  `[location] psds_url`), and `mobarchy-location`, which has no network itself, gives it to
+  the GNSS (`IGnssPsds.injectPsdsData`, long-term) before it starts when it is new to it.
+  The server is told nothing but that a phone wants the file.
 - **GeoClue** (Arch's, in our repository with `libmm-glib`): its NMEA source reads that socket
   (`nmea-socket`). Its network sources (IP, Wi-Fi, 3G, CDMA, ModemManager's GPS) are off:
   nothing is sent anywhere to find the phone.
@@ -47,6 +55,6 @@ everything on the Linux side asks.**
 ## Consequences
 
 - A cold first fix needs open sky (minutes); indoors there may be none.
-- Assistance over the network (SUPL, Google's predicted orbits) is not set up: without a SIM
-  the GNSS works alone; with the time and the last fix it starts warm.
+- SUPL (assistance through the operator) is not set up; the predicted orbits, the time and
+  the last fix do most of what it would.
 - Frigg's location tool goes through GeoClue too (as `org.mobarchy.Agent`).

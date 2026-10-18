@@ -125,3 +125,8 @@ modem_img = "modem"
 [android.writable_partitions]
 trusty_userdata = ["0660", "system", "system"]
 trusty_persist = ["0660", "system", "system"]
+
+# Location (ADR 0033): the GNSS's predicted orbits (PSDS), as Android's carrier settings
+# give them for this phone (product CarrierSettings: gps.longterm_psds_server_1)
+[location]
+psds_url = "https://1.ssiloc.com/p4/42F3"
