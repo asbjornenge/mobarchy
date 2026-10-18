@@ -30,4 +30,5 @@ public slots:
 private:
     void addAgent();
     QDBusServiceWatcher m_watcher;
+    int m_tries = 0;
 };

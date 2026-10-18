@@ -2,6 +2,8 @@
 
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QTimer>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -41,11 +43,27 @@ LocationAgent::LocationAgent(QObject *parent)
 
 void LocationAgent::addAgent()
 {
+    if (sender() == &m_watcher)     // (GeoClue anew: tries anew)
+        m_tries = 0;
     QDBusMessage add = QDBusMessage::createMethodCall(Service, QStringLiteral("/org/freedesktop/GeoClue2/Manager"),
                                                       QStringLiteral("org.freedesktop.GeoClue2.Manager"),
                                                       QStringLiteral("AddAgent"));
     add << QStringLiteral("org.mobarchy.Shell");
-    QDBusConnection::systemBus().callWithCallback(add, this, nullptr, nullptr);
+    // GeoClue is started by the first call to it: the name may be there before its Manager
+    // is, and an app's request waits for an agent until one comes. So: again, until it takes.
+    auto *w = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(add), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this, w] {
+        w->deleteLater();
+        if (!w->isError()) {
+            m_tries = 0;
+            qCInfo(lcLocation) << "GeoClue's agent";
+            return;
+        }
+        if (++m_tries <= 10)
+            QTimer::singleShot(500, this, &LocationAgent::addAgent);
+        else
+            qCWarning(lcLocation) << "not GeoClue's agent:" << w->error().message();
+    });
 }
 
 void LocationAgent::AuthorizeApp(const QString &desktopId, uint requestedAccuracyLevel)
