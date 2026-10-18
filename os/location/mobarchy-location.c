@@ -20,6 +20,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
@@ -166,21 +167,73 @@ inject_time(void)
 
 /* Where the phone was last (a hint, with the accuracy it has after this long), so the
  * GNSS looks for the right satellites. */
+/* Without a last fix: the time zone's city (tzdata's zone.tab: every zone, where zone1970.tab
+ * folds some, as Europe/Oslo into Berlin's), a hint good to a
+ * thousand kilometres, which the GNSS waits for when it has the time and orbits but no idea
+ * where on earth it is. Nothing leaves the phone for it. */
+static gboolean
+zone_location(double *lat, double *lon)
+{
+    char *zone = g_file_read_link("/etc/localtime", NULL);
+    const char *name = zone ? strstr(zone, "zoneinfo/") : NULL;
+    char *tab = NULL;
+    gboolean found = FALSE;
+    if (name && g_file_get_contents("/usr/share/zoneinfo/zone.tab", &tab, NULL, NULL)) {
+        name += strlen("zoneinfo/");
+        char **lines = g_strsplit(tab, "\n", -1);
+        for (char **l = lines; *l && !found; l++) {
+            char **f = g_strsplit(*l, "\t", 4);
+            /* country codes, coordinates (+DDMM+DDDMM or with seconds), zone */
+            if (g_strv_length(f) >= 3 && *l[0] != '#' && !strcmp(f[2], name)) {
+                const char *c = f[1];
+                const char *split = strpbrk(c + 1, "+-");
+                if (split) {
+                    double d[2];
+                    const char *parts[2] = { c, split };
+                    for (int k = 0; k < 2; k++) {
+                        const int degs = k == 0 ? 2 : 3;
+                        char deg[4] = { 0 }, min[3] = { 0 };
+                        memcpy(deg, parts[k] + 1, degs);
+                        memcpy(min, parts[k] + 1 + degs, 2);
+                        d[k] = atoi(deg) + atoi(min) / 60.0;
+                        if (parts[k][0] == '-')
+                            d[k] = -d[k];
+                    }
+                    *lat = d[0];
+                    *lon = d[1];
+                    found = TRUE;
+                }
+            }
+            g_strfreev(f);
+        }
+        g_strfreev(lines);
+    }
+    g_free(tab);
+    g_free(zone);
+    return found;
+}
+
 static void
 inject_last_location(void)
 {
     char *text = NULL;
     double lat, lon, acc;
     gint64 when;
-    if (!self.last_path || !g_file_get_contents(self.last_path, &text, NULL, NULL))
-        return;
-    const int n = sscanf(text, "%lf %lf %lf %" G_GINT64_FORMAT, &lat, &lon, &acc, &when);
-    g_free(text);
-    if (n != 4)
-        return;
+    int n = 0;
+    if (self.last_path && g_file_get_contents(self.last_path, &text, NULL, NULL)) {
+        n = sscanf(text, "%lf %lf %lf %" G_GINT64_FORMAT, &lat, &lon, &acc, &when);
+        g_free(text);
+    }
+    if (n != 4) {
+        if (!zone_location(&lat, &lon))
+            return;
+        acc = 1000000;
+        when = clock_ms(CLOCK_REALTIME);
+        g_message("no last fix: the time zone's place as a hint (%.1f, %.1f)", lat, lon);
+    }
     /* (it may have moved: say so, up to a city's worth) */
     const double age_h = MAX(0, (clock_ms(CLOCK_REALTIME) - when) / 3600000.0);
-    acc = MIN(acc + age_h * 2000, 50000);
+    acc = MIN(acc + age_h * 2000, MAX(acc, 50000));
     GBinderLocalRequest *req = gbinder_client_new_request(self.client);
     GBinderWriter w;
     gbinder_local_request_init_writer(req, &w);
@@ -535,6 +588,11 @@ on_callback(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code, guin
         gbinder_reader_read_int64(&r, &ts);
         char *nmea = gbinder_reader_read_string16(&r);
         static gint64 shown;
+        static int raw;
+        if (nmea && raw < 12 && g_getenv("MOBARCHY_LOCATION_NMEA")) {  /* (diagnosis: the first sentences as they come) */
+            raw++;
+            g_message("NMEA raw %s", g_strstrip(nmea));
+        }
         if (nmea && strstr(nmea, "GGA,") && g_get_monotonic_time() - shown > 30000000) {
             g_strstrip(nmea);
             g_message("NMEA %s", nmea);
