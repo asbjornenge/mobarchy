@@ -5,6 +5,9 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusVariant>
+#include <QLoggingCategory>
+
+Q_DECLARE_LOGGING_CATEGORY(lcLocation)
 
 // Every call to GeoClue is asynchronous: GeoClue asks its agent, which is this same shell
 // (LocationAgent), whether the shell may know where it is, while it handles them. A blocking
@@ -45,10 +48,11 @@ GeoLocation::~GeoLocation()
 void GeoLocation::send(const QDBusMessage &m, std::function<void(const QDBusMessage &)> then)
 {
     auto *w = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(m, 30000), this);
-    connect(w, &QDBusPendingCallWatcher::finished, this, [this, w, then] {
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this, w, then, m] {
         w->deleteLater();
         const QDBusMessage reply = w->reply();
         if (reply.type() == QDBusMessage::ErrorMessage) {
+            qCWarning(lcLocation) << m.member() << "failed:" << reply.errorMessage();
             stop();
             emit failed(reply.errorMessage());
             return;
@@ -86,7 +90,9 @@ void GeoLocation::refresh(int timeoutSeconds)
                                              SLOT(locationUpdated(QDBusObjectPath, QDBusObjectPath)));
         setClientProperty(QStringLiteral("DesktopId"), QStringLiteral("org.mobarchy.Shell"), [this] {
             setClientProperty(QStringLiteral("RequestedAccuracyLevel"), uint(m_level), [this] {
-                send(method(m_client, ClientIface, QStringLiteral("Start")), nullptr);
+                send(method(m_client, ClientIface, QStringLiteral("Start")), [this](const QDBusMessage &) {
+                    qCInfo(lcLocation) << "looking for where the phone is";
+                });
             });
         });
     });

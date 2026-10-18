@@ -20,7 +20,9 @@ BoardCard {
 
     GeoLocation {
         id: geo
-        accuracyLevel: 4    // a city's worth is enough for the weather
+        // (exact: GeoClue does not ask an NMEA source for less; the weather rounds it anyway)
+        // A first fix may take minutes (a cold start): longer then.
+        accuracyLevel: 8
         onChanged: card.located()
         onFailed: (reason) => { if (!card.place) card.failure = qsTr("No position yet") }
     }
@@ -48,7 +50,7 @@ BoardCard {
     function useHere() {
         config.set("weather", null)
         asking = false
-        geo.refresh()
+        geo.refresh(card.here ? 120 : 600)
     }
     onTapped: asking = !asking
 
@@ -119,12 +121,12 @@ BoardCard {
     }
 
     onPlaceChanged: { now = null; refresh() }
-    Component.onCompleted: { refresh(); if (!chosen) geo.refresh() }
+    Component.onCompleted: { refresh(); if (!chosen) geo.refresh(card.here ? 120 : 600) }
     // every half hour: where the phone is now (when that is the place), and the weather
     Timer {
         interval: 30 * 60 * 1000; repeat: true
         running: card.place !== null || !card.chosen
-        onTriggered: card.chosen ? card.refresh() : geo.refresh()
+        onTriggered: card.chosen ? card.refresh() : geo.refresh(card.here ? 120 : 600)
     }
 
     // --- the weather ---

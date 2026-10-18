@@ -38,7 +38,8 @@ everything on the Linux side asks.**
   the owner allowed in `~/.config/mobarchy/location.json`. Asking the owner ("Allow X to
   know where you are?") comes with the first app that wants it.
 - **The weather card** uses where the phone is, by default, asking for one fix every half
-  hour (GeoClue client started, first location, stopped: the GNSS is not left on). The
+  hour (GeoClue client started, first location, stopped: the GNSS is not left on). It asks
+  for an exact fix: GeoClue asks an NMEA source for nothing less, and the card rounds it. The
   place's name comes from OpenStreetMap's Nominatim (reverse), the weather from Open-Meteo;
   both are told the place rounded to two decimals (about a kilometre). A chosen city still
   overrides it.
