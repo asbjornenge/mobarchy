@@ -34,6 +34,17 @@ QString home(QStandardPaths::StandardLocation where, const QString &path)
 QString userThemes() { return home(QStandardPaths::GenericDataLocation, QStringLiteral("mobarchy/themes")); }
 QString systemThemes() { return QStringLiteral("/usr/share/mobarchy/themes"); }
 QString activeFile() { return home(QStandardPaths::GenericConfigLocation, QStringLiteral("mobarchy/theme")); }
+// the owner's choice of cards per theme (Mobarchy's themes too, whose files stay as they are):
+// {"<theme id>": "filled" | "outline"}
+QString cardsFile() { return home(QStandardPaths::GenericConfigLocation, QStringLiteral("mobarchy/theme-cards.json")); }
+
+QString chosenCards(const QString &id)
+{
+    QFile f(cardsFile());
+    if (!f.open(QIODevice::ReadOnly))
+        return {};
+    return QJsonDocument::fromJson(f.readAll()).object().value(id).toString();
+}
 
 QString activeId()
 {
@@ -88,6 +99,8 @@ QStringList watchedPaths()
     QStringList paths = {QFileInfo(activeFile()).path(), userThemes()};
     if (QFile::exists(activeFile()))
         paths << activeFile();
+    if (QFile::exists(cardsFile()))
+        paths << cardsFile();
     if (QDir(systemThemes()).exists())
         paths << systemThemes();
     for (const QString &dir : {userThemes(), systemThemes()})
@@ -135,8 +148,9 @@ void ThemeSource::load()
     const QString font = theme.value(QStringLiteral("font"), DefaultFont).toString();
     const QString name = theme.value(QStringLiteral("name"), QStringLiteral("Mobarchy")).toString();
     const QString wallpaper = theme.value(QStringLiteral("wallpaper")).toString();
-    const QString cards = theme.value(QStringLiteral("cards")).toString() == QLatin1String("outline")
-                          ? QStringLiteral("outline") : QStringLiteral("filled");
+    const QString chosen = chosenCards(id);
+    const QString cards = (chosen.isEmpty() ? theme.value(QStringLiteral("cards")).toString() : chosen)
+                          == QLatin1String("outline") ? QStringLiteral("outline") : QStringLiteral("filled");
     if (id == m_id && colors == m_colors && font == m_font && name == m_name && wallpaper == m_wallpaper
         && cards == m_cards)
         return;
@@ -198,6 +212,20 @@ bool ThemeLibrary::activate(const QString &id)
         return false;
     f.write(id.toUtf8() + '\n');
     return f.commit();
+}
+
+void ThemeLibrary::setCards(const QString &id, const QString &cards)
+{
+    QJsonObject chosen;
+    QFile in(cardsFile());
+    if (in.open(QIODevice::ReadOnly))
+        chosen = QJsonDocument::fromJson(in.readAll()).object();
+    chosen.insert(id, cards == QLatin1String("outline") ? QStringLiteral("outline") : QStringLiteral("filled"));
+    QSaveFile out(cardsFile());
+    if (out.open(QIODevice::WriteOnly)) {
+        out.write(QJsonDocument(chosen).toJson(QJsonDocument::Indented));
+        out.commit();
+    }
 }
 
 bool ThemeLibrary::remove(const QString &id)

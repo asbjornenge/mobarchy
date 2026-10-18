@@ -70,6 +70,8 @@ public:
     Q_INVOKABLE bool activate(const QString &id);
     // one of the owner's (with its wallpaper); Mobarchy's own stay
     Q_INVOKABLE bool remove(const QString &id);
+    // the home board's cards for a theme, as the owner chose: "filled" or "outline"
+    Q_INVOKABLE void setCards(const QString &id, const QString &cards);
 
 signals:
     void changed();

@@ -102,7 +102,7 @@ def current() -> dict:
     t, own = _themes().get(i, ({}, False))
     return {"id": i, "name": t.get("name", i), "description": t.get("description", ""), "own": own,
             "colors": t.get("colors", {}), "font": t.get("font", DEFAULT_FONT),
-            "wallpaper": t.get("wallpaper", ""), "cards": t.get("cards", "filled"), "roles": ROLES}
+            "wallpaper": t.get("wallpaper", ""), "cards": cards_for(current_id(), t), "roles": ROLES}
 
 
 def set_theme(theme_id: str) -> dict:
@@ -228,16 +228,32 @@ def set_wallpaper(theme_id: str, wallpaper: str) -> dict:
 CARDS = ("filled", "outline")
 
 
+def cards_file() -> Path:
+    """The owner's choice of cards per theme, Mobarchy's own too (their files stay as they
+    are): {"<theme id>": "filled" | "outline"}. The Themes app writes it as well."""
+    return active_file().with_name("theme-cards.json")
+
+
+def cards_for(theme_id: str, theme: dict) -> str:
+    try:
+        chosen = json.loads(cards_file().read_text()).get(theme_id, "")
+    except (FileNotFoundError, json.JSONDecodeError):
+        chosen = ""
+    return chosen if chosen in CARDS else theme.get("cards", "filled")
+
+
 def set_cards(theme_id: str, cards: str) -> dict:
-    """How one of the owner's themes draws the home board's cards: "filled" or "outline"."""
+    """How a theme draws the home board's cards: "filled" or "outline"."""
     if cards not in CARDS:
         raise ThemeError('cards: "filled" (the panel colour) or "outline" (a thin line only)')
-    themes = _themes()
-    if theme_id not in themes or not themes[theme_id][1]:
-        raise ThemeError(f"{theme_id!r} is not one of the owner's themes (make one with theme_create)")
-    theme = dict(themes[theme_id][0])
-    theme["cards"] = cards
-    _write(user_dir() / f"{theme_id}.json", json.dumps(theme, indent=2, ensure_ascii=False) + "\n")
+    if theme_id not in _themes():
+        raise ThemeError(f"no theme {theme_id!r}")
+    try:
+        chosen = json.loads(cards_file().read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        chosen = {}
+    chosen[theme_id] = cards
+    _write(cards_file(), json.dumps(chosen, indent=2) + "\n")
     return {"id": theme_id, "cards": cards}
 
 

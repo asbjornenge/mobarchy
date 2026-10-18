@@ -154,6 +154,43 @@ Window {
                 }
             }
 
+            // the active theme's widgets on the home board: filled, or a thin line only
+            Row {
+                spacing: 10
+                topPadding: 8
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: qsTr("Widgets")
+                    color: Theme.muted
+                    rightPadding: 6
+                    font { family: Theme.font; pixelSize: 14 }
+                }
+                Repeater {
+                    model: [{ id: "filled", label: qsTr("Filled") }, { id: "outline", label: qsTr("Outline") }]
+                    delegate: Rectangle {
+                        id: choice
+                        required property var modelData
+                        readonly property bool chosen: Theme.cards === modelData.id
+                        width: choiceText.implicitWidth + 32
+                        height: 38
+                        radius: 19
+                        color: chosen ? Theme.accent : (modelData.id === "filled" ? Theme.panel : "transparent")
+                        border { color: chosen ? Theme.accent : Qt.alpha(Theme.fg, 0.25); width: 1 }
+                        Text {
+                            id: choiceText
+                            anchors.centerIn: parent
+                            text: choice.modelData.label
+                            color: choice.chosen ? Theme.bg : Theme.fg
+                            font { family: Theme.font; pixelSize: 14; bold: choice.chosen }
+                        }
+                        MouseArea {
+                            anchors { fill: parent; margins: -4 }
+                            onClicked: library.setCards(library.active, choice.modelData.id)
+                        }
+                    }
+                }
+            }
+
             // new ones: the agent makes them
             Text {
                 width: parent.width

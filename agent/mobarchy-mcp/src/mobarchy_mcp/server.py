@@ -627,8 +627,8 @@ def theme_wallpaper(theme_id: str, wallpaper: str) -> dict:
 
 @tool(Risk.ACT, "Theme cards")
 def theme_cards(theme_id: str, cards: str) -> dict:
-    """How one of the owner's themes draws the home board's widgets: "filled" (the panel
-    colour) or "outline" (no fill, a thin line)."""
+    """How a theme (Mobarchy's own too) draws the home board's widgets: "filled" (the panel
+    colour) or "outline" (no fill, a thin line). The owner can set it in the Themes app too."""
     try:
         return themes.set_cards(theme_id, cards)
     except themes.ThemeError as e:

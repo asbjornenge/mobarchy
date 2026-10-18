@@ -106,5 +106,8 @@ def test_cards_filled_or_outline(dirs):
     assert themes.set_cards("airy", "filled") == {"id": "airy", "cards": "filled"}
     with pytest.raises(themes.ThemeError):
         themes.set_cards("airy", "glass")
-    with pytest.raises(themes.ThemeError):
-        themes.set_cards("mobarchy", "outline")     # (Mobarchy's own stays as it is)
+    # Mobarchy's own too: the owner's choice, its file as it was
+    themes.set_theme("mobarchy")
+    themes.set_cards("mobarchy", "outline")
+    assert themes.current()["cards"] == "outline"
+    assert "cards" not in json.loads((dirs / "system/mobarchy.json").read_text())

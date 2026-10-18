@@ -29,7 +29,9 @@ are written out, and they stay.
   the browser at once, without a restart.
 - **Cards.** A theme says how the home board draws its widgets: `"cards": "filled"` (the
   panel colour; the default) or `"outline"` (no fill, a thin line: airy, best without a busy
-  wallpaper). `theme_create` takes it, `theme_cards` changes it on the owner's themes.
+  wallpaper). `theme_create` takes it. The owner chooses it for any theme, Mobarchy's own
+  too, in the Themes app or through the agent (`theme_cards`); the choice is kept beside the
+  themes (`~/.config/mobarchy/theme-cards.json`), their files stay as they are.
 - **Wallpaper.** The lock screen and the agent's home screen show the theme's wallpaper,
   dimmed with the theme's background so the clock and the conversation stay readable.
 - **The Themes app** (`mobarchy-shell --themes`, like the Store): a card per theme in its
