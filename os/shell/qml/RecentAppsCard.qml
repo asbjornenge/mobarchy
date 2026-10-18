@@ -64,7 +64,7 @@ BoardCard {
                 MouseArea {
                     id: appTap
                     anchors.fill: parent
-                    onClicked: card.toplevels.activateApp([app.modelData]) || card.apps.launch(app.modelData)
+                    onClicked: card.openApp(app.modelData)
                 }
             }
         }

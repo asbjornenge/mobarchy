@@ -70,7 +70,7 @@ BoardCard {
                 height: 40
                 MouseArea {
                     anchors.fill: parent
-                    onClicked: card.apps.launch(row.modelData.kind === "sms" ? "org.mobarchy.Messages" : "org.mobarchy.Phone")
+                    onClicked: card.openApp(row.modelData.kind === "sms" ? "org.mobarchy.Messages" : "org.mobarchy.Phone")
                 }
                 Text {
                     id: who

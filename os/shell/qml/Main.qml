@@ -260,7 +260,11 @@ QtObject {
     readonly property Telephony telephony: Telephony {
         keeper: true
         radio: !shell.radioSettings.flight && shell.radioSettings.mobile
-        onIncomingCall: { shell.wake(); shell.apps.launch("org.mobarchy.Phone") }
+        onIncomingCall: {
+            shell.wake()
+            if (!shell.toplevels.activateApp(shell.apps.windowIds("org.mobarchy.Phone")))
+                shell.apps.launch("org.mobarchy.Phone")
+        }
     }
 
     readonly property SimPinScreen simPin: SimPinScreen {

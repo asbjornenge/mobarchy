@@ -26,7 +26,7 @@ BoardCard {
 
     title: new Date(now).toLocaleDateString(Qt.locale(), "dddd d. MMMM")
     icon: "󰃭"
-    onTapped: apps.launch("org.mobarchy.Calendar")
+    onTapped: openApp("org.mobarchy.Calendar")
 
     function when(e) {
         const s = new Date(e.start)

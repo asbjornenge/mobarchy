@@ -1,4 +1,5 @@
 #include "device.h"
+#include "launch.h"
 
 #include <QFile>
 #include <QProcess>
@@ -40,7 +41,7 @@ void Device::rotate(const QString &orientation) const
     if (args.isEmpty())
         return;
     const QString program = args.takeFirst();
-    QProcess::startDetached(program, args << orientation);
+    launch::detached(program, args << orientation);
 }
 
 int Device::inset(const QString &connector, const QString &edge, int turns) const

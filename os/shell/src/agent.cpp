@@ -1,4 +1,5 @@
 #include "agent.h"
+#include "launch.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -151,7 +152,7 @@ void Agent::sendCode(const QString &code)
 
 void Agent::openUrl(const QString &url)
 {
-    QProcess::startDetached(QStringLiteral("mobarchy-open"), {url});
+    launch::detached(QStringLiteral("mobarchy-open"), {url});
 }
 
 Agent::~Agent()

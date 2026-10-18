@@ -1,4 +1,5 @@
 #include "accounts.h"
+#include "launch.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -104,7 +105,7 @@ void Accounts::addNextcloud(const QString &url)
 
 void Accounts::openUrl(const QString &url)
 {
-    QProcess::startDetached(QStringLiteral("mobarchy-open"), {url});
+    launch::detached(QStringLiteral("mobarchy-open"), {url});
 }
 
 void Accounts::setGoogleClient(const QString &clientId, const QString &clientSecret)

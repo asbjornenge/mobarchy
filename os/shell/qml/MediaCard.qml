@@ -10,7 +10,7 @@ BoardCard {
     required property AppModel apps
 
     wanted: player.available && (player.title.length > 0 || player.identity.length > 0)
-    onTapped: if (player.desktopEntry) apps.launch(player.desktopEntry)
+    onTapped: if (player.desktopEntry) openApp(player.desktopEntry)
 
     // the position moves on between the player's own updates
     Timer {

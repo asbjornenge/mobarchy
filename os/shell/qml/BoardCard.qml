@@ -33,6 +33,8 @@ Rectangle {
     property string icon
     // tapping the card (not its own controls)
     signal tapped()
+    // an app, to the front if it is open, else started (the board's: one window per app)
+    property var openApp: null
     default property alias content: body.data
     readonly property alias contentItem: body
 

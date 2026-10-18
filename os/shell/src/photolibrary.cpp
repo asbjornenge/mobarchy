@@ -1,4 +1,5 @@
 #include "photolibrary.h"
+#include "launch.h"
 
 #include <QDBusConnection>
 #include <QDBusConnectionInterface>
@@ -205,7 +206,7 @@ void Photos::open(const QString &path)
     }
     const QString unit = QStringLiteral("app-mobarchy-org.mobarchy.Photos-%1.scope")
                              .arg(QRandomGenerator::global()->generate(), 8, 16, QChar(u'0'));
-    QProcess::startDetached(QStringLiteral("systemd-run"),
+    launch::detached(QStringLiteral("systemd-run"),
                             {QStringLiteral("--user"), QStringLiteral("--scope"), QStringLiteral("--quiet"),
                              QStringLiteral("--collect"), QStringLiteral("--slice=app.slice"),
                              QStringLiteral("--unit=") + unit, QStringLiteral("--"), QStringLiteral("mobarchy-shell"),

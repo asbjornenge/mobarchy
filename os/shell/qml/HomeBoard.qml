@@ -261,6 +261,10 @@ Flickable {
         component Placed: QtObject {
             required property BoardCard card
             Component.onCompleted: {
+                card.openApp = (id) => {
+                    if (!board.toplevels.activateApp(board.apps.windowIds(id)))
+                        board.apps.launch(id)
+                }
                 card.editing = Qt.binding(() => board.editing)
                 card.live = Qt.binding(() => board.visible && board.Window.active && !board.editing)
                 card.wantedChanged.connect(() => Qt.callLater(grid.layout))

@@ -1,4 +1,5 @@
 #include "apps.h"
+#include "launch.h"
 
 #include <QDir>
 #include <QDirIterator>
@@ -142,7 +143,7 @@ bool AppModel::launch(const QString &appId)
                              .arg(QRandomGenerator::global()->generate(), 8, 16, QChar(u'0'));
     bool ok;
     if (!QStandardPaths::findExecutable(QStringLiteral("systemd-run")).isEmpty()) {
-        ok = QProcess::startDetached(QStringLiteral("systemd-run"),
+        ok = launch::detached(QStringLiteral("systemd-run"),
                                      QStringList{QStringLiteral("--user"), QStringLiteral("--scope"),
                                                  QStringLiteral("--quiet"), QStringLiteral("--collect"),
                                                  QStringLiteral("--slice=app.slice"),
@@ -150,7 +151,7 @@ bool AppModel::launch(const QString &appId)
                                          + args,
                                      it->workingDir);
     } else {
-        ok = QProcess::startDetached(args.first(), args.mid(1), it->workingDir);
+        ok = launch::detached(args.first(), args.mid(1), it->workingDir);
     }
     if (!ok)
         qWarning() << "failed to start" << id << args;
