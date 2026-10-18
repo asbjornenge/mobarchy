@@ -8,6 +8,7 @@ PathView {
 
     property int count: 60
     property int value: 0
+    property int step: 1    // what each row shows: its index times this (minutes by fives)
     readonly property int rowHeight: 52
 
     width: 92
@@ -37,7 +38,7 @@ PathView {
         height: wheel.rowHeight
         horizontalAlignment: Text.AlignHCenter
         verticalAlignment: Text.AlignVCenter
-        text: (index < 10 ? "0" : "") + index
+        text: (index * wheel.step < 10 ? "0" : "") + index * wheel.step
         // (the middle one bright and big, the others fading)
         readonly property real off: Math.abs(y + height / 2 - wheel.height / 2) / wheel.rowHeight
         opacity: Math.max(0.15, 1 - off * 0.4)

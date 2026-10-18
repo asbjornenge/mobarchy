@@ -5,7 +5,9 @@ description = "Mobarchy OS tool layer: the phone exposed as MCP tools"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "icalendar>=7.3.0",
     "mcp>=2.2,<3",
+    "recurring-ical-events>=3.8.2",
 ]
 
 [project.scripts]
@@ -14,6 +16,7 @@ mobarchy-mcp-call = "mobarchy_mcp.client:main"
 mobarchy-store = "mobarchy_mcp.store:main"
 mobarchy-webapp = "mobarchy_mcp.webapps:main"
 mobarchy-accounts = "mobarchy_mcp.accounts:main"
+mobarchy-calendar = "mobarchy_mcp.calendars:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]

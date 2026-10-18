@@ -22,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import alarms, approval, bluetooth, browser, themes, camera, clipboard, clock, contacts, media, network, phone, photos, power, store, webapps
+from . import alarms, approval, bluetooth, browser, calendars, themes, camera, clipboard, clock, contacts, media, network, phone, photos, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -694,6 +694,56 @@ def alarm_list() -> dict:
     try:
         return alarms.list_all()
     except alarms.AlarmError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.READ, "Calendar")
+def calendar_events(start: str = "", days: int = 1) -> dict:
+    """The owner's calendar: every event (each occurrence of repeating ones) from a day
+    ("YYYY-MM-DD", default today) for some days, from the phone's calendar and the accounts'
+    (iCloud, Google, ...: synced every half hour). Times are local, with their offset. Use it
+    for "what do I have tomorrow", "am I free on Friday afternoon"."""
+    import datetime as dt
+    try:
+        day = dt.date.fromisoformat(start) if start else dt.date.today()
+    except ValueError as e:
+        raise ToolError("start: a date, YYYY-MM-DD") from e
+    begin = dt.datetime.combine(day, dt.time(), calendars.local_tz())
+    return {"from": day.isoformat(), "days": days,
+            "events": calendars.events(begin, begin + dt.timedelta(days=max(1, min(days, 62))))}
+
+
+@tool(Risk.ACT, "Add to the calendar")
+def calendar_add(title: str, start: str, end: str = "", location: str = "", notes: str = "",
+                 repeat: str = "") -> dict:
+    """Put an event in the phone's calendar. start/end: "YYYY-MM-DD" for all day, or
+    "YYYY-MM-DDTHH:MM" local time (end defaults to an hour later). repeat: "daily", "weekly",
+    "monthly", "yearly" or an RRULE ("FREQ=WEEKLY;BYDAY=MO,WE"). Check the date with the
+    owner when it is not clear (e.g. "Friday": which one). The accounts' calendars are read
+    only for now."""
+    try:
+        return calendars.add_event(title, start, end, location, notes, repeat)
+    except calendars.CalendarError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Change a calendar event")
+def calendar_update(uid: str, title: str | None = None, start: str | None = None, end: str | None = None,
+                    location: str | None = None, notes: str | None = None) -> dict:
+    """Change an event in the phone's calendar (uid from calendar_events). A new start keeps its
+    length unless an end is given too."""
+    try:
+        return calendars.update_event(uid, title, start, end, location, notes)
+    except calendars.CalendarError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.CONFIRM, "Delete a calendar event")
+def calendar_delete(uid: str) -> dict:
+    """Delete an event from the phone's calendar (all its occurrences, if it repeats)."""
+    try:
+        return calendars.delete_event(uid)
+    except calendars.CalendarError as e:
         raise ToolError(str(e)) from e
 
 

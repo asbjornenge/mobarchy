@@ -122,6 +122,11 @@ void Accounts::setBook(const QString &id, const QString &url, bool enabled)
     run(tr("Saving …"), {QStringLiteral("book"), id, url, enabled ? QStringLiteral("on") : QStringLiteral("off")});
 }
 
+void Accounts::setCalendar(const QString &id, const QString &url, bool enabled)
+{
+    run(tr("Saving …"), {QStringLiteral("calendar"), id, url, enabled ? QStringLiteral("on") : QStringLiteral("off")});
+}
+
 void Accounts::sync()
 {
     run(tr("Syncing …"), {QStringLiteral("sync")});

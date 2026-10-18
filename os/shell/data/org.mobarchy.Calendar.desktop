@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Calendar
+Comment=The phone's calendar and the accounts' (iCloud, Google, ...)
+Exec=mobarchy-shell --calendar
+Icon=org.mobarchy.Calendar
+Categories=Office;Calendar;

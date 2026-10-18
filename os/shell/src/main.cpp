@@ -32,6 +32,7 @@ int main(int argc, char *argv[])
         {"--phone", "org.mobarchy.Phone", "mobarchy-phone", "PhoneApp"},
         {"--messages", "org.mobarchy.Messages", "mobarchy-messages", "MessagesApp"},
         {"--accounts", "org.mobarchy.Accounts", "mobarchy-accounts-app", "AccountsApp"},
+        {"--calendar", "org.mobarchy.Calendar", "mobarchy-calendar-app", "CalendarApp"},
     };
     const App *own = nullptr;
     for (const App &a : apps)

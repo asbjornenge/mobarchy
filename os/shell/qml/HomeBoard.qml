@@ -42,6 +42,7 @@ Flickable {
     readonly property var defaults: [
         { kind: "frigg", cols: 4, rows: 2 },
         { kind: "weather", cols: 2, rows: 1 }, { kind: "alarm", cols: 2, rows: 1 },
+        { kind: "calendar", cols: 4, rows: 2 },
         { kind: "media", cols: 4, rows: 2 }, { kind: "recent", cols: 4, rows: 1 },
         { kind: "messages", cols: 4, rows: 2 }, { kind: "battery", cols: 2, rows: 1 }]
     // the board as the owner has it: known kinds only
@@ -287,6 +288,12 @@ Flickable {
             kind: "alarm"; name: qsTr("Alarm and timer"); sizes: [[2, 1], [2, 2]]
             alarms: board.alarms; apps: board.apps
             Placed { card: alarm }
+        }
+        CalendarCard {
+            id: calendar
+            kind: "calendar"; name: qsTr("Calendar"); sizes: [[4, 2], [2, 1], [2, 2], [4, 4]]
+            apps: board.apps
+            Placed { card: calendar }
         }
         MediaCard {
             id: media

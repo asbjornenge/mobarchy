@@ -10,6 +10,10 @@ CARD = ("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:{name}\r\nTEL;type=CELL:{tel}\r\n"
         "PHOTO;ENCODING=b;TYPE=JPEG:AAAA\r\nEND:VCARD\r\n")
 
 
+EVENT = ("BEGIN:VCALENDAR&#13;\nVERSION:2.0&#13;\nBEGIN:VEVENT&#13;\nUID:e1&#13;\nSUMMARY:Lansering&#13;\n"
+         "DTSTART:20261021T080000Z&#13;\nDTEND:20261021T090000Z&#13;\nEND:VEVENT&#13;\nEND:VCALENDAR&#13;\n")
+
+
 class Server:
     """A CardDAV server like iCloud's: a redirect at the root, a principal, a home with two
     books, PROPFIND for etags, addressbook-multiget for cards; Basic auth."""
@@ -34,11 +38,12 @@ class Server:
                 self.wfile.write(body.encode())
 
             def ms(self, responses):
-                return self.reply(207, '<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">'
+                return self.reply(207, '<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav" '
+                                  'xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:a="http://apple.com/ns/ical/">'
                                   + responses + "</d:multistatus>")
 
             def do_PROPFIND(self):
-                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
                 if self.headers.get("Authorization") != accounts.basic("me@icloud.com", "app-pw"):
                     return self.reply(401)
                 p = self.path
@@ -47,6 +52,22 @@ class Server:
                 if p in ("/dav/", "/remote.php/dav"):
                     return self.ms("<d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:current-user-principal>"
                                    "<d:href>/principal/</d:href></d:current-user-principal></d:prop></d:propstat></d:response>")
+                if p == "/principal/" and "calendar-home-set" in body:
+                    return self.ms("<d:response><d:href>/principal/</d:href><d:propstat><d:prop><cal:calendar-home-set>"
+                                   "<d:href>/cal/</d:href></cal:calendar-home-set></d:prop></d:propstat></d:response>")
+                if p == "/cal/":
+                    return self.ms("<d:response><d:href>/cal/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/>"
+                                   "</d:resourcetype></d:prop></d:propstat></d:response>"
+                                   "<d:response><d:href>/cal/work/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/>"
+                                   "<cal:calendar/></d:resourcetype><d:displayname>Jobb</d:displayname>"
+                                   "<a:calendar-color>#FF8800FF</a:calendar-color><cal:supported-calendar-component-set>"
+                                   '<cal:comp name="VEVENT"/></cal:supported-calendar-component-set></d:prop></d:propstat></d:response>'
+                                   "<d:response><d:href>/cal/tasks/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/>"
+                                   "<cal:calendar/></d:resourcetype><d:displayname>Gjøremål</d:displayname><cal:supported-calendar-component-set>"
+                                   '<cal:comp name="VTODO"/></cal:supported-calendar-component-set></d:prop></d:propstat></d:response>')
+                if p == "/cal/work/":
+                    return self.ms('<d:response><d:href>/cal/work/</d:href></d:response><d:response><d:href>/cal/work/e1.ics</d:href>'
+                                   "<d:propstat><d:prop><d:getetag>c1</d:getetag></d:prop></d:propstat></d:response>")
                 if p == "/principal/":
                     return self.ms("<d:response><d:href>/principal/</d:href><d:propstat><d:prop><c:addressbook-home-set>"
                                    "<d:href>/home/</d:href></c:addressbook-home-set></d:prop></d:propstat></d:response>")
@@ -81,6 +102,9 @@ class Server:
             def do_REPORT(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
                 outer.reports += 1
+                if "calendar-multiget" in body:
+                    return self.ms("<d:response><d:href>/cal/work/e1.ics</d:href><d:propstat><d:prop><d:getetag>c1</d:getetag>"
+                                   "<cal:calendar-data>" + EVENT + "</cal:calendar-data></d:prop></d:propstat></d:response>")
                 items = "".join(f"<d:response><d:href>{h}</d:href><d:propstat><d:prop><d:getetag>{e}</d:getetag>"
                                 f"<c:address-data>{c}</c:address-data></d:prop></d:propstat></d:response>"
                                 for h, (e, c) in outer.cards.items() if f"<d:href>{h}</d:href>" in body)
@@ -101,6 +125,7 @@ def server(tmp_path, monkeypatch):
     monkeypatch.setattr(accounts, "secret_clear", lambda k: keyring.pop(k, None))
     s = Server()
     monkeypatch.setattr(accounts, "ICLOUD", s.url)
+    monkeypatch.setattr(accounts, "ICLOUD_CAL", s.url)
     yield s
     s.httpd.shutdown()
 
@@ -187,3 +212,17 @@ def test_mobarchy_google_client(server, tmp_path, monkeypatch):
 
 def test_icloud_password_as_copied(server):
     assert accounts.add_icloud("me@icloud.com", " app- pw \n")["accounts"][0]["error"] == ""
+
+
+def test_icloud_calendars(server):
+    import datetime as dt
+    from mobarchy_mcp import calendars
+    out = accounts.add_icloud("me@icloud.com", "app-pw")
+    [cal] = out["accounts"][0]["calendars"]          # (the task list is left out)
+    assert cal["name"] == "Jobb" and cal["color"] == "#FF8800" and cal["enabled"]
+    tz = dt.timezone(dt.timedelta(hours=2))
+    start = dt.datetime(2026, 10, 21, tzinfo=tz)
+    [ev] = calendars.events(start, start + dt.timedelta(days=1))
+    assert ev["title"] == "Lansering" and ev["calendar_name"] == "Jobb"
+    accounts.set_calendar("icloud-me-icloud-com", cal["url"], False)
+    assert calendars.events(start, start + dt.timedelta(days=1)) == []

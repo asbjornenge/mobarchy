@@ -201,6 +201,36 @@ Window {
                                 }
                             }
                         }
+                        // its calendars (ADR 0034), each with its colour
+                        Repeater {
+                            model: card.modelData.calendars ?? []
+                            delegate: Item {
+                                id: cal
+                                required property var modelData
+                                width: cardColumn.width
+                                height: 40
+                                Rectangle {
+                                    id: swatch
+                                    anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                                    width: 10; height: 10; radius: 3
+                                    color: cal.modelData.color || Theme.accent
+                                }
+                                Text {
+                                    anchors { left: swatch.right; leftMargin: 10; right: calSwitch.left; rightMargin: 10
+                                              verticalCenter: parent.verticalCenter }
+                                    elide: Text.ElideRight
+                                    text: "󰃭  " + cal.modelData.name
+                                    color: Theme.fg
+                                    font { family: Theme.font; pixelSize: 15 }
+                                }
+                                Switch {
+                                    id: calSwitch
+                                    anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                                    checked: cal.modelData.enabled
+                                    onToggled: accounts.setCalendar(card.modelData.id, cal.modelData.url, !cal.modelData.enabled)
+                                }
+                            }
+                        }
                         Text {
                             text: qsTr("Remove")
                             color: Theme.red

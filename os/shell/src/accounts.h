@@ -39,6 +39,7 @@ public:
     Q_INVOKABLE void setGoogleClient(const QString &clientId, const QString &clientSecret);
     Q_INVOKABLE void remove(const QString &id);
     Q_INVOKABLE void setBook(const QString &id, const QString &url, bool enabled);
+    Q_INVOKABLE void setCalendar(const QString &id, const QString &url, bool enabled);
     Q_INVOKABLE void sync();
     Q_INVOKABLE void cancel();
 

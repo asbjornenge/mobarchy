@@ -41,10 +41,13 @@ from pathlib import Path
 from . import carddav, contacts
 
 ICLOUD = "https://contacts.icloud.com/"
+ICLOUD_CAL = "https://caldav.icloud.com/"
 GOOGLE_DAV = "https://www.googleapis.com/.well-known/carddav"
+GOOGLE_CAL = "https://apidata.googleusercontent.com/caldav/v2/"
 GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
-GOOGLE_SCOPES = "https://www.googleapis.com/auth/carddav openid email"
+GOOGLE_SCOPES = ("https://www.googleapis.com/auth/carddav https://www.googleapis.com/auth/calendar.readonly "
+                 "openid email")
 KEYRING = "mobarchy-accounts"
 # Mobarchy's Google OAuth client: {"client_id", "client_secret"}. A "Desktop app" client's
 # secret is not a secret in Google's sense (every copy of the app has it), but it stays out
@@ -191,6 +194,22 @@ def base_for(account: dict) -> str:
     return {"icloud": ICLOUD, "google": GOOGLE_DAV}.get(account["type"], account.get("url", ""))
 
 
+def calendar_base_for(account: dict) -> str:
+    return {"icloud": ICLOUD_CAL, "google": GOOGLE_CAL}.get(account["type"], account.get("url", ""))
+
+
+def _discover_calendars(account: dict) -> None:
+    """The account's event calendars (all on), into it: none if the server has none or the
+    sign-in does not reach them (a Google account signed in before calendars came)."""
+    try:
+        found = carddav.Client(auth_for(account)).discover_calendars(calendar_base_for(account))
+    except (carddav.CardDAVError, AccountError):
+        found = []
+    old = account.get("calendars", {})
+    account["calendars"] = {c.url: {"name": c.name, "color": old.get(c.url, {}).get("color") or c.color,
+                                    "enabled": old.get(c.url, {}).get("enabled", True)} for c in found}
+
+
 # --- Google sign-in in the browser ----------------------------------------------------------
 
 def _open_browser(url: str) -> None:
@@ -265,7 +284,9 @@ def _jwt_email(token: str) -> str:
 def _summary(a: dict) -> dict:
     return {"id": a["id"], "type": a["type"], "user": a["user"], "last_sync": a.get("last_sync"),
             "error": a.get("error", ""), "contacts": a.get("count", 0),
-            "books": [{"url": u, "name": b["name"], "enabled": b["enabled"]} for u, b in a.get("books", {}).items()]}
+            "books": [{"url": u, "name": b["name"], "enabled": b["enabled"]} for u, b in a.get("books", {}).items()],
+            "calendars": [{"url": u, "name": c["name"], "color": c.get("color", ""), "enabled": c["enabled"]}
+                          for u, c in a.get("calendars", {}).items()]}
 
 
 def list_accounts() -> dict:
@@ -299,6 +320,7 @@ def _add(account: dict, secret: str) -> dict:
             secret_clear(account["id"])
             raise AccountError(str(e)) from e
         account["books"] = {b.url: {"name": b.name, "enabled": True} for b in books}
+        _discover_calendars(account)
         cfg["accounts"].append(account)
         save_config(cfg)
     return sync(account["id"])
@@ -385,7 +407,19 @@ def remove(account_id: str) -> dict:
         secret_clear(account_id)
         (contacts_dir() / f"{account_id}.vcf").unlink(missing_ok=True)
         (cache_dir() / f"{account_id}.json").unlink(missing_ok=True)
+        (caldav_dir() / f"{account_id}.json").unlink(missing_ok=True)
     return {"removed": account_id}
+
+
+def set_calendar(account_id: str, url: str, enabled: bool) -> dict:
+    with locked():
+        cfg = load_config()
+        account = next((a for a in cfg["accounts"] if a["id"] == account_id), None)
+        if account is None or url not in account.get("calendars", {}):
+            raise AccountError("no such calendar")
+        account["calendars"][url]["enabled"] = enabled
+        save_config(cfg)
+    return _summary(account)
 
 
 def set_book(account_id: str, url: str, enabled: bool) -> dict:
@@ -432,6 +466,37 @@ def _write_contacts(account: dict) -> None:
     account["count"] = len(cards)
 
 
+def caldav_dir() -> Path:
+    return _xdg("XDG_CACHE_HOME", ".cache") / "mobarchy/caldav"
+
+
+def _sync_calendars(account: dict) -> None:
+    """The events of the account's calendars (all of them, the app shows the enabled ones):
+    only what changed is fetched. Read by mobarchy_mcp.calendars."""
+    if "calendars" not in account:      # (an account from before calendars)
+        _discover_calendars(account)
+    if not account["calendars"]:
+        return
+    client = carddav.Client(auth_for(account))
+    path = caldav_dir() / f"{account['id']}.json"
+    try:
+        cache = json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        cache = {}
+    for url in account["calendars"]:
+        have = cache.get(url, {})
+        listed = client.list_cards(url)
+        changed = [h for h, etag in listed.items() if have.get(h, {}).get("etag") != etag]
+        fetched = client.fetch_events(url, changed) if changed else {}
+        cache[url] = {h: ({"etag": etag, "ics": fetched[h][1]} if h in fetched else have[h])
+                      for h, etag in listed.items() if h in fetched or h in have}
+    cache = {u: v for u, v in cache.items() if u in account["calendars"]}
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(cache, ensure_ascii=False))
+    os.replace(tmp, path)
+
+
 def _sync_account(account: dict) -> None:
     client = carddav.Client(auth_for(account))
     cache = _cache(account["id"])
@@ -461,6 +526,7 @@ def sync(account_id: str = "") -> dict:
                 continue
             try:
                 _sync_account(account)
+                _sync_calendars(account)
                 account["error"] = ""
             except (carddav.CardDAVError, AccountError) as e:
                 account["error"] = str(e)
@@ -491,6 +557,10 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("id")
     b.add_argument("url")
     b.add_argument("state", choices=["on", "off"])
+    k = sub.add_parser("calendar")
+    k.add_argument("id")
+    k.add_argument("url")
+    k.add_argument("state", choices=["on", "off"])
     s = sub.add_parser("sync")
     s.add_argument("id", nargs="?", default="")
     a = p.parse_args(argv)
@@ -511,6 +581,8 @@ def main(argv: list[str] | None = None) -> int:
             out = remove(a.id)
         elif a.cmd == "book":
             out = set_book(a.id, a.url, a.state == "on")
+        elif a.cmd == "calendar":
+            out = set_calendar(a.id, a.url, a.state == "on")
         else:
             out = sync(a.id)
     except AccountError as e:
