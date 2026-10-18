@@ -69,6 +69,11 @@ class Client:
             if e.code in (301, 302, 307, 308) and redirects and e.headers.get("Location"):
                 return self.request(method, urllib.parse.urljoin(url, e.headers["Location"]), body,
                                     depth, redirects - 1)
+            if e.code == 403 and b"accessNotConfigured" in (e.read() or b""):
+                # (Google: the sign-in is fine, the API is not turned on in the client's project)
+                raise CardDAVError(f"{urllib.parse.urlsplit(url).netloc} is not turned on for this "
+                                   f"app's sign-in (Google: enable the CalDAV/CardDAV API in "
+                                   f"the client's project)") from e
             if e.code in (401, 403):
                 raise CardDAVError(f"not allowed ({e.code}): the password or the sign-in is no "
                                    f"longer accepted") from e

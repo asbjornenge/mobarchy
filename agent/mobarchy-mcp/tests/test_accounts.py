@@ -23,6 +23,7 @@ class Server:
                       "/home/book2/b.vcf": ("e2", CARD.format(name="Kari Nordmann", tel="22334455"))}
         self.reports = 0
         self.polls = 0
+        self.calendars_off = False      # (as Google's, with the CalDAV API not turned on)
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -52,6 +53,8 @@ class Server:
                 if p in ("/dav/", "/remote.php/dav"):
                     return self.ms("<d:response><d:href>/dav/</d:href><d:propstat><d:prop><d:current-user-principal>"
                                    "<d:href>/principal/</d:href></d:current-user-principal></d:prop></d:propstat></d:response>")
+                if outer.calendars_off and (p == "/cal/" or "calendar-home-set" in body):
+                    return self.reply(403, "<errors><error><code>accessNotConfigured</code></error></errors>")
                 if p == "/principal/" and "calendar-home-set" in body:
                     return self.ms("<d:response><d:href>/principal/</d:href><d:propstat><d:prop><cal:calendar-home-set>"
                                    "<d:href>/cal/</d:href></cal:calendar-home-set></d:prop></d:propstat></d:response>")
@@ -226,3 +229,13 @@ def test_icloud_calendars(server):
     assert ev["title"] == "Lansering" and ev["calendar_name"] == "Jobb"
     accounts.set_calendar("icloud-me-icloud-com", cal["url"], False)
     assert calendars.events(start, start + dt.timedelta(days=1)) == []
+
+
+def test_calendars_found_once_the_server_lets_them(server):
+    server.calendars_off = True
+    out = accounts.add_icloud("me@icloud.com", "app-pw")["accounts"][0]
+    assert out["contacts"] == 2 and out["calendars"] == []
+    assert "not turned on" in out["error"]
+    server.calendars_off = False
+    out = accounts.sync()["accounts"][0]
+    assert out["error"] == "" and [c["name"] for c in out["calendars"]] == ["Jobb"]

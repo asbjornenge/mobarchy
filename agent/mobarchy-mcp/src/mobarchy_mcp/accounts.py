@@ -198,16 +198,18 @@ def calendar_base_for(account: dict) -> str:
     return {"icloud": ICLOUD_CAL, "google": GOOGLE_CAL}.get(account["type"], account.get("url", ""))
 
 
-def _discover_calendars(account: dict) -> None:
-    """The account's event calendars (all on), into it: none if the server has none or the
-    sign-in does not reach them (a Google account signed in before calendars came)."""
+def _discover_calendars(account: dict) -> str:
+    """The account's event calendars, into it (new ones on, the others as they were). What
+    went wrong, or "": then the calendars it had stay."""
     try:
         found = carddav.Client(auth_for(account)).discover_calendars(calendar_base_for(account))
-    except (carddav.CardDAVError, AccountError):
-        found = []
+    except (carddav.CardDAVError, AccountError) as e:
+        account.setdefault("calendars", {})
+        return str(e)
     old = account.get("calendars", {})
     account["calendars"] = {c.url: {"name": c.name, "color": old.get(c.url, {}).get("color") or c.color,
                                     "enabled": old.get(c.url, {}).get("enabled", True)} for c in found}
+    return ""
 
 
 # --- Google sign-in in the browser ----------------------------------------------------------
@@ -472,9 +474,10 @@ def caldav_dir() -> Path:
 
 def _sync_calendars(account: dict) -> None:
     """The events of the account's calendars (all of them, the app shows the enabled ones):
-    only what changed is fetched. Read by mobarchy_mcp.calendars."""
-    if "calendars" not in account:      # (an account from before calendars)
-        _discover_calendars(account)
+    only what changed is fetched. Read by mobarchy_mcp.calendars. The calendars are looked
+    for again each time (one made on the server since; one the sign-in could not reach)."""
+    if err := _discover_calendars(account):
+        raise carddav.CardDAVError(f"calendars: {err}")
     if not account["calendars"]:
         return
     client = carddav.Client(auth_for(account))
