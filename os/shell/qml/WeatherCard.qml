@@ -29,6 +29,7 @@ BoardCard {
     function round(x) { return Math.round(x * 100) / 100 }
     // a fix: if it is somewhere else (5 km or so), the place's name, then the weather there
     function located() {
+        locatedAt = Date.now()
         const lat = round(geo.latitude), lon = round(geo.longitude)
         if (here && Math.abs(here.latitude - lat) < 0.05 && Math.abs(here.longitude - lon) < 0.05)
             return refresh()
@@ -47,6 +48,9 @@ BoardCard {
         r.setRequestHeader("User-Agent", "Mobarchy (phone OS; weather)")
         r.send()
     }
+    // where the phone is, again: when the board comes into sight and the last fix is old
+    property real locatedAt: 0
+    onLiveChanged: if (live && !chosen && Date.now() - locatedAt > 15 * 60 * 1000) geo.refresh(here ? 120 : 600)
     function useHere() {
         config.set("weather", null)
         asking = false
