@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtQuick.Shapes
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
@@ -117,7 +118,50 @@ LayerWindow {
         }
     }
 
+    // Frigg's orb, large, in the room the words leave: it grows in when the conversation
+    // starts (from the home board's Frigg card, or "Hei Frigg"). A tap interrupts her.
+    Item {
+        id: stage
+        visible: !overlay.talk.enrolling
+        anchors { left: parent.left; right: parent.right; top: parent.top; bottom: talkColumn.top
+                  topMargin: wakeRow.visible ? 170 : 60; bottomMargin: 8 }
+        readonly property real size: Math.min(width - 40, height)
+        Shape {     // the glow
+            anchors.centerIn: big
+            width: big.width * 1.5; height: width
+            opacity: 0.55
+            ShapePath {
+                strokeWidth: -1
+                fillGradient: RadialGradient {
+                    centerX: big.width * 0.75; centerY: big.width * 0.75; centerRadius: big.width * 0.75
+                    focalX: centerX; focalY: centerY
+                    GradientStop { position: 0; color: Qt.alpha(overlay.tint, 0.5) }
+                    GradientStop { position: 0.45; color: Qt.alpha(overlay.tint, 0.15) }
+                    GradientStop { position: 1; color: "transparent" }
+                }
+                PathRectangle { width: big.width * 1.5; height: big.width * 1.5 }
+            }
+        }
+        FriggOrb {
+            id: big
+            anchors.centerIn: parent
+            width: stage.size; height: width
+            points: 260
+            color: overlay.tint
+            state: overlay.talk.state
+            running: overlay.visible && stage.visible
+            Behavior on color { ColorAnimation { duration: 400 } }
+            // growing in
+            scale: overlay.shown ? 1 : 0.35
+            opacity: overlay.shown ? 1 : 0
+            Behavior on scale { NumberAnimation { duration: 520; easing.type: Easing.OutBack } }
+            Behavior on opacity { NumberAnimation { duration: 300 } }
+            MouseArea { anchors.fill: parent; onClicked: overlay.talk.interrupt() }
+        }
+    }
+
     Column {
+        id: talkColumn
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom
                   margins: 28; bottomMargin: 48 + overlay.insetBottom }
         spacing: 22
@@ -153,60 +197,18 @@ LayerWindow {
             font { family: Theme.font; pixelSize: 13 }
         }
 
-        // the orb
+        // Frigg, and ending the conversation
         Item {
             width: parent.width
-            height: 150
-            Rectangle {
-                id: halo
-                anchors.centerIn: orb
-                width: orb.width; height: width; radius: width / 2
-                color: "transparent"
-                border { color: overlay.tint; width: 3 }
-                opacity: 0
-                SequentialAnimation on scale {
-                    running: overlay.talk.state === "listening" || overlay.talk.state === "speaking"
-                    loops: Animation.Infinite
-                    NumberAnimation { from: 1; to: 1.5; duration: overlay.talk.state === "speaking" ? 600 : 1200; easing.type: Easing.OutCubic }
-                }
-                SequentialAnimation on opacity {
-                    running: overlay.talk.state === "listening" || overlay.talk.state === "speaking"
-                    loops: Animation.Infinite
-                    NumberAnimation { from: 0.8; to: 0; duration: overlay.talk.state === "speaking" ? 600 : 1200 }
-                }
-            }
-            Rectangle {
-                id: orb
-                anchors.centerIn: parent
-                width: 104; height: 104; radius: 52
+            height: 44
+            Text {
+                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
+                text: "Frigg"
                 color: overlay.tint
-                Behavior on color { ColorAnimation { duration: 250 } }
-                // thinking: a turning arc
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.margins: -10
-                    radius: width / 2
-                    color: "transparent"
-                    visible: overlay.talk.state === "thinking" || overlay.talk.state === "starting"
-                    border { color: Theme.fg; width: 3 }
-                    opacity: 0.5
-                    RotationAnimation on rotation {
-                        running: overlay.talk.state === "thinking" || overlay.talk.state === "starting"
-                        loops: Animation.Infinite
-                        from: 0; to: 360; duration: 1400
-                    }
-                    Rectangle { width: 14; height: 14; radius: 7; color: Theme.fg; x: parent.width / 2 - 7; y: -7 }
-                }
-                Text {
-                    anchors.centerIn: parent
-                    text: overlay.talk.state === "speaking" ? "󰕾" : overlay.talk.state === "thinking" ? "󰚩" : "󰍬"
-                    color: Theme.bg
-                    font { family: Theme.font; pixelSize: 40 }
-                }
-                MouseArea { anchors.fill: parent; onClicked: overlay.talk.interrupt() }
+                font { family: Theme.font; pixelSize: 16; bold: true; letterSpacing: 2 }
             }
             Text {
-                anchors { right: parent.right; verticalCenter: orb.verticalCenter }
+                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
                 text: "󰅖"
                 color: Theme.muted
                 font { family: Theme.font; pixelSize: 30 }
@@ -214,12 +216,6 @@ LayerWindow {
                     anchors { fill: parent; margins: -18 }
                     onClicked: overlay.talk.stop()
                 }
-            }
-            Text {
-                anchors { left: parent.left; verticalCenter: orb.verticalCenter }
-                text: "Frigg"
-                color: Theme.muted
-                font { family: Theme.font; pixelSize: 16; bold: true }
             }
         }
         Text {

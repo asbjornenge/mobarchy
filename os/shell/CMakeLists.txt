@@ -43,6 +43,7 @@ qt_add_qml_module(mobarchy-shell
         src/camera.cpp src/camera.h
         src/haptics.cpp src/haptics.h
         src/geolocation.cpp src/geolocation.h
+        src/friggorb.cpp src/friggorb.h
         src/locationagent.cpp src/locationagent.h
         src/homeconfig.cpp src/homeconfig.h
         src/orientation.cpp src/orientation.h
@@ -111,6 +112,7 @@ qt_add_qml_module(mobarchy-shell
         qml/FriggSettings.qml
         qml/Home.qml
         qml/HomeBoard.qml
+        qml/FriggCard.qml
         qml/BoardCard.qml
         qml/WeatherCard.qml
         qml/WeatherScene.qml

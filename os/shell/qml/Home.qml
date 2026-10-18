@@ -92,6 +92,7 @@ Window {
         system: home.system
         apps: home.apps
         toplevels: home.toplevels
+        talk: home.talk
         bottomInset: composer.height + 32
     }
 

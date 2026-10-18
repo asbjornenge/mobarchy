@@ -20,6 +20,7 @@ Flickable {
     required property SystemStatus system
     required property AppModel apps
     required property ToplevelModel toplevels
+    required property Talk talk
     // room kept free at the bottom (the Frigg pill)
     property real bottomInset: 0
 
@@ -39,6 +40,7 @@ Flickable {
     rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
 
     readonly property var defaults: [
+        { kind: "frigg", cols: 4, rows: 2 },
         { kind: "weather", cols: 2, rows: 1 }, { kind: "alarm", cols: 2, rows: 1 },
         { kind: "media", cols: 4, rows: 2 }, { kind: "recent", cols: 4, rows: 1 },
         { kind: "messages", cols: 4, rows: 2 }, { kind: "battery", cols: 2, rows: 1 }]
@@ -268,6 +270,12 @@ Flickable {
             }
         }
 
+        FriggCard {
+            id: frigg
+            kind: "frigg"; name: "Frigg"; sizes: [[4, 2], [2, 2], [4, 4]]
+            talk: board.talk
+            Placed { card: frigg }
+        }
         WeatherCard {
             id: weather
             kind: "weather"; name: qsTr("Weather"); sizes: [[2, 1], [2, 2], [4, 2]]
