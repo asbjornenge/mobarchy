@@ -1,9 +1,14 @@
 #include "geolocation.h"
 
 #include <QDBusConnection>
-#include <QDBusInterface>
-#include <QDBusReply>
+#include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDBusVariant>
+
+// Every call to GeoClue is asynchronous: GeoClue asks its agent, which is this same shell
+// (LocationAgent), whether the shell may know where it is, while it handles them. A blocking
+// call would wait for GeoClue while GeoClue waits for us.
 
 namespace {
 const QString Service = QStringLiteral("org.freedesktop.GeoClue2");
@@ -13,10 +18,11 @@ const QString ClientIface = QStringLiteral("org.freedesktop.GeoClue2.Client");
 const QString LocationIface = QStringLiteral("org.freedesktop.GeoClue2.Location");
 const QString PropsIface = QStringLiteral("org.freedesktop.DBus.Properties");
 
-void setClientProperty(const QString &path, const QString &name, const QVariant &value)
+QDBusMessage method(const QString &path, const QString &iface, const QString &name, const QVariantList &args = {})
 {
-    QDBusInterface props(Service, path, PropsIface, QDBusConnection::systemBus());
-    props.call(QStringLiteral("Set"), ClientIface, name, QVariant::fromValue(QDBusVariant(value)));
+    QDBusMessage m = QDBusMessage::createMethodCall(Service, path, iface, name);
+    m.setArguments(args);
+    return m;
 }
 }
 
@@ -35,57 +41,86 @@ GeoLocation::~GeoLocation()
     stop();
 }
 
+// call, then `then` with the reply (or failed() and stop on an error)
+void GeoLocation::send(const QDBusMessage &m, std::function<void(const QDBusMessage &)> then)
+{
+    auto *w = new QDBusPendingCallWatcher(QDBusConnection::systemBus().asyncCall(m, 30000), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this, w, then] {
+        w->deleteLater();
+        const QDBusMessage reply = w->reply();
+        if (reply.type() == QDBusMessage::ErrorMessage) {
+            stop();
+            emit failed(reply.errorMessage());
+            return;
+        }
+        if (then)
+            then(reply);
+    });
+}
+
+void GeoLocation::setClientProperty(const QString &name, const QVariant &value, std::function<void()> then)
+{
+    send(method(m_client, PropsIface, QStringLiteral("Set"),
+                {ClientIface, name, QVariant::fromValue(QDBusVariant(value))}),
+         [then](const QDBusMessage &) { then(); });
+}
+
 void GeoLocation::refresh(int timeoutSeconds)
 {
     if (busy())
         return;
-    auto bus = QDBusConnection::systemBus();
-    QDBusInterface manager(Service, ManagerPath, ManagerIface, bus);
-    // (CreateClient: a client of our own, not the one GetClient shares per connection)
-    QDBusReply<QDBusObjectPath> client = manager.call(QStringLiteral("CreateClient"));
-    if (!client.isValid()) {
-        emit failed(client.error().message());
-        return;
-    }
-    m_client = client.value().path();
-    setClientProperty(m_client, QStringLiteral("DesktopId"), QStringLiteral("org.mobarchy.Shell"));
-    setClientProperty(m_client, QStringLiteral("RequestedAccuracyLevel"), uint(m_level));
-    bus.connect(Service, m_client, ClientIface, QStringLiteral("LocationUpdated"), this,
-                SLOT(locationUpdated(QDBusObjectPath, QDBusObjectPath)));
-    QDBusInterface iface(Service, m_client, ClientIface, bus);
-    const QDBusMessage started = iface.call(QStringLiteral("Start"));
-    if (started.type() == QDBusMessage::ErrorMessage) {
-        const QString reason = started.errorMessage();
-        stop();
-        emit failed(reason);
-        return;
-    }
+    m_creating = true;
     m_timeout.start(timeoutSeconds * 1000);
     emit busyChanged();
+    // (CreateClient: a client of our own, not the one GetClient shares per connection)
+    send(method(ManagerPath, ManagerIface, QStringLiteral("CreateClient")), [this](const QDBusMessage &reply) {
+        const QString client = reply.arguments().value(0).value<QDBusObjectPath>().path();
+        if (!m_creating) {      // (given up meanwhile)
+            QDBusConnection::systemBus().asyncCall(method(ManagerPath, ManagerIface, QStringLiteral("DeleteClient"),
+                                                          {QVariant::fromValue(QDBusObjectPath(client))}));
+            return;
+        }
+        m_creating = false;
+        m_client = client;
+        QDBusConnection::systemBus().connect(Service, m_client, ClientIface, QStringLiteral("LocationUpdated"), this,
+                                             SLOT(locationUpdated(QDBusObjectPath, QDBusObjectPath)));
+        setClientProperty(QStringLiteral("DesktopId"), QStringLiteral("org.mobarchy.Shell"), [this] {
+            setClientProperty(QStringLiteral("RequestedAccuracyLevel"), uint(m_level), [this] {
+                send(method(m_client, ClientIface, QStringLiteral("Start")), nullptr);
+            });
+        });
+    });
 }
 
 void GeoLocation::locationUpdated(const QDBusObjectPath &, const QDBusObjectPath &location)
 {
-    QDBusInterface loc(Service, location.path(), LocationIface, QDBusConnection::systemBus());
-    m_latitude = loc.property("Latitude").toDouble();
-    m_longitude = loc.property("Longitude").toDouble();
-    m_accuracy = loc.property("Accuracy").toDouble();
-    m_valid = true;
-    emit changed();
-    stop();     // one fix is what was asked for
+    send(method(location.path(), PropsIface, QStringLiteral("GetAll"), {LocationIface}),
+         [this](const QDBusMessage &reply) {
+        const QVariantMap p = qdbus_cast<QVariantMap>(reply.arguments().value(0));
+        m_latitude = p.value(QStringLiteral("Latitude")).toDouble();
+        m_longitude = p.value(QStringLiteral("Longitude")).toDouble();
+        m_accuracy = p.value(QStringLiteral("Accuracy")).toDouble();
+        m_valid = true;
+        emit changed();
+        stop();     // one fix is what was asked for
+    });
 }
 
 void GeoLocation::stop()
 {
     m_timeout.stop();
-    if (m_client.isEmpty())
+    m_creating = false;
+    if (m_client.isEmpty()) {
+        emit busyChanged();
         return;
+    }
     auto bus = QDBusConnection::systemBus();
     bus.disconnect(Service, m_client, ClientIface, QStringLiteral("LocationUpdated"), this,
                    SLOT(locationUpdated(QDBusObjectPath, QDBusObjectPath)));
-    QDBusInterface(Service, m_client, ClientIface, bus).call(QStringLiteral("Stop"));
-    QDBusInterface(Service, ManagerPath, ManagerIface, bus)
-        .call(QStringLiteral("DeleteClient"), QVariant::fromValue(QDBusObjectPath(m_client)));
+    // (no answers wanted)
+    bus.asyncCall(method(m_client, ClientIface, QStringLiteral("Stop")));
+    bus.asyncCall(method(ManagerPath, ManagerIface, QStringLiteral("DeleteClient"),
+                         {QVariant::fromValue(QDBusObjectPath(m_client))}));
     m_client.clear();
     emit busyChanged();
 }

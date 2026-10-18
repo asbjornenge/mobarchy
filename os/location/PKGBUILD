@@ -3,7 +3,7 @@
 #   tools/pkg-build os/location --out <repo>
 pkgname=mobarchy-location
 pkgver=0.1
-pkgrel=2
+pkgrel=5
 pkgdesc="The phone's GNSS (GPS, Galileo, ...) for GeoClue, from the Android container's GNSS HAL"
 arch=(aarch64)
 depends=(glib2 libgbinder geoclue)

@@ -3,7 +3,9 @@
 // and stops it again, so the GNSS runs for a fix and not all the time.
 #pragma once
 
+#include <QDBusMessage>
 #include <QDBusObjectPath>
+#include <functional>
 #include <QObject>
 #include <QTimer>
 #include <QtQml/qqmlregistration.h>
@@ -29,7 +31,7 @@ public:
     double latitude() const { return m_latitude; }
     double longitude() const { return m_longitude; }
     double accuracy() const { return m_accuracy; }
-    bool busy() const { return !m_client.isEmpty(); }
+    bool busy() const { return m_creating || !m_client.isEmpty(); }
 
     // a fresh fix (within `timeoutSeconds`; else the last one stays)
     Q_INVOKABLE void refresh(int timeoutSeconds = 120);
@@ -44,6 +46,10 @@ private slots:
 
 private:
     void stop();
+    void send(const QDBusMessage &m, std::function<void(const QDBusMessage &)> then);
+    void setClientProperty(const QString &name, const QVariant &value, std::function<void()> then);
+
+    bool m_creating = false;    // CreateClient asked, not answered yet
 
     QString m_client;       // the GeoClue client's object path while looking
     QTimer m_timeout;

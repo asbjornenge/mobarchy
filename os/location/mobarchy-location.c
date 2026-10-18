@@ -354,6 +354,10 @@ on_location(GBinderReader *r)
     if (!read_location(r, &f) || !(f.flags & HAS_LAT_LONG))
         return;
     keep_last(&f);
+    static gboolean fixed;
+    if (!fixed)
+        g_message("first fix: ±%.0f m", f.accuracy);
+    fixed = TRUE;
     if (self.once) {
         printf("fix: %.6f, %.6f  ±%.0f m  (%d satellites)\n", f.latitude, f.longitude,
                f.accuracy, self.satellites);
@@ -370,7 +374,7 @@ static void
 on_sv_status(GBinderReader *r)
 {
     gint32 n = 0;
-    int used = 0, seen = 0;
+    int used = 0, seen = 0, strong = 0, ephemeris = 0;
     if (!gbinder_reader_read_int32(r, &n) || n < 0)
         return;
     for (int i = 0; i < n; i++) {
@@ -379,10 +383,18 @@ on_sv_status(GBinderReader *r)
             return;
         /* svid, constellation, cN0Dbhz, basebandCN0DbHz, elevation, azimuth, carrierFrequencyHz, svFlag */
         const gsize start = gbinder_reader_bytes_read(r) - 8;
-        for (int k = 0; k < 6; k++)     /* two ints, four floats */
+        gfloat cn0 = 0;
+        skip32(r);                      /* svid */
+        skip32(r);                      /* constellation */
+        gbinder_reader_read_float(r, &cn0);
+        for (int k = 0; k < 3; k++)     /* basebandCN0DbHz, elevation, azimuth */
             skip32(r);
-        skip64(r);
+        skip64(r);                      /* carrierFrequencyHz */
         gbinder_reader_read_int32(r, &flags);
+        if (cn0 >= 30)
+            strong++;
+        if (flags & 1)                  /* HAS_EPHEMERIS_DATA */
+            ephemeris++;
         /* (a newer HAL's parcelable may be longer: on to its end) */
         while (gbinder_reader_bytes_read(r) < start + (gsize)size && skip32(r))
             ;
@@ -390,9 +402,16 @@ on_sv_status(GBinderReader *r)
         if (flags & 4)
             used++;
     }
-    self.satellites = used;
     if (self.once)
         fprintf(stderr, "satellites: %d seen, %d used\n", seen, used);
+    /* (in the log when it changes: how a search is going) */
+    static int last_seen = -1, last_used = -1;
+    if (seen != last_seen || used != last_used)
+        g_message("satellites: %d seen (%d strong, %d with ephemeris), %d used in a fix",
+                  seen, strong, ephemeris, used);
+    last_seen = seen;
+    last_used = used;
+    self.satellites = used;
 }
 
 static GBinderLocalReply *
@@ -407,6 +426,12 @@ on_callback(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code, guin
     *status = GBINDER_STATUS_OK;
 
     gbinder_remote_request_init_reader(req, &r);
+    /* (each kind of call once in the log: what the HAL says at all) */
+    static guint32 told;
+    if (code < 32 && !(told & (1u << code))) {
+        told |= 1u << code;
+        g_message("the HAL calls back: %u", code);
+    }
     switch (code) {
     case AIDL_GET_INTERFACE_VERSION:
         gbinder_writer_append_int32(&w, AIDL_VERSION);
@@ -423,14 +448,27 @@ on_callback(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code, guin
     case CB_STATUS: {
         gint32 s = 0;
         gbinder_reader_read_int32(&r, &s);
-        if (self.once)
-            fprintf(stderr, "status %d\n", s);
+        g_message("GNSS status %d", s);
         break;
     }
     case CB_SET_CAPABILITIES: {
         gint32 caps = 0;
         gbinder_reader_read_int32(&r, &caps);
         g_message("GNSS capabilities 0x%x", caps);
+        break;
+    }
+    case CB_NMEA: {
+        /* the GNSS's own NMEA: GGA and GSV now and then in the log, to see how a search goes */
+        gint64 ts = 0;
+        gbinder_reader_read_int64(&r, &ts);
+        char *nmea = gbinder_reader_read_string16(&r);
+        static gint64 shown;
+        if (nmea && strstr(nmea, "GGA,") && g_get_monotonic_time() - shown > 30000000) {
+            g_strstrip(nmea);
+            g_message("NMEA %s", nmea);
+            shown = g_get_monotonic_time();
+        }
+        g_free(nmea);
         break;
     }
     case CB_REQUEST_TIME:
@@ -441,14 +479,13 @@ on_callback(GBinderLocalObject *obj, GBinderRemoteRequest *req, guint code, guin
         if (self.client)
             g_idle_add_once((GSourceOnceFunc)inject_last_location, NULL);
         break;
-    case CB_NMEA:
     case CB_ACQUIRE_WAKELOCK:
     case CB_RELEASE_WAKELOCK:
     case CB_SET_SYSTEM_INFO:
     case CB_SET_SIGNAL_TYPE_CAPABILITIES:
         break;
     default:
-        g_debug("callback transaction %u", code);
+        g_message("callback transaction %u (unknown)", code);
         break;
     }
     return reply;
