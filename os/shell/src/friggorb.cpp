@@ -199,23 +199,43 @@ QSGNode *FriggOrb::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
     }
     lines->markDirty(QSGNode::DirtyGeometry);
 
-    // points: small squares, larger and brighter in front, twinkling a little
+    // points: round, a bright core in a soft halo (the halo fades out to its rim), larger and
+    // brighter in front, twinkling a little
+    constexpr int Sides = 10;
+    constexpr int PerPoint = Sides * 3 * 2;     // two fans of triangles: halo, core
     QSGGeometry *dg = dots->geometry();
-    dg->allocate(int(m_points.size()) * 6);
+    dg->allocate(int(m_points.size()) * PerPoint);
     auto *dv = dg->vertexDataAsColoredPoint2D();
-    const QColor bright = m_color.lighter(150);
+    const QColor bright = m_color.lighter(160);
     const float unit = qMax(1.0f, size / 220.0f);
+    static float cosines[Sides + 1], sines[Sides + 1];
+    static bool ready = false;
+    if (!ready) {
+        for (int k = 0; k <= Sides; k++) {
+            cosines[k] = float(std::cos(2 * M_PI * k / Sides));
+            sines[k] = float(std::sin(2 * M_PI * k / Sides));
+        }
+        ready = true;
+    }
+    int n = 0;
     for (int i = 0; i < at.size(); i++) {
         const QVector3D &p = at[i];
         const float near = (p.z() + 1) / 2;
         const float twinkle = float(0.75 + 0.25 * std::sin(t * 2.0 + i * 1.7));
         const float alpha = qBound(0.15f, (0.35f + 0.65f * near) * twinkle, 1.0f);
-        const float h = unit * (0.45f + 1.05f * near);
+        const float core = unit * (0.35f + 0.8f * near);
+        const float halo = core * 2.6f;
         const QColor &c = near > 0.6f ? bright : m_color;
-        const auto v0 = vertex(p.x() - h, p.y() - h, c, alpha), v1 = vertex(p.x() + h, p.y() - h, c, alpha);
-        const auto v2 = vertex(p.x() + h, p.y() + h, c, alpha), v3 = vertex(p.x() - h, p.y() + h, c, alpha);
-        dv[6 * i] = v0; dv[6 * i + 1] = v1; dv[6 * i + 2] = v2;
-        dv[6 * i + 3] = v0; dv[6 * i + 4] = v2; dv[6 * i + 5] = v3;
+        for (int k = 0; k < Sides; k++) {
+            // the halo: from the middle, fading to nothing at the rim
+            dv[n++] = vertex(p.x(), p.y(), c, alpha * 0.45f);
+            dv[n++] = vertex(p.x() + halo * cosines[k], p.y() + halo * sines[k], c, 0);
+            dv[n++] = vertex(p.x() + halo * cosines[k + 1], p.y() + halo * sines[k + 1], c, 0);
+            // the core: solid
+            dv[n++] = vertex(p.x(), p.y(), c, alpha);
+            dv[n++] = vertex(p.x() + core * cosines[k], p.y() + core * sines[k], c, alpha);
+            dv[n++] = vertex(p.x() + core * cosines[k + 1], p.y() + core * sines[k + 1], c, alpha);
+        }
     }
     dots->markDirty(QSGNode::DirtyGeometry);
     return node;

@@ -1,5 +1,5 @@
 // Frigg's orb: points on a sphere, joined to their neighbours, turning slowly in 3D (a
-// "plexus"), drawn in the scene graph (lines and small quads, coloured by depth). It breathes
+// "plexus"), drawn in the scene graph (lines and round glowing points, by depth). It breathes
 // when idle, pulses while listening, swirls faster while thinking and ripples while speaking.
 // It moves only while `running`.
 #pragma once

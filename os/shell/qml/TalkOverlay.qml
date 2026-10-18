@@ -146,7 +146,7 @@ LayerWindow {
             id: big
             anchors.centerIn: parent
             width: stage.size; height: width
-            points: 260
+            points: 440
             color: overlay.tint
             state: overlay.talk.state
             running: overlay.visible && stage.visible

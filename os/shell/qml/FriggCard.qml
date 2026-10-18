@@ -43,7 +43,7 @@ BoardCard {
             anchors.centerIn: parent
             width: Math.min(parent.width, parent.height) * 1.1
             height: width
-            points: card.rows >= 4 ? 260 : 180
+            points: card.rows >= 4 ? 380 : 280
             color: card.tint
             state: card.talk.state
             running: card.live && !card.editing
