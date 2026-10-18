@@ -21,6 +21,9 @@ class FriggOrb : public QQuickItem
     Q_PROPERTY(bool running READ running WRITE setRunning NOTIFY runningChanged)
     // how many points (fewer for a small orb)
     Q_PROPERTY(int points READ points WRITE setPoints NOTIFY pointsChanged)
+    // how much it breathes, pulses and ripples (1: as on a card; less for a large orb, where
+    // the same movement is more), and how fast
+    Q_PROPERTY(double calm MEMBER m_calm NOTIFY calmChanged)
 
 public:
     explicit FriggOrb(QQuickItem *parent = nullptr);
@@ -34,11 +37,17 @@ public:
     int points() const { return int(m_points.size()); }
     void setPoints(int n);
 
+    // turned by a finger: by (dx, dy) pixels while it moves; let go with a velocity (px/s), it
+    // spins on and slows down
+    Q_INVOKABLE void turnBy(double dx, double dy);
+    Q_INVOKABLE void release(double vx, double vy);
+
 signals:
     void colorChanged();
     void stateChanged();
     void runningChanged();
     void pointsChanged();
+    void calmChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *old, UpdatePaintNodeData *) override;
@@ -49,6 +58,7 @@ private:
     void schedule();
     QTimer m_frames;
 
+    double m_calm = 0;                  // 0: lively .. 1: calm
     QColor m_color = QColor(122, 162, 247);
     QString m_state = QStringLiteral("idle");
     bool m_running = true;
@@ -57,6 +67,8 @@ private:
     QElapsedTimer m_clock;
     double m_time = 0;                  // seconds the orb has moved
     double m_spin = 0;                  // radians turned
+    double m_tilt = 0;                  // radians tilted by a finger
+    double m_spinSpeed = 0, m_tiltSpeed = 0;    // radians/s left from a fling
     double m_energy = 0;                // eases towards the state's
     qint64 m_last = 0;
 };

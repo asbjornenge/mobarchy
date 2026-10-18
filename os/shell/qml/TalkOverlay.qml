@@ -119,7 +119,8 @@ LayerWindow {
     }
 
     // Frigg's orb, large, in the room the words leave: it grows in when the conversation
-    // starts (from the home board's Frigg card, or "Hei Frigg"). A tap interrupts her.
+    // starts (from the home board's Frigg card, or "Hei Frigg"). A tap interrupts her; a finger
+    // turns her.
     Item {
         id: stage
         visible: !overlay.talk.enrolling
@@ -147,6 +148,7 @@ LayerWindow {
             anchors.centerIn: parent
             width: stage.size; height: width
             points: 440
+            calm: 0.8   // (large, the same breathing is more: slower and less)
             color: overlay.tint
             state: overlay.talk.state
             running: overlay.visible && stage.visible
@@ -156,7 +158,19 @@ LayerWindow {
             opacity: overlay.shown ? 1 : 0
             Behavior on scale { NumberAnimation { duration: 520; easing.type: Easing.OutBack } }
             Behavior on opacity { NumberAnimation { duration: 300 } }
-            MouseArea { anchors.fill: parent; onClicked: overlay.talk.interrupt() }
+            // a tap interrupts her; a finger turns her, and a flick spins her on
+            TapHandler { onTapped: overlay.talk.interrupt() }
+            DragHandler {
+                id: turn
+                target: null
+                property point last
+                onActiveChanged: if (active) last = Qt.point(0, 0)
+                                 else big.release(centroid.velocity.x, centroid.velocity.y)
+                onTranslationChanged: {
+                    big.turnBy(translation.x - last.x, translation.y - last.y)
+                    last = Qt.point(translation.x, translation.y)
+                }
+            }
         }
     }
 

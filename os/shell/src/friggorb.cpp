@@ -90,6 +90,22 @@ void FriggOrb::setPoints(int n)
     update();
 }
 
+void FriggOrb::turnBy(double dx, double dy)
+{
+    const double perPixel = M_PI / qMax(1.0, qMin(width(), height()));    // half a turn across it
+    m_spin -= dx * perPixel;
+    m_tilt = qBound(-1.2, m_tilt + dy * perPixel, 1.2);
+    m_spinSpeed = m_tiltSpeed = 0;
+    update();
+}
+
+void FriggOrb::release(double vx, double vy)
+{
+    const double perPixel = M_PI / qMax(1.0, qMin(width(), height()));
+    m_spinSpeed = -vx * perPixel;
+    m_tiltSpeed = vy * perPixel;
+}
+
 // points spread evenly on a sphere (a Fibonacci lattice), a little uneven so it looks alive,
 // each joined to those near it
 void FriggOrb::build(int n)
@@ -126,6 +142,14 @@ void FriggOrb::tick()
     m_energy += (m.spin - m_energy) * qMin(1.0, dt * 2.0);    // speeds change smoothly
     m_time += dt;
     m_spin += dt * m_energy * 2.0;
+    // a fling spins on, slowing down; the tilt eases back
+    m_spin += dt * m_spinSpeed;
+    m_tilt = qBound(-1.2, m_tilt + dt * m_tiltSpeed, 1.2);
+    const double friction = std::exp(-dt * 1.4);
+    m_spinSpeed *= friction;
+    m_tiltSpeed *= friction;
+    if (std::abs(m_tiltSpeed) < 0.05)
+        m_tilt *= std::exp(-dt * 0.5);
     update();
 }
 
@@ -156,13 +180,16 @@ QSGNode *FriggOrb::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
     }
 
     const Motion m = motionFor(m_state);
+    // calm: smaller movements, slower
+    const double amount = 1.0 - 0.6 * m_calm;
     const double t = m_time;
+    const double tb = m_time * (1.0 - 0.45 * m_calm);   // the breathing's own time
     const float size = float(qMin(width(), height()));
     const float cx = float(width() / 2), cy = float(height() / 2);
     // breathing; a pulse while listening
-    const double breath = 1.0 + 0.025 * std::sin(t * 1.3) + m.pulse * 0.06 * std::pow(std::sin(t * 3.2), 2.0);
+    const double breath = 1.0 + amount * (0.025 * std::sin(tb * 1.3) + m.pulse * 0.06 * std::pow(std::sin(tb * 3.2), 2.0));
     const float radius = float(size * 0.42 * breath);
-    const double yaw = m_spin, pitch = 0.35 + 0.15 * std::sin(t * 0.21);
+    const double yaw = m_spin, pitch = 0.35 + 0.15 * std::sin(t * 0.21) + m_tilt;
     const float cyaw = float(std::cos(yaw)), syaw = float(std::sin(yaw));
     const float cp = float(std::cos(pitch)), sp = float(std::sin(pitch));
 
@@ -172,13 +199,13 @@ QSGNode *FriggOrb::updatePaintNode(QSGNode *old, UpdatePaintNodeData *)
         QVector3D p = m_points[i];
         // swirl (thinking): turn more the higher up
         if (m.swirl > 0) {
-            const double a = m.swirl * 0.6 * std::sin(t * 1.7) * p.y();
+            const double a = amount * m.swirl * 0.6 * std::sin(tb * 1.7) * p.y();
             const float ca = float(std::cos(a)), sa = float(std::sin(a));
             p = QVector3D(p.x() * ca - p.z() * sa, p.y(), p.x() * sa + p.z() * ca);
         }
         // ripple (speaking): waves outward over the surface
         if (m.ripple > 0)
-            p *= float(1.0 + 0.07 * m.ripple * std::sin(t * 9.0 - p.y() * 6.0 + p.x() * 3.0));
+            p *= float(1.0 + amount * 0.07 * m.ripple * std::sin(tb * 9.0 - p.y() * 6.0 + p.x() * 3.0));
         const float x1 = p.x() * cyaw - p.z() * syaw;
         const float z1 = p.x() * syaw + p.z() * cyaw;
         const float y2 = p.y() * cp - z1 * sp;
