@@ -64,6 +64,9 @@ public:
     Q_INVOKABLE void start();
     // end it (with the wake phrase on, wait for it again)
     Q_INVOKABLE void stop();
+    // Stop listening and speaking but keep the conversation (the process, Claude's session):
+    // start() goes on at once. (Frigg in text.)
+    Q_INVOKABLE void pause();
     // learn the owner's voice: Frigg asks for a few sentences
     Q_INVOKABLE void enroll();
     // stop speaking, listen
@@ -92,6 +95,7 @@ private:
     bool m_enrollNext = false;  // enroll() waits for the running process to end
     bool m_stopping = false;    // told to stop (and killed if it doesn't): its end is no error
     bool m_startNext = false;   // start() while it was stopping: again once it has ended
+    int m_generation = 0;       // each process started: a kill meant for one spares the next
     QString m_enrollText;
     int m_enrollIndex = 0, m_enrollCount = 0;
     int m_failures = 0;     // quick exits in a row, waiting for the phrase

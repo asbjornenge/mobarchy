@@ -105,6 +105,7 @@ void Talk::launch(bool enroll)
         args << QStringLiteral("--wake");
     m_procWake = m_wake && !enroll;
     m_procEnroll = enroll;
+    ++m_generation;
     m_proc.start(Agent::program(), args);
     emit enrollChanged();
 }
@@ -155,15 +156,19 @@ void Talk::stop()
     }
     m_stopping = true;
     send("stop");
-    // (it closes Claude Code and the audio, then exits; if not, end it)
-    QTimer *t = new QTimer(this);
-    t->setSingleShot(true);
-    connect(t, &QTimer::timeout, this, [this, t] {
-        if (active())
+    // (it closes Claude Code and the audio, then exits; if not, end it: this one, not one
+    // started since)
+    const int generation = m_generation;
+    QTimer::singleShot(5000, this, [this, generation] {
+        if (active() && m_generation == generation)
             m_proc.kill();
-        t->deleteLater();
     });
-    t->start(5000);
+}
+
+void Talk::pause()
+{
+    if (active() && talking())
+        send("sleep");
 }
 
 void Talk::interrupt()
@@ -202,7 +207,7 @@ void Talk::readEvents()
                 emit stateChanged();
             }
             // (the phrase was turned off during the conversation: it ends with it)
-            if (state == QLatin1String("waiting") && !m_wake)
+            if (state == QLatin1String("waiting") && m_procWake && !m_wake)
                 send("stop");
             continue;
         }

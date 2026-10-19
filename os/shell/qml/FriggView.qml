@@ -42,9 +42,10 @@ Item {
         if (mode === "live" && !talk.talking)
             talk.start()
     }
+    // (in text she sleeps: the microphone open, nothing heard or said, the conversation
+    // kept; back to live she is there at once)
     function toText() {
-        if (talk.talking)
-            talk.stop()
+        talk.pause()
         mode = "text"
     }
     function toLive() {
@@ -56,7 +57,7 @@ Item {
             talk.start()
     }
     function collapse() {
-        if (talk.talking)
+        if (talk.active)
             talk.stop()
         picking = false
         browsing = false

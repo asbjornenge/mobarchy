@@ -6,7 +6,9 @@ sentence by sentence as it comes, and listens again. Talking over Frigg interrup
 Events out, one JSON object a line: {"event": "state", "state": "listening" | "thinking" |
 "speaking" | "idle"}, {"event": "heard", "text"}, {"event": "said", "text"} (a sentence as it
 is spoken), {"event": "tool", "text"}, {"event": "error", "text"}.
-Commands in, a line each: "stop" (end the conversation), "interrupt" (stop speaking, listen).
+Commands in, a line each: "stop" (end the conversation), "interrupt" (stop speaking, listen),
+"sleep" (stop listening and speaking, and wait: for the phrase with a wake word, else for
+"wake"; the session lives on) and "wake" (listen again, as if the phrase was heard).
 
 Speech is the phone's (whisper.cpp, Piper) unless ~/.config/mobarchy/agent.env chooses a
 service, with its key: MOBARCHY_TALK_STT=openai (OPENAI_API_KEY) for understanding,
@@ -616,7 +618,7 @@ class Talk:
                 await self.cut_in()
             elif cmd == "interrupt":
                 await self.cut_in()
-            elif cmd == "sleep" and self.wake:       # end this conversation, wait for the phrase
+            elif cmd == "sleep":     # end this turn and wait (for the phrase, or for "wake")
                 await self.cut_in()
                 self.set_state("waiting")
             elif cmd == "wake" and self.state == "waiting":     # as if the phrase was heard
@@ -636,7 +638,8 @@ class Talk:
         return bool(PHRASE.search(text))
 
     async def woken(self) -> None:
-        self.wake.reset()
+        if self.wake is not None:
+            self.wake.reset()
         self.last_active = time.monotonic()
         self.set_state("listening")
         await self.speaker.play(CHIME, 16000)
@@ -661,6 +664,13 @@ class Talk:
             if self.stopping:
                 return
             now = time.monotonic()
+            if self.state == "waiting" and self.wake is None:
+                # (asleep without a phrase to wait for: the chat in text; until "wake", a
+                # turn begun before it is dropped)
+                ep, turn, pre = Endpointer(), bytearray(), []
+                if self.session.running and now - self.last_active > SESSION_IDLE_S:
+                    await self.session.close()
+                continue
             if self.state == "waiting":
                 scores = self.wake.feed(window)
                 recent = (recent + [window])[-WAKE_PRE_ROLL:]
