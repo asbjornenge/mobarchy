@@ -17,6 +17,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Callable
 
@@ -30,7 +31,9 @@ USER_AGENT = "Mobarchy-Accounts/0.1"
 
 
 class CardDAVError(Exception):
-    pass
+    def __init__(self, message: str, status: int = 0):
+        super().__init__(message)
+        self.status = status    # the HTTP status, if that was it
 
 
 @dataclass
@@ -76,8 +79,8 @@ class Client:
                                    f"the client's project)") from e
             if e.code in (401, 403):
                 raise CardDAVError(f"not allowed ({e.code}): the password or the sign-in is no "
-                                   f"longer accepted") from e
-            raise CardDAVError(f"{method} {url}: HTTP {e.code}") from e
+                                   f"longer accepted", e.code) from e
+            raise CardDAVError(f"{method} {url}: HTTP {e.code}", e.code) from e
         except urllib.error.URLError as e:
             raise CardDAVError(f"cannot reach {urllib.parse.urlsplit(url).netloc}: {e.reason}") from e
 
@@ -137,6 +140,30 @@ class Client:
         return out
 
     def fetch_events(self, calendar: str, hrefs: list[str]) -> dict[str, tuple[str, str]]:
+        try:
+            return self._multiget_events(calendar, hrefs)
+        except CardDAVError as e:
+            # Google's CalDAV with read-only access (calendar.readonly) refuses every REPORT
+            # but lets each event be read: one at a time then, a few at once.
+            if e.status != 403:
+                raise
+        with ThreadPoolExecutor(8) as pool:
+            return dict(zip(hrefs, pool.map(self._get_event, hrefs)))
+
+    def _get_event(self, href: str) -> tuple[str, str]:
+        """("", the event): its etag is the one listed. (Thousands of them on a first sync:
+        a connection that fails is tried again, once.)"""
+        try:
+            status, data, _ = self.request("GET", href)
+        except CardDAVError as e:
+            if e.status:
+                raise
+            status, data, _ = self.request("GET", href)
+        if status != 200:
+            raise CardDAVError(f"GET {href}: HTTP {status}", status)
+        return "", data.decode()
+
+    def _multiget_events(self, calendar: str, hrefs: list[str]) -> dict[str, tuple[str, str]]:
         out = {}
         for i in range(0, len(hrefs), BATCH):
             paths = "".join(f"<d:href>{_xml(urllib.parse.urlsplit(h).path)}</d:href>" for h in hrefs[i:i + BATCH])

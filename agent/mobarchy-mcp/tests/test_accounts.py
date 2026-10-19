@@ -24,6 +24,7 @@ class Server:
         self.reports = 0
         self.polls = 0
         self.calendars_off = False      # (as Google's, with the CalDAV API not turned on)
+        self.no_reports = False         # (as Google's with calendar.readonly: no REPORT)
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -102,9 +103,16 @@ class Server:
                                                        "appPassword": "app-pw"}))
                 self.reply(404)
 
+            def do_GET(self):
+                if self.path == "/cal/work/e1.ics":
+                    return self.reply(200, EVENT.replace("&#13;", "\r"))
+                self.reply(404)
+
             def do_REPORT(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
                 outer.reports += 1
+                if outer.no_reports and "calendar-multiget" in body:
+                    return self.reply(403, '<D:error xmlns:D="DAV:"/>')
                 if "calendar-multiget" in body:
                     return self.ms("<d:response><d:href>/cal/work/e1.ics</d:href><d:propstat><d:prop><d:getetag>c1</d:getetag>"
                                    "<cal:calendar-data>" + EVENT + "</cal:calendar-data></d:prop></d:propstat></d:response>")
@@ -239,3 +247,13 @@ def test_calendars_found_once_the_server_lets_them(server):
     server.calendars_off = False
     out = accounts.sync()["accounts"][0]
     assert out["error"] == "" and [c["name"] for c in out["calendars"]] == ["Jobb"]
+
+
+def test_events_one_by_one_when_reports_are_refused(server):
+    import datetime as dt
+    from mobarchy_mcp import calendars
+    server.no_reports = True
+    assert accounts.add_icloud("me@icloud.com", "app-pw")["accounts"][0]["error"] == ""
+    start = dt.datetime(2026, 10, 21, tzinfo=dt.timezone.utc)
+    [ev] = calendars.events(start, start + dt.timedelta(days=1))
+    assert ev["title"] == "Lansering"
