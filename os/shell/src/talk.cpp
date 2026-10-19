@@ -22,6 +22,17 @@ Talk::Talk(QObject *parent)
     // Waiting for the phrase is meant to go on: if it ends by itself, it starts again (later
     // and later if it keeps failing).
     connect(&m_proc, &QProcess::finished, this, [this](int code) {
+        const bool stopped = m_stopping;
+        m_stopping = false;
+        if (m_startNext) {     // (opened again while the last one was closing)
+            m_startNext = false;
+            m_state = QStringLiteral("starting");
+            emit stateChanged();
+            launch();
+            return;
+        }
+        if (stopped)
+            code = 0;
         if (m_procEnroll) {
             m_procEnroll = false;
             emit enrollChanged();
@@ -41,8 +52,13 @@ Talk::Talk(QObject *parent)
                 launch();
         });
     });
-    connect(&m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError) {
-        m_error = tr("Frigg could not start (%1)").arg(m_proc.errorString());
+    connect(&m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
+        if (e == QProcess::FailedToStart)
+            m_error = tr("Frigg could not start (%1)").arg(m_proc.errorString());
+        else if (e == QProcess::Crashed && !m_stopping)
+            m_error = tr("Frigg stopped unexpectedly");
+        else
+            return;     // (ended as told, or a write to one that was ending)
         emit textChanged();
     });
 }
@@ -64,6 +80,12 @@ void Talk::start()
     m_error.clear();
     m_usingScreen = false;
     emit textChanged();
+    if (active() && m_stopping) {   // (closed and opened again quickly: once it has ended)
+        m_startNext = true;
+        m_state = QStringLiteral("starting");
+        emit stateChanged();
+        return;
+    }
     if (active()) {
         if (m_state == QLatin1String("waiting"))
             send("wake");
@@ -124,12 +146,14 @@ void Talk::setWake(bool wake)
 
 void Talk::stop()
 {
+    m_startNext = false;
     if (!active())
         return;
     if (m_procWake) {
         send("sleep");
         return;
     }
+    m_stopping = true;
     send("stop");
     // (it closes Claude Code and the audio, then exits; if not, end it)
     QTimer *t = new QTimer(this);

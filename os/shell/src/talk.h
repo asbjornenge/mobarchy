@@ -90,6 +90,8 @@ private:
     bool m_procWake = false;    // the running process waits for the phrase
     bool m_procEnroll = false;  // it learns the owner's voice
     bool m_enrollNext = false;  // enroll() waits for the running process to end
+    bool m_stopping = false;    // told to stop (and killed if it doesn't): its end is no error
+    bool m_startNext = false;   // start() while it was stopping: again once it has ended
     QString m_enrollText;
     int m_enrollIndex = 0, m_enrollCount = 0;
     int m_failures = 0;     // quick exits in a row, waiting for the phrase

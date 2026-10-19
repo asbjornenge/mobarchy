@@ -10,7 +10,7 @@ import Mobarchy.Shell
 // overlay over other apps.
 //
 // Small (`small`: the conversation in text), the orb alone, in the top right corner; a tap
-// there asks for her live again (at once: no way back to watch). Large, a tap interrupts her
+// there asks for her live again. Large, a tap interrupts her
 // (or, between conversations, starts one) and a finger turns her.
 Item {
     id: stage
@@ -129,20 +129,17 @@ Item {
     Item {
         id: holder
         visible: !stage.talk.enrolling || stage.small
-        // 0 large in the middle, 1 small in the corner: into the corner it glides, out of it
-        // it is large at once
-        property real t: stage.small ? 1 : 0
-        NumberAnimation { id: glide; target: holder; property: "t"; to: 1; duration: 340; easing.type: Easing.InOutCubic }
+        // 0 large in the middle, 1 small in the corner: it glides between them
+        property real t: 0
+        Component.onCompleted: t = stage.small ? 1 : 0
+        NumberAnimation { id: glide; target: holder; property: "t"; duration: 340; easing.type: Easing.InOutCubic }
         Connections {
             target: stage
             function onSmallChanged() {
                 glide.stop()
-                if (stage.small) {
-                    holder.t = 0
-                    glide.start()
-                } else {
-                    holder.t = 0
-                }
+                glide.from = holder.t
+                glide.to = stage.small ? 1 : 0
+                glide.start()
             }
         }
         width: stage.largeSize + (stage.smallSize - stage.largeSize) * t
@@ -181,11 +178,7 @@ Item {
             Behavior on scale { NumberAnimation { duration: 520; easing.type: Easing.OutBack } }
             opacity: stage.shown ? 1 : 0
             Behavior on opacity { NumberAnimation { duration: 300 } }
-            Connections {
-                target: stage
-                // (and a spin to come with)
-                function onShownChanged() { if (stage.shown) orb.release(1400, 0) }
-            }
+
         }
         TapHandler {
             onTapped: stage.small ? stage.liveAsked()
