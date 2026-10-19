@@ -50,7 +50,9 @@ GOOGLE_CAL = "https://apidata.googleusercontent.com/caldav/v2/"
 GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"   # (read and write)
-GOOGLE_SCOPES = f"https://www.googleapis.com/auth/carddav {GOOGLE_CALENDAR_SCOPE} openid email"
+GOOGLE_MAIL_SCOPE = "https://mail.google.com/"     # (IMAP and SMTP: mobarchy_mcp.mail)
+GOOGLE_SCOPES = (f"https://www.googleapis.com/auth/carddav {GOOGLE_CALENDAR_SCOPE} {GOOGLE_MAIL_SCOPE} "
+                 "openid email")
 KEYRING = "mobarchy-accounts"
 # Mobarchy's Google OAuth client: {"client_id", "client_secret"}. A "Desktop app" client's
 # secret is not a secret in Google's sense (every copy of the app has it), but it stays out

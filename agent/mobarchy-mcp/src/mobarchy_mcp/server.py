@@ -22,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import alarms, approval, bluetooth, browser, calendars, themes, camera, clipboard, clock, contacts, media, network, phone, photos, power, store, webapps
+from . import alarms, approval, bluetooth, browser, calendars, mail, themes, camera, clipboard, clock, contacts, media, network, phone, photos, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -751,6 +751,69 @@ def calendar_delete(uid: str) -> dict:
     try:
         return calendars.delete_event(uid)
     except calendars.CalendarError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.READ, "Mail")
+def mail_list(category: str = "", snoozed: bool = False, limit: int = 30) -> dict:
+    """The owner's inbox (all their mail accounts, synced as mail comes): newest first, each
+    with its id, sender, subject, snippet, read or not. category: "people" (mail from people),
+    "notifications" or "newsletters", or "" for all. snoozed: the snoozed ones instead. Use it
+    for "any new mail?", "what did Kari write?"."""
+    return mail.listing("snoozed" if snoozed else "inbox", category, max(1, min(limit, 200)))
+
+
+@tool(Risk.READ, "Read a mail")
+def mail_read(id: str) -> dict:
+    """A message in full (id from mail_list): its text, sender, recipients and attachments.
+    It is marked as read."""
+    try:
+        out = mail.read(id)
+    except mail.MailError as e:
+        raise ToolError(str(e)) from e
+    out.pop("html", None)
+    return out
+
+
+@tool(Risk.ACT, "Archive a mail")
+def mail_archive(id: str) -> dict:
+    """Out of the inbox, into the account's archive (id from mail_list)."""
+    try:
+        return mail.archive(id)
+    except mail.MailError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Snooze a mail")
+def mail_snooze(id: str, until: str) -> dict:
+    """Out of the inbox until a time ("YYYY-MM-DDTHH:MM", local), then back at the top."""
+    import datetime as dt
+    try:
+        when = dt.datetime.fromisoformat(until)
+        if when.tzinfo is None:
+            when = when.replace(tzinfo=calendars.local_tz())
+        return mail.snooze(id, int(when.timestamp()))
+    except ValueError as e:
+        raise ToolError("until: YYYY-MM-DDTHH:MM") from e
+    except mail.MailError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.CONFIRM, "Send a mail")
+def mail_send(to: str, subject: str, body: str, account: str = "", cc: str = "", reply_to_id: str = "") -> dict:
+    """Send an email as the owner (it asks them first). account: the mail account's id (from
+    mail_list's accounts; the only one if just one). reply_to_id: the message answered (id from
+    mail_list), to keep the thread; then account defaults to that message's."""
+    try:
+        if not account:
+            account = reply_to_id.split("|", 1)[0] if reply_to_id else ""
+        if not account:
+            known = mail.mail_accounts()
+            if len(known) != 1:
+                raise ToolError("which account? (mail_list's accounts)")
+            account = known[0]["id"]
+        return mail.send(account, to, subject, body, cc, reply_to_id)
+    except mail.MailError as e:
         raise ToolError(str(e)) from e
 
 

@@ -1,0 +1,9 @@
+[Unit]
+Description=Mail: the accounts' inboxes followed (IMAP IDLE), new mail shown, snoozed mail back on time (ADR 0038)
+PartOf=graphical-session.target
+After=mobarchy-shell.service
+
+[Service]
+ExecStart=/usr/bin/mobarchy-mail watch
+Restart=always
+RestartSec=10

@@ -17,6 +17,7 @@ mobarchy-store = "mobarchy_mcp.store:main"
 mobarchy-webapp = "mobarchy_mcp.webapps:main"
 mobarchy-accounts = "mobarchy_mcp.accounts:main"
 mobarchy-calendar = "mobarchy_mcp.calendars:main"
+mobarchy-mail = "mobarchy_mcp.mail:main"
 
 [dependency-groups]
 dev = ["pytest>=8"]
