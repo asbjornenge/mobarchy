@@ -89,7 +89,7 @@ BoardCard {
                 Rectangle {
                     visible: !row.modelData.heading
                     width: 4; height: parent.height; radius: 2
-                    color: row.modelData.color
+                    color: row.modelData.color ?? "transparent"
                 }
                 Column {
                     visible: !row.modelData.heading
@@ -98,7 +98,7 @@ BoardCard {
                     Text {
                         width: parent.width
                         elide: Text.ElideRight
-                        text: row.modelData.title
+                        text: row.modelData.title ?? ""
                         color: Theme.fg
                         font { family: Theme.font; pixelSize: 13; bold: true }
                     }

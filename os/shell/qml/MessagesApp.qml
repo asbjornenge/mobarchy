@@ -20,6 +20,16 @@ Window {
     }
 
     Contacts { id: contacts }
+    // a conversation asked for (a notification tapped): at the start, or while open
+    MessagesThread {
+        service: true
+        onShowRequested: (number) => win.show(number)
+    }
+    function show(number) {
+        win.compose = ""
+        win.open = number
+        win.requestActivate()
+    }
     property var threadData: ({})
     property var numbers: []
     property string open: ""          // the thread being read ("" = the list)
@@ -29,7 +39,14 @@ Window {
         threadData = tel.threads()
         numbers = Object.keys(threadData).sort()
     }
-    Component.onCompleted: reload()
+    // mobarchy-shell --messages [number]
+    Component.onCompleted: {
+        reload()
+        const args = Qt.application.arguments
+        const i = args.indexOf("--messages")
+        if (i >= 0 && i + 1 < args.length)
+            Qt.callLater(() => win.show(args[i + 1]))
+    }
 
     // --- thread list ---
     Item {

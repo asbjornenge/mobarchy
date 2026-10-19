@@ -64,6 +64,7 @@ qt_add_qml_module(mobarchy-shell
         src/screenpower.cpp src/screenpower.h
         src/screenshot.cpp src/screenshot.h
         src/photolibrary.cpp src/photolibrary.h
+        src/messagesthread.cpp src/messagesthread.h
         src/telephony.cpp src/telephony.h
         src/wifi.cpp src/wifi.h
         src/systemstatus.cpp src/systemstatus.h
@@ -136,6 +137,7 @@ qt_add_qml_module(mobarchy-shell
         data/emoji.json
         data/sounds/alarm.wav
         data/sounds/ringback.wav
+        data/sounds/message.wav
 )
 qt6_generate_wayland_protocol_client_sources(mobarchy-shell
     FILES

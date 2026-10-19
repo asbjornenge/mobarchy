@@ -1,5 +1,6 @@
 import QtCore
 import QtQuick
+import QtMultimedia
 import Mobarchy.Shell
 
 QtObject {
@@ -265,6 +266,41 @@ QtObject {
             if (!shell.toplevels.activateApp(shell.apps.windowIds("org.mobarchy.Phone")))
                 shell.apps.launch("org.mobarchy.Phone")
         }
+    }
+
+    // A text message: a notification with who and what (the sender by name, if a contact),
+    // a tone and a buzz, and the lock screen lit for a glance; a tap opens the conversation.
+    readonly property Contacts contacts: Contacts {}
+    property var messageNotes: ({})     // notification id -> the sender's number
+    readonly property Connections incomingMessage: Connections {
+        target: shell.telephony
+        function onMessageReceived(from, text) {
+            const id = shell.notifications.post(shell.contacts.nameFor(from) || from, text, "org.mobarchy.Messages")
+            const notes = shell.messageNotes
+            notes[id] = from
+            shell.messageNotes = notes
+            shell.haptics.buzz()
+            if (!shell.volume.muted && !shell.alarms.ringing && shell.telephony.calls.length === 0) {
+                messageTone.stop()
+                messageTone.play()
+            }
+            if (!shell.screen.on)
+                shell.wake()
+        }
+    }
+    readonly property Connections messageTapped: Connections {
+        target: shell.notifications
+        function onInvoked(id, action) {
+            const number = shell.messageNotes[id]
+            if (number === undefined)
+                return
+            delete shell.messageNotes[id]
+            MessagesThread.open(number)
+        }
+    }
+    readonly property MediaPlayer messageTone: MediaPlayer {
+        source: "qrc:/qt/qml/Mobarchy/Shell/data/sounds/message.wav"
+        audioOutput: AudioOutput { volume: 0.8 }
     }
 
     readonly property SimPinScreen simPin: SimPinScreen {
