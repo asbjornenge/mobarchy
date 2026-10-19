@@ -21,10 +21,12 @@ modem off (Online), and the data with it. Roaming is left as oFono has it (off).
 import ipaddress
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 
 from gi.repository import Gio, GLib
 
 OFONO = "org.ofono"
+PROVIDERS = "/usr/share/mobile-broadband-provider-info/serviceproviders.xml"
 METRIC = "1000"
 RETRY_S = 15
 
@@ -38,6 +40,30 @@ def run(*cmd: str) -> bool:
     if r.returncode != 0:
         log(f"{' '.join(cmd)}: {r.stderr.strip()}")
     return r.returncode == 0
+
+
+def internet_apn(mcc: str, mnc: str, spn: str) -> dict:
+    """The internet APN for a SIM from mobile-broadband-provider-info: {value, username,
+    password}, or {}. oFono provisions from the same file, but gives up when several
+    providers share the network code and none is the SIM's by name (a virtual operator:
+    Talkmore on Telenor's 242 01). Then the network's own operator, listed first, is taken:
+    virtual operators mostly use its APN."""
+    try:
+        root = ET.parse(PROVIDERS).getroot()
+    except (OSError, ET.ParseError):
+        return {}
+    found = []
+    for p in root.iter("provider"):
+        if not any(n.get("mcc") == mcc and n.get("mnc") == mnc for n in p.iter("network-id")):
+            continue
+        for a in p.iter("apn"):
+            if any(u.get("type") == "internet" for u in a.iter("usage")):
+                found.append(((p.findtext("name") or "").strip(), {
+                    "value": a.get("value", ""), "username": a.findtext("username") or "",
+                    "password": a.findtext("password") or ""}))
+                break
+    named = [apn for name, apn in found if spn and name.lower() == spn.lower()]
+    return (named or [apn for _, apn in found] or [{}])[0]
 
 
 def unpack(v):
@@ -65,7 +91,7 @@ class Link:
         else:   # (a point-to-point link: no gateway to go through)
             run("ip", "-4", "route", "replace", "default", "dev", self.iface, "metric", METRIC)
         self.dns += s.get("DomainNameServers", [])
-        log(f"{self.iface}: {address}/{prefix} via {gateway or '(the link)'}")
+        log(f"{self.iface}: {address}/{prefix} via {gateway if gateway not in ('', '0.0.0.0') else 'the link'}")
 
     def set_v6(self, s: dict) -> None:
         address, prefix, gateway = s.get("Address", ""), s.get("PrefixLength", 64), s.get("Gateway", "")
@@ -149,12 +175,26 @@ class Modem:
                         OFONO, "org.ofono.ConnectionContext", "PropertyChanged", path, None,
                         Gio.DBusSignalFlags.NONE, self.context_changed, None))
                     log(f"{self.path}: internet context {path} (APN {p.get('AccessPointName')!r})")
+                if not p.get("AccessPointName"):
+                    self.provision(path)
                 self.active = bool(p.get("Active"))
                 if self.active:
                     self.configure(p)
                 return
         if self.attached:
             log(f"{self.path}: no internet context (is the APN provisioned?)")
+
+    def provision(self, context: str) -> None:
+        sim = self.props(self.path, "org.ofono.SimManager")
+        apn = internet_apn(sim.get("MobileCountryCode", ""), sim.get("MobileNetworkCode", ""),
+                           sim.get("ServiceProviderName", ""))
+        if not apn.get("value"):
+            log(f"{self.path}: no APN known for this SIM")
+            return
+        log(f"{self.path}: APN {apn['value']!r}")
+        for name, key in (("AccessPointName", "value"), ("Username", "username"), ("Password", "password")):
+            if apn[key] or name == "AccessPointName":
+                self.set(context, "org.ofono.ConnectionContext", name, GLib.Variant("s", apn[key]))
 
     def steer(self) -> None:
         """Turn the context on while attached (again later, if the network said no)."""
@@ -188,7 +228,9 @@ class Modem:
         name, value = params.unpack()
         if name == "Active":
             self.active = bool(value)
-            if not self.active:
+            if self.active:     # (its Settings may have come before)
+                self.configure(self.props(self.context, "org.ofono.ConnectionContext"))
+            else:
                 self.unconfigure()
                 self.steer()
         elif name in ("Settings", "IPv6.Settings") and self.active:
