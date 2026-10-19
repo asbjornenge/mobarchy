@@ -19,6 +19,7 @@ Item {
     required property FriggSettings settings
     property bool locked: false
     property bool small: false
+    property bool shown: true          // her orb grows in (and turns) when it comes
     property real topInset: 64         // room kept at the top (the status bar, a header)
     property real bottomInset: 0
     property bool offerText: true      // the "Aa" button: on to text
@@ -131,7 +132,19 @@ Item {
         // 0 large in the middle, 1 small in the corner: into the corner it glides, out of it
         // it is large at once
         property real t: stage.small ? 1 : 0
-        Behavior on t { enabled: stage.small; NumberAnimation { duration: 320; easing.type: Easing.OutCubic } }
+        NumberAnimation { id: glide; target: holder; property: "t"; to: 1; duration: 340; easing.type: Easing.InOutCubic }
+        Connections {
+            target: stage
+            function onSmallChanged() {
+                glide.stop()
+                if (stage.small) {
+                    holder.t = 0
+                    glide.start()
+                } else {
+                    holder.t = 0
+                }
+            }
+        }
         width: stage.largeSize + (stage.smallSize - stage.largeSize) * t
         height: width
         x: (room.x + (room.width - stage.largeSize) / 2) * (1 - t) + (stage.width - stage.smallRight - stage.smallSize) * t
@@ -163,9 +176,16 @@ Item {
             state: stage.talk.state
             running: stage.visible
             Behavior on color { ColorAnimation { duration: 400 } }
-            // growing in
-            scale: stage.visible ? 1 : 0.35
+            // growing in, with a turn
+            scale: stage.shown ? 1 : 0.35
             Behavior on scale { NumberAnimation { duration: 520; easing.type: Easing.OutBack } }
+            opacity: stage.shown ? 1 : 0
+            Behavior on opacity { NumberAnimation { duration: 300 } }
+            Connections {
+                target: stage
+                // (and a spin to come with)
+                function onShownChanged() { if (stage.shown) orb.release(1400, 0) }
+            }
         }
         TapHandler {
             onTapped: stage.small ? stage.liveAsked()

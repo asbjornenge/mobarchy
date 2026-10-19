@@ -4,46 +4,49 @@ import QtQuick
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
-// Frigg (ADR 0026): the live conversation, over whatever is on the screen (FriggStage): a
-// conversation "Hei Frigg" started away from home. At home the conversation shows her itself.
-// ✕ ends the conversation; "Aa" goes on in text, at home.
+// Frigg (ADR 0026, 0037): the conversation with the agent, live or in text (FriggView), a
+// layer of its own over whatever is on the screen. Opened by the home board's Frigg card, or
+// by "Hei Frigg" (then live). It keeps clear of the status bar and the keyboard.
 LayerWindow {
     id: overlay
 
+    required property Agent agent
     required property Talk talk
     required property FriggSettings settings
+    required property Keyboard keyboard
     property bool locked: false
-    property int insetBottom: 0
-    // the conversation at home shows her itself (open, live, in front)
-    property bool hosted: false
-    // "Aa": on in text, at home
-    signal textAsked()
+    signal copyOffered(string text)
+
+    function openFrigg(how) { view.openWith(how) }
+    function close() { if (view.open > 0) view.collapse() }
 
     // (not while Frigg uses the screen: she would see and tap her own overlay)
-    shown: talk.talking && !talk.usingScreen && !hosted
+    shown: (view.open > 0 || talk.talking) && !talk.usingScreen
     color: "transparent"
     LayerShell.Window.scope: "mobarchy-talk"
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom
                                | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
-    LayerShell.Window.exclusionZone: -1
+    LayerShell.Window.exclusionZone: 0
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
-    Rectangle {
-        anchors.fill: parent
-        color: "#c0000000"
-        MouseArea { anchors.fill: parent }
+    // "Hei Frigg" (or Frigg started from elsewhere): open, live
+    Connections {
+        target: overlay.talk
+        function onStateChanged() {
+            if (overlay.talk.talking && view.open === 0)
+                view.openWith("live")
+        }
     }
 
-    FriggStage {
+    FriggView {
+        id: view
         anchors.fill: parent
+        agent: overlay.agent
         talk: overlay.talk
         settings: overlay.settings
+        keyboard: overlay.keyboard
         locked: overlay.locked
-        bottomInset: overlay.insetBottom
-        offerText: !overlay.locked
-        visible: overlay.shown
-        onCloseAsked: overlay.talk.stop()
-        onTextAsked: overlay.textAsked()
+        onCopyOffered: (text) => overlay.copyOffered(text)
     }
 }

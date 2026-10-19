@@ -26,18 +26,14 @@ QtObject {
                 shell.agent.loadConversation()
         }
     }
+    // Frigg: the conversation with the agent, live or in text, over everything (ADR 0037)
     readonly property TalkOverlay talkOverlay: TalkOverlay {
+        agent: shell.agent
         talk: shell.talk
         settings: shell.friggSettings
+        keyboard: shell.keyboard
         locked: shell.lockScreen.shown
-        insetBottom: shell.edge.inset
-        hosted: shell.home.hostsTalk
-        // on in text: at home
-        onTextAsked: {
-            shell.talk.stop()
-            shell.goHome()
-            shell.home.openFrigg("text")
-        }
+        onCopyOffered: (text) => shell.copyBar.offer(text)
     }
     readonly property Keyboard keyboard: Keyboard {}
     readonly property Clipboard clipboard: Clipboard {}
@@ -206,7 +202,7 @@ QtObject {
         switcher.close()
         quick.close()
         keyboard.visible = false
-        home.collapse()     // home is the widgets: the conversation closes
+        talkOverlay.close()     // home is the widgets: the conversation closes
         if (!home.visible)
             home.show()
         toplevels.activateOwn(home.title)
@@ -327,17 +323,14 @@ QtObject {
         turns: shell.rotation.turns
     }
     readonly property Home home: Home {
-        agent: shell.agent
         talk: shell.talk
-        friggSettings: shell.friggSettings
-        keyboard: shell.keyboard
         media: shell.media
         alarms: shell.alarms
         telephony: shell.telephony
         system: shell.system
         apps: shell.apps
         toplevels: shell.toplevels
-        onCopyOffered: (text) => shell.copyBar.offer(text)
+        onFriggAsked: shell.talkOverlay.openFrigg("live")
     }
     readonly property Drawer drawer: Drawer {
         apps: shell.apps
