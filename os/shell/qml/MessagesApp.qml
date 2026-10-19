@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtCore
 import Mobarchy.Shell
 
 // Messages (ADR 0031): SMS over ofono (Telephony), kept in messages.json (threads by
@@ -35,10 +36,36 @@ Window {
     property string open: ""          // the thread being read ("" = the list)
     property string compose: ""       // a new thread's number while typing it
 
+    // the newest conversation first
+    function lastTime(number) {
+        const t = threadData[number]
+        return t && t.length ? (t[t.length - 1].time ?? 0) : 0
+    }
     function reload() {
         threadData = tel.threads()
-        numbers = Object.keys(threadData).sort()
+        numbers = Object.keys(threadData).sort((a, b) => lastTime(b) - lastTime(a))
+        if (open !== "")
+            markRead(open)
     }
+    // read: when the conversation was last open, per number (unread: a message in since)
+    Settings {
+        id: readState
+        location: StandardPaths.writableLocation(StandardPaths.GenericStateLocation) + "/mobarchy/messages-read.ini"
+        property string read: "{}"
+    }
+    property var readAt: JSON.parse(readState.read)
+    function unread(number) {
+        const t = threadData[number] ?? []
+        const seen = readAt[number] ?? 0
+        return t.some(m => m.incoming && (m.time ?? 0) > seen)
+    }
+    function markRead(number) {
+        const r = Object.assign({}, readAt)
+        r[number] = Math.floor(Date.now() / 1000)
+        readAt = r
+        readState.read = JSON.stringify(r)
+    }
+    onOpenChanged: if (open !== "") markRead(open)
     // mobarchy-shell --messages [number]
     Component.onCompleted: {
         reload()
@@ -83,16 +110,44 @@ Window {
                     const t = win.threadData[modelData]
                     return t && t.length ? t[t.length - 1] : null
                 }
+                readonly property bool unread: win.unread(modelData)
+                // unread: a dot, and the name and the last message bright
+                Rectangle {
+                    visible: row.unread
+                    anchors { left: parent.left; leftMargin: 8; verticalCenter: parent.verticalCenter }
+                    width: 8; height: 8; radius: 4
+                    color: Theme.accent
+                }
                 Column {
-                    anchors { left: parent.left; leftMargin: 20; right: parent.right; rightMargin: 20; verticalCenter: parent.verticalCenter }
+                    anchors { left: parent.left; leftMargin: 24; right: when.left; rightMargin: 12; verticalCenter: parent.verticalCenter }
                     spacing: 3
-                    Text { text: contacts.nameFor(row.modelData) || row.modelData; color: Theme.fg; font { family: Theme.font; pixelSize: 16 } }
+                    Text {
+                        width: parent.width
+                        elide: Text.ElideRight
+                        text: contacts.nameFor(row.modelData) || row.modelData
+                        color: Theme.fg
+                        font { family: Theme.font; pixelSize: 16; bold: row.unread }
+                    }
                     Text {
                         width: parent.width
                         text: (row.last && row.last.incoming ? "" : "→ ") + (row.last ? row.last.text : "")
-                        color: Theme.muted; font { family: Theme.font; pixelSize: 13 }
+                        color: row.unread ? Theme.fg : Theme.muted
+                        font { family: Theme.font; pixelSize: 13 }
                         elide: Text.ElideRight
                     }
+                }
+                Text {
+                    id: when
+                    anchors { right: parent.right; rightMargin: 20; top: parent.top; topMargin: 14 }
+                    text: {
+                        if (!row.last || !row.last.time)
+                            return ""
+                        const d = new Date(row.last.time * 1000)
+                        return d.toDateString() === new Date().toDateString() ? Qt.formatTime(d, "HH:mm")
+                             : d.toLocaleDateString(Qt.locale(), "d MMM")
+                    }
+                    color: row.unread ? Theme.accent : Theme.muted
+                    font { family: Theme.font; pixelSize: 12 }
                 }
                 Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line; opacity: 0.4 }
                 TapHandler { id: rowTap; onTapped: win.open = row.modelData }

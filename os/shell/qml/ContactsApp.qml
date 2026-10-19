@@ -28,6 +28,6 @@ Window {
         book: contacts
         // (the call shows in the Phone app: the shell brings it up for a call going out)
         onCall: (number) => tel.dial(number)
-        onMessage: (number) => MessagesThread.open(number)
+        onMessage: (number) => Messaging.open(number)
     }
 }

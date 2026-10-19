@@ -16,14 +16,18 @@ Item {
     signal call(string number)
     signal message(string number)
 
-    Clipboard { id: clipboard }
+    // copying: through the app's own clipboard (the shell's Clipboard, a second owner of the
+    // selection in this process, made Qt wait on itself and the app die)
+    TextEdit { id: copier; visible: false }
     function act(what, number) {
         if (what === "call")
             call(number)
         else if (what === "message")
             message(number)
         else {
-            clipboard.setText(number)
+            copier.text = number
+            copier.selectAll()
+            copier.copy()
             copied.show(number)
         }
     }

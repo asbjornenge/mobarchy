@@ -203,7 +203,7 @@ Window {
             visible: win.tab === "contacts"
             book: contacts
             onCall: (number) => win.call(number)
-            onMessage: (number) => MessagesThread.open(number)
+            onMessage: (number) => Messaging.open(number)
         }
 
         // --- the recent calls ---

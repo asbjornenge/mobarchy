@@ -308,7 +308,7 @@ QtObject {
             if (number === undefined)
                 return
             delete shell.messageNotes[id]
-            MessagesThread.open(number)
+            Messaging.open(number)
         }
     }
     readonly property MediaPlayer messageTone: MediaPlayer {

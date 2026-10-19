@@ -1,6 +1,8 @@
-// Opening the Messages app at a conversation (an SMS notification tapped): the running app
-// answers org.mobarchy.Messages.Show(number) on the session bus; otherwise it is started
-// (mobarchy-shell --messages <number>, in an app scope of its own, as the shell starts apps).
+// Opening the Messages app at a conversation (an SMS notification tapped, a contact's
+// message button): the running app answers org.mobarchy.Messages.Show(number) on the
+// session bus (MessagesThread, service on); otherwise it is started (mobarchy-shell
+// --messages <number>, in an app scope of its own, as the shell starts apps). From QML:
+// Messaging.open(number).
 #pragma once
 
 #include <QObject>
@@ -29,4 +31,15 @@ signals:
 
 private:
     bool m_service = false;
+};
+
+class Messaging : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+    QML_SINGLETON
+
+public:
+    explicit Messaging(QObject *parent = nullptr) : QObject(parent) {}
+    Q_INVOKABLE static void open(const QString &number) { MessagesThread::open(number); }
 };
