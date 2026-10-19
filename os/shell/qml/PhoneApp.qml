@@ -198,81 +198,12 @@ Window {
         }
 
         // --- the contacts ---
-        Item {
+        ContactList {
             anchors { left: parent.left; right: parent.right; top: operatorLine.bottom; topMargin: 12; bottom: tabs.top }
             visible: win.tab === "contacts"
-
-            Rectangle {
-                id: searchBox
-                anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16 }
-                height: 44; radius: 22
-                color: Theme.panel
-                TextInput {
-                    id: search
-                    anchors { fill: parent; leftMargin: 18; rightMargin: 18 }
-                    verticalAlignment: TextInput.AlignVCenter
-                    color: Theme.fg
-                    font { family: Theme.font; pixelSize: 16 }
-                    Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        visible: parent.text === ""
-                        text: qsTr("Search contacts")
-                        color: Theme.muted
-                        font: parent.font
-                    }
-                }
-            }
-            Text {
-                anchors { centerIn: parent }
-                width: parent.width - 60
-                visible: contacts.all.length === 0
-                horizontalAlignment: Text.AlignHCenter
-                wrapMode: Text.Wrap
-                text: qsTr("No contacts yet. Ask Frigg to add someone, or to import your contacts (a .vcf file).")
-                color: Theme.muted
-                font { family: Theme.font; pixelSize: 15 }
-            }
-            ListView {
-                anchors { left: parent.left; right: parent.right; top: searchBox.bottom; topMargin: 8; bottom: parent.bottom }
-                clip: true
-                boundsBehavior: Theme.boundsBehavior
-                model: contacts.filter(search.text)
-                delegate: Column {
-                    id: person
-                    required property var modelData
-                    width: ListView.view.width
-                    topPadding: 10; bottomPadding: 10
-                    Text {
-                        x: 20
-                        text: person.modelData.name + (person.modelData.relations.length
-                              ? "  · " + person.modelData.relations.join(", ") : "")
-                        color: Theme.fg
-                        font { family: Theme.font; pixelSize: 17 }
-                    }
-                    Repeater {
-                        model: person.modelData.phones
-                        delegate: Rectangle {
-                            id: num
-                            required property var modelData
-                            width: person.width; height: 40
-                            color: numTap.pressed ? Theme.panel : "transparent"
-                            Text {
-                                x: 20; anchors.verticalCenter: parent.verticalCenter
-                                text: num.modelData.number + (num.modelData.type ? "   " + num.modelData.type : "")
-                                color: Theme.muted
-                                font { family: Theme.font; pixelSize: 14 }
-                            }
-                            Text {
-                                anchors { right: parent.right; rightMargin: 24; verticalCenter: parent.verticalCenter }
-                                text: "󰏲"
-                                color: Theme.green
-                                font { family: Theme.font; pixelSize: 22 }
-                            }
-                            TapHandler { id: numTap; onTapped: win.call(num.modelData.number) }
-                        }
-                    }
-                }
-            }
+            book: contacts
+            onCall: (number) => win.call(number)
+            onMessage: (number) => MessagesThread.open(number)
         }
 
         // --- the recent calls ---

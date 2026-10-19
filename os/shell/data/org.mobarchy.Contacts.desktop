@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Contacts
+Comment=The people you know: call, message, copy a number
+Exec=mobarchy-shell --contacts
+Icon=org.mobarchy.Contacts
+Categories=Office;ContactManagement;

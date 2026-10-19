@@ -105,6 +105,8 @@ qt_add_qml_module(mobarchy-shell
         qml/PhoneApp.qml
         qml/AccountsApp.qml
         qml/MessagesApp.qml
+        qml/ContactsApp.qml
+        qml/ContactList.qml
         qml/SimPin.qml
         qml/SimPinScreen.qml
         qml/Gallery.qml
@@ -163,9 +165,9 @@ install(TARGETS mobarchy-shell RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 # The app ID of the shell's windows (portals look it up).
 install(FILES data/org.mobarchy.Shell.desktop data/org.mobarchy.Store.desktop data/org.mobarchy.Camera.desktop
               data/org.mobarchy.Themes.desktop data/org.mobarchy.Clock.desktop data/org.mobarchy.Photos.desktop
-              data/org.mobarchy.Phone.desktop data/org.mobarchy.Messages.desktop data/org.mobarchy.Accounts.desktop data/org.mobarchy.Calendar.desktop
+              data/org.mobarchy.Phone.desktop data/org.mobarchy.Messages.desktop data/org.mobarchy.Accounts.desktop data/org.mobarchy.Calendar.desktop data/org.mobarchy.Contacts.desktop
         DESTINATION ${CMAKE_INSTALL_DATADIR}/applications)
-install(FILES data/org.mobarchy.Store.svg data/org.mobarchy.Camera.svg data/org.mobarchy.Themes.svg data/org.mobarchy.Clock.svg data/org.mobarchy.Photos.svg data/org.mobarchy.Phone.svg data/org.mobarchy.Messages.svg data/org.mobarchy.Accounts.svg data/org.mobarchy.Calendar.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
+install(FILES data/org.mobarchy.Store.svg data/org.mobarchy.Camera.svg data/org.mobarchy.Themes.svg data/org.mobarchy.Clock.svg data/org.mobarchy.Photos.svg data/org.mobarchy.Phone.svg data/org.mobarchy.Messages.svg data/org.mobarchy.Accounts.svg data/org.mobarchy.Calendar.svg data/org.mobarchy.Contacts.svg DESTINATION ${CMAKE_INSTALL_DATADIR}/icons/hicolor/scalable/apps)
 # The themes that come with Mobarchy (ADR 0025).
 install(DIRECTORY data/themes/ DESTINATION ${CMAKE_INSTALL_DATADIR}/mobarchy/themes FILES_MATCHING PATTERN "*.json")
 

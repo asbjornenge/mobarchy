@@ -6,7 +6,7 @@ import Mobarchy.Shell
 // Messages (ADR 0031): SMS over ofono (Telephony), kept in messages.json (threads by
 // number) so the agent reads and writes them too. A list of threads; a tap opens the
 // conversation with a composer. Its own window (mobarchy-shell --messages). A new message
-// (the "+" or a tap) starts a thread by number — no contacts yet.
+// (the "+") starts a thread: a number, or a contact picked from those matching what is typed.
 Window {
     id: win
 
@@ -135,6 +135,17 @@ Window {
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line; opacity: 0.4 }
         }
 
+        // a new message: the contacts that match what is typed, to pick one
+        ContactList {
+            visible: win.compose !== ""
+            anchors { left: parent.left; right: parent.right; top: head.bottom; bottom: composer.top }
+            z: 1
+            book: contacts
+            showSearch: false
+            query: toField.text
+            actions: ["message", "copy"]
+            onMessage: (number) => win.show(number)
+        }
         ListView {
             id: thread
             anchors { left: parent.left; right: parent.right; top: head.bottom; bottom: composer.top; margins: 12 }

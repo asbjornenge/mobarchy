@@ -269,6 +269,16 @@ QtObject {
             if (!shell.toplevels.activateApp(shell.apps.windowIds("org.mobarchy.Phone")))
                 shell.apps.launch("org.mobarchy.Phone")
         }
+        // a call going out (from Contacts, or Frigg): the Phone app shows it, once a call
+        property var shownCalls: []
+        onCallsChanged: {
+            const out = calls.filter(c => (c.state === "dialing" || c.state === "alerting")
+                                          && !shownCalls.includes(c.path))
+            shownCalls = calls.map(c => c.path)
+            if (out.length && !shell.toplevels.active().some(w => w.appId === "org.mobarchy.Phone")
+                    && !shell.toplevels.activateApp(shell.apps.windowIds("org.mobarchy.Phone")))
+                shell.apps.launch("org.mobarchy.Phone")
+        }
     }
 
     // A text message: a notification with who and what (the sender by name, if a contact),

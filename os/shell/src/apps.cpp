@@ -79,9 +79,25 @@ void AppModel::reload()
         }
     }
 
+    // Apps not to list, by desktop ID: Mobarchy's (/usr/share/mobarchy/apps-hidden: Android's
+    // own Phone, Messages and Contacts beside the shell's) and the owner's
+    // (~/.config/mobarchy/apps-hidden). A line each; # begins a comment.
+    QSet<QString> hidden;
+    for (const QString &file : {QStringLiteral("/usr/share/mobarchy/apps-hidden"),
+                                QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+                                    + QStringLiteral("/mobarchy/apps-hidden")}) {
+        QFile f(file);
+        if (!f.open(QIODevice::ReadOnly))
+            continue;
+        for (const QByteArray &line : f.readAll().split('\n')) {
+            const QString id = QString::fromUtf8(line.left(line.indexOf('#'))).trimmed();
+            if (!id.isEmpty())
+                hidden.insert(id.endsWith(QLatin1String(".desktop")) ? id : id + QStringLiteral(".desktop"));
+        }
+    }
     QList<DesktopEntry> visible;
     std::copy_if(all.cbegin(), all.cend(), std::back_inserter(visible),
-                 [](const DesktopEntry &e) { return e.visible; });
+                 [&](const DesktopEntry &e) { return e.visible && !hidden.contains(e.id); });
     std::sort(visible.begin(), visible.end(), [](const DesktopEntry &a, const DesktopEntry &b) {
         return QString::localeAwareCompare(a.name, b.name) < 0;
     });

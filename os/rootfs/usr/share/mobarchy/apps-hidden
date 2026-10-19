@@ -1,0 +1,8 @@
+# Apps the drawer doesn't list (desktop IDs; AppModel). The owner may add their own in
+# ~/.config/mobarchy/apps-hidden.
+
+# Android's (Waydroid, ADR 0029) Phone, Messages and Contacts: the phone's own are the shell's,
+# with the SIM; Android's have none.
+waydroid.com.google.android.dialer
+waydroid.com.google.android.apps.messaging
+waydroid.com.google.android.contacts
