@@ -1,0 +1,4 @@
+# Android's location (ADR 0029): the owner's session gives Android where the phone is,
+# through this one helper (numbers only), without asking for the PIN each time. (Named to
+# come after the wheel rule: the last rule that matches wins.)
+%wheel ALL=(root) NOPASSWD: /usr/lib/mobarchy/android-location-set

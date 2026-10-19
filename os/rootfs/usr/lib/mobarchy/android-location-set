@@ -1,0 +1,29 @@
+#!/bin/sh
+# Root's half of android-location (ADR 0029): Android's "gps" test provider, in the Waydroid
+# container. Root may (a test provider wants the mock-location app-op, allowed here for
+# root's commands); the owner's session may run this (sudoers.d/zz-mobarchy-android).
+#
+#   android-location-set start              the provider, on
+#   android-location-set <lat> <lon> <acc>  where the phone is (degrees, metres)
+#   android-location-set stop               the provider, gone
+set -eu
+android() { waydroid shell -- "$@"; }
+number='^-?[0-9]+(\.[0-9]+)?$'
+case "${1:-}" in
+start)
+    android appops set android android:mock_location allow
+    android cmd location set-location-enabled true
+    android cmd location providers add-test-provider gps
+    android cmd location providers set-test-provider-enabled gps true
+    ;;
+stop)
+    android cmd location providers remove-test-provider gps
+    ;;
+*)
+    [ $# -eq 3 ] || { echo "usage: $0 start | stop | <lat> <lon> <accuracy>" >&2; exit 2; }
+    for n in "$1" "$2" "$3"; do
+        echo "$n" | grep -Eq "$number" || { echo "not a number: $n" >&2; exit 2; }
+    done
+    android cmd location providers set-test-provider-location gps --location "$1,$2" --accuracy "$3"
+    ;;
+esac

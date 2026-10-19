@@ -3,9 +3,9 @@
 so this gives it the phone's (GeoClue: the GPS, or Wi-Fi nearby; ADR 0033) as Android's
 "gps" provider. Run by mobarchy-android while the Android session is up.
 
-Through adb (Waydroid's adbd on its own network): a test provider, `cmd location providers
-set-test-provider-location`. Android marks such fixes as from a test provider; an app that
-refuses those, refuses.
+Android takes it as a test provider (`cmd location providers ...`, through
+android-location-set, root's half): it marks those fixes as such, and an app that refuses
+them, refuses.
 
     android-location        (until stopped)
 """
@@ -17,61 +17,30 @@ from gi.repository import Gio, GLib
 
 GEOCLUE = "org.freedesktop.GeoClue2"
 EXACT = 8
-PROVIDER = "gps"
+HELPER = "/usr/lib/mobarchy/android-location-set"
+EVERY_S = 3         # (each one starts a shell in the container: not more often)
 
 
 def log(msg: str) -> None:
     print(f"android-location: {msg}", flush=True)
 
 
-def android_ip() -> str:
-    out = subprocess.run(["waydroid", "status"], capture_output=True, text=True).stdout
-    for line in out.splitlines():
-        if line.startswith("IP address:"):
-            return line.split(":", 1)[1].strip()
-    return ""
-
-
-class Android:
-    def __init__(self):
-        self.serial = ""
-
-    def adb(self, *args: str) -> bool:
-        r = subprocess.run(["adb", "-s", self.serial, "shell", *args], capture_output=True, text=True, timeout=20)
-        if r.returncode != 0 or "Exception" in r.stdout + r.stderr:
-            log(f"{' '.join(args)}: {(r.stdout + r.stderr).strip()[:200]}")
-            return False
-        return True
-
-    def connect(self) -> bool:
-        ip = android_ip()
-        if not ip:
-            return False
-        self.serial = f"{ip}:5555"
-        r = subprocess.run(["adb", "connect", self.serial], capture_output=True, text=True, timeout=20)
-        if "connected" not in r.stdout:
-            return False
-        # (the shell may set test providers)
-        self.adb("appops", "set", "com.android.shell", "android:mock_location", "allow")
-        self.adb("cmd", "location", "set-location-enabled", "true")
-        self.adb("cmd", "location", "providers", "add-test-provider", PROVIDER)
-        return self.adb("cmd", "location", "providers", "set-test-provider-enabled", PROVIDER, "true")
-
-    def tell(self, lat: float, lon: float, accuracy: float) -> bool:
-        return self.adb("cmd", "location", "providers", "set-test-provider-location", PROVIDER,
-                        "--location", f"{lat},{lon}", "--accuracy", f"{max(1.0, accuracy):.0f}")
+def helper(*args: str) -> bool:
+    r = subprocess.run(["sudo", "-n", HELPER, *args], capture_output=True, text=True, timeout=30)
+    if r.returncode != 0 or "Exception" in r.stdout:
+        log(f"{' '.join(args)}: {(r.stdout + r.stderr).strip()[:300]}")
+        return False
+    return True
 
 
 def main() -> int:
-    android = Android()
     for _ in range(60):     # (Android is still booting, at first)
-        if android.connect():
+        if helper("start"):
             break
         time.sleep(5)
     else:
-        log("Android did not answer on adb")
+        log("Android did not take the provider")
         return 1
-    log(f"Android at {android.serial}")
 
     bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
 
@@ -87,27 +56,32 @@ def main() -> int:
     (client,) = call("/org/freedesktop/GeoClue2/Manager", "org.freedesktop.GeoClue2.Manager", "CreateClient")
     setp(client, "DesktopId", GLib.Variant("s", "org.mobarchy.Android"))
     setp(client, "RequestedAccuracyLevel", GLib.Variant("u", EXACT))
-    setp(client, "TimeThreshold", GLib.Variant("u", 2))
+    setp(client, "TimeThreshold", GLib.Variant("u", EVERY_S))
+
+    last = [0.0]
 
     def updated(_bus, _sender, _path, _iface, _signal, params, _data):
-        new = params.unpack()[1]
-        props = bus.call_sync(GEOCLUE, new, "org.freedesktop.DBus.Properties", "GetAll",
-                              GLib.Variant("(s)", ("org.freedesktop.GeoClue2.Location",)),
-                              None, Gio.DBusCallFlags.NONE, 10000, None).unpack()[0]
-        if android.tell(props["Latitude"], props["Longitude"], props["Accuracy"]):
-            log(f"{props['Latitude']:.5f},{props['Longitude']:.5f} ±{props['Accuracy']:.0f} m")
+        if time.monotonic() - last[0] < EVERY_S:
+            return
+        last[0] = time.monotonic()
+        p = bus.call_sync(GEOCLUE, params.unpack()[1], "org.freedesktop.DBus.Properties", "GetAll",
+                          GLib.Variant("(s)", ("org.freedesktop.GeoClue2.Location",)),
+                          None, Gio.DBusCallFlags.NONE, 10000, None).unpack()[0]
+        if helper(f"{p['Latitude']:.6f}", f"{p['Longitude']:.6f}", f"{max(1.0, p['Accuracy']):.0f}"):
+            log(f"{p['Latitude']:.5f},{p['Longitude']:.5f} ±{p['Accuracy']:.0f} m")
 
     bus.signal_subscribe(GEOCLUE, "org.freedesktop.GeoClue2.Client", "LocationUpdated", client, None,
                          Gio.DBusSignalFlags.NONE, updated, None)
     call(client, "org.freedesktop.GeoClue2.Client", "Start")
+    log("started")
     loop = GLib.MainLoop()
     GLib.unix_signal_add(GLib.PRIORITY_HIGH, 15, loop.quit)
     loop.run()
     try:
         call(client, "org.freedesktop.GeoClue2.Client", "Stop")
-        android.adb("cmd", "location", "providers", "remove-test-provider", PROVIDER)
     except GLib.Error:
         pass
+    helper("stop")
     return 0
 
 

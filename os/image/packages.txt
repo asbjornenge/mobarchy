@@ -66,5 +66,3 @@ wl-clipboard
 # Android apps (ADR 0029): Waydroid, with the GPU's Mesa over its vendor image's
 waydroid
 mobarchy-waydroid-mesa
-# (adb: the phone's location into Android, android-location)
-android-tools

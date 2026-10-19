@@ -54,9 +54,13 @@ drawing its windows as Wayland clients of Hyprland.
 - **Location (2026-10-19).** Waydroid has no location of its own. `android-location`
   (started by `mobarchy-android` with the session) asks GeoClue where the phone is (ADR
   0033; the shell's location agent trusts `org.mobarchy.Android`, and Android's own
-  per-app permission decides from there) and gives it to Android over adb as a test
-  provider named "gps" (`cmd location providers set-test-provider-location`). Android
-  marks those fixes as from a test provider: an app that refuses them, refuses.
+  per-app permission decides from there) and gives it to Android as a test provider named
+  "gps" (`cmd location providers set-test-provider-location`) through
+  `android-location-set`, a root helper the owner's session may run without the PIN
+  (`sudoers.d/zz-mobarchy-android`; numbers only). Root's commands get the mock-location
+  app-op; adb was tried first, but Waydroid's adbd authorised and then dropped the
+  connection. Android marks those fixes as from a test provider: an app that refuses them,
+  refuses.
 - **No spoofing.** Play Integrity will say the device is not certified. We don't fake
   certification or fingerprints to get past that: if an app refuses, it refuses.
 
