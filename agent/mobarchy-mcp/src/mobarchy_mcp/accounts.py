@@ -107,7 +107,19 @@ def locked():
 
 # --- the keyring ----------------------------------------------------------------------------
 
+def keyring_locked() -> bool:
+    """Whether the default keyring is locked (a phone with a PIN, not unlocked since it
+    started). Asking it for a secret then would put up GNOME Keyring's password dialog, so
+    nothing here does: the sync waits for the unlock (the shell starts one then)."""
+    r = subprocess.run(["busctl", "--user", "get-property", "org.freedesktop.secrets",
+                        "/org/freedesktop/secrets/aliases/default", "org.freedesktop.Secret.Collection",
+                        "Locked"], capture_output=True, text=True, timeout=30)
+    return r.returncode == 0 and r.stdout.strip() == "b true"
+
+
 def secret_store(key: str, value: str, label: str) -> None:
+    if keyring_locked():
+        raise AccountError("the keyring is locked: unlock the phone first")
     r = subprocess.run(["secret-tool", "store", f"--label={label}", "service", KEYRING, "key", key],
                        input=value, text=True, capture_output=True, timeout=30)
     if r.returncode != 0:
@@ -115,6 +127,8 @@ def secret_store(key: str, value: str, label: str) -> None:
 
 
 def secret_get(key: str) -> str:
+    if keyring_locked():
+        raise AccountError("the keyring is locked: unlock the phone first")
     r = subprocess.run(["secret-tool", "lookup", "service", KEYRING, "key", key],
                        text=True, capture_output=True, timeout=30)
     if r.returncode != 0 or not r.stdout:
@@ -615,7 +629,10 @@ def _sync_account(account: dict) -> None:
 
 def sync(account_id: str = "") -> dict:
     """Fetch what changed, for one account or all; an account that fails keeps its last
-    contacts and says why."""
+    contacts and says why. Nothing while the keyring is locked ("locked": the accounts as
+    they are)."""
+    if keyring_locked():
+        return {**list_accounts(), "locked": True}
     with locked():
         cfg = load_config()
         for account in cfg["accounts"]:

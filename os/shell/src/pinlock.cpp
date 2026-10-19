@@ -1,5 +1,7 @@
 #include "pinlock.h"
 
+#include "launch.h"
+
 #include <QDBusArgument>
 #include <QDBusConnection>
 #include <QDBusMessage>
@@ -228,6 +230,11 @@ void PinLock::setGiven()
     f.open(QIODevice::WriteOnly);
     m_givenSinceBoot = true;
     emit givenSinceBootChanged();
+    // The keyring is open now (pam_gnome_keyring): the accounts' sync, which waits for that
+    // rather than asking for the keyring's password, can run.
+    launch::detached(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("start"),
+                                                   QStringLiteral("--no-block"),
+                                                   QStringLiteral("mobarchy-accounts-sync.service")});
 }
 
 void PinLock::change(const QString &oldPin, const QString &newPin)

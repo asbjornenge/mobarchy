@@ -28,6 +28,7 @@ class Server:
         self.read_only = False          # (a calendar shared without changes)
         self.events = {"/cal/work/e1.ics": ("c1", EVENT.replace("&#13;", "\r"))}
         self.puts = []
+        self.keyring_locked = False
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -167,6 +168,7 @@ def server(tmp_path, monkeypatch):
     monkeypatch.setattr(accounts, "secret_get", lambda k: keyring[k])
     monkeypatch.setattr(accounts, "secret_clear", lambda k: keyring.pop(k, None))
     s = Server()
+    monkeypatch.setattr(accounts, "keyring_locked", lambda: s.keyring_locked)
     monkeypatch.setattr(accounts, "ICLOUD", s.url)
     monkeypatch.setattr(accounts, "ICLOUD_CAL", s.url)
     yield s
@@ -339,3 +341,11 @@ def test_google_read_only_sign_in_cannot_write():
     assert not accounts._may_write({"type": "google", "scope": "https://www.googleapis.com/auth/calendar.readonly"})
     assert accounts._may_write({"type": "google", "scope": "openid https://www.googleapis.com/auth/calendar"})
     assert accounts._may_write({"type": "icloud"})
+
+
+def test_no_sync_while_the_keyring_is_locked(server):
+    accounts.add_icloud("me@icloud.com", "app-pw")
+    server.keyring_locked = True
+    server.reports = 0
+    out = accounts.sync()
+    assert out["locked"] and out["accounts"][0]["error"] == "" and server.reports == 0
