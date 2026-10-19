@@ -15,22 +15,10 @@ BoardCard {
     // middle of the card
     readonly property bool wide: cols > rows
 
-    // Tapped: she gathers herself (a little smaller, spinning up), then the conversation opens
-    // (her waking up begins at once).
+    // Tapped: she wakes up (her orb here swirls, "starting"), and the conversation opens
+    // over everything when she has (TalkOverlay follows her); already awake, it opens at once.
     signal asked()
-    onTapped: if (!windUp.running) {
-        talk.start()
-        orb.release(700, 0)
-        windUp.start()
-    }
-    SequentialAnimation {
-        id: windUp
-        NumberAnimation { target: orb; property: "scale"; to: 0.86; duration: 170; easing.type: Easing.InOutQuad }
-        NumberAnimation { target: orb; property: "scale"; to: 1.1; duration: 150; easing.type: Easing.OutQuad }
-        ScriptAction { script: card.asked() }
-        PauseAnimation { duration: 250 }
-        NumberAnimation { target: orb; property: "scale"; to: 1; duration: 200 }
-    }
+    onTapped: talk.talking ? asked() : talk.start()
 
     Item {
         id: stage
