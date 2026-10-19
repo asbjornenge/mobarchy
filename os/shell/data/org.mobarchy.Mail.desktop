@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Mail
+Comment=Your email: swipe to archive or snooze
+Exec=mobarchy-shell --mail
+Icon=org.mobarchy.Mail
+Categories=Network;Email;
