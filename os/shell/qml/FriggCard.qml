@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Shapes
 import Mobarchy.Shell
 
-// Frigg on the home board: her orb, turning, breathing. Tapped, the live conversation begins
+// Frigg on the home board: her orb, turning, breathing. Tapped, the conversation opens, live
 // (ADR 0026), and the orb grows into the conversation's own.
 BoardCard {
     id: card
@@ -15,7 +15,8 @@ BoardCard {
     // middle of the card
     readonly property bool wide: cols > rows
 
-    onTapped: if (!talk.talking) talk.start()
+    signal asked()
+    onTapped: asked()
 
     Item {
         id: stage

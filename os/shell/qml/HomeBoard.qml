@@ -21,8 +21,10 @@ Flickable {
     required property AppModel apps
     required property ToplevelModel toplevels
     required property Talk talk
-    // room kept free at the bottom (the Frigg pill)
+    // room kept free at the bottom
     property real bottomInset: 0
+    // the Frigg card tapped: the conversation, live
+    signal friggAsked()
 
     property bool editing: false
     property bool adding: false     // the list of cards to add, while editing
@@ -279,6 +281,7 @@ Flickable {
             id: frigg
             kind: "frigg"; name: "Frigg"; sizes: [[4, 2], [2, 2], [4, 4]]
             talk: board.talk
+            onAsked: board.friggAsked()
             Placed { card: frigg }
         }
         WeatherCard {

@@ -110,6 +110,7 @@ qt_add_qml_module(mobarchy-shell
         qml/Gallery.qml
         qml/Wheel.qml
         qml/TalkOverlay.qml
+        qml/FriggStage.qml
         qml/AppSwitcher.qml
         qml/FriggSettings.qml
         qml/Home.qml

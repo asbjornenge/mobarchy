@@ -31,6 +31,13 @@ QtObject {
         settings: shell.friggSettings
         locked: shell.lockScreen.shown
         insetBottom: shell.edge.inset
+        hosted: shell.home.hostsTalk
+        // on in text: at home
+        onTextAsked: {
+            shell.talk.stop()
+            shell.goHome()
+            shell.home.openFrigg("text")
+        }
     }
     readonly property Keyboard keyboard: Keyboard {}
     readonly property Clipboard clipboard: Clipboard {}
@@ -199,7 +206,7 @@ QtObject {
         switcher.close()
         quick.close()
         keyboard.visible = false
-        home.collapse()     // home is the widgets: the conversation goes back into its pill
+        home.collapse()     // home is the widgets: the conversation closes
         if (!home.visible)
             home.show()
         toplevels.activateOwn(home.title)
@@ -322,6 +329,7 @@ QtObject {
     readonly property Home home: Home {
         agent: shell.agent
         talk: shell.talk
+        friggSettings: shell.friggSettings
         keyboard: shell.keyboard
         media: shell.media
         alarms: shell.alarms

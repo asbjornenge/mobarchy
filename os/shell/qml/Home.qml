@@ -4,10 +4,12 @@ import QtQuick
 import QtQuick.Window
 import Mobarchy.Shell
 
-// Home: widgets (HomeBoard), and the agent one tap away. At the bottom a pill, "Ask Frigg …";
-// tapped (or something asked or said) it grows into a sheet with the conversation: a feed of
-// what the agent says and does, and the field to ask it something. Swiped down (or home) it
-// shrinks back into the pill.
+// Home: widgets (HomeBoard), and the agent one tap away: the Frigg card opens the
+// conversation, live (FriggStage: her orb, what she hears and says) or in text (a feed of what
+// the agent says and does, and the field to ask it something; her orb small in the corner).
+// "Aa" goes from live to text, the small orb back to live; the conversations (earlier ones, a
+// new one) are at the top in both. Swiped down (or home) it closes, and a live conversation
+// ends.
 // A normal window, not a layer surface: text input (and the on-screen keyboard) only
 // works there on Hyprland (ADR 0006).
 //
@@ -18,6 +20,7 @@ Window {
 
     required property Agent agent
     required property Talk talk
+    required property FriggSettings friggSettings
     required property Keyboard keyboard
     required property MediaPlayers media
     required property Alarms alarms
@@ -50,9 +53,12 @@ Window {
         opacity: 0.6 + 0.3 * home.open
     }
 
-    // --- the sheet: 0 = the pill, 1 = the conversation ----------------------------------------
-    // (Until an agent is chosen, the sheet is where one is chosen.)
+    // --- the conversation: 0 = closed (the widgets), 1 = open --------------------------------
+    // (Until an agent is chosen, it is where one is chosen.)
     property real open: 0
+    property string mode: "live"    // "live" (talking with Frigg) or "text"
+    // Frigg is shown here, not in the overlay: open (from the first frame), live, in front
+    readonly property bool hostsTalk: open > 0 && mode === "live" && active
     property bool sheetDragging: false
     readonly property real chatOpacity: Math.max(0, (open - 0.35) / 0.65)
     Behavior on open {
@@ -60,7 +66,31 @@ Window {
         NumberAnimation { duration: 320; easing.type: Easing.OutCubic }
     }
     function expand() { open = 1 }
+    function openFrigg(how) {
+        picking = false
+        browsing = false
+        mode = chosen ? how : "text"
+        open = 1
+        if (mode === "live" && !talk.talking)
+            talk.start()
+    }
+    function toText() {
+        if (talk.talking)
+            talk.stop()
+        mode = "text"
+    }
+    function toLive() {
+        ask.focus = false
+        keyboard.visible = false
+        browsing = false
+        picking = false
+        mode = "live"
+        if (!talk.talking)
+            talk.start()
+    }
     function collapse() {
+        if (open > 0 && mode === "live" && talk.talking)
+            talk.stop()
         picking = false
         browsing = false
         ask.focus = false
@@ -93,20 +123,20 @@ Window {
         apps: home.apps
         toplevels: home.toplevels
         talk: home.talk
-        bottomInset: composer.height + 32
+        bottomInset: 8
+        onFriggAsked: home.openFrigg("live")
     }
 
-    // The sheet's ground, from the pill's place and shape to (nearly) the whole window.
+    // The conversation's ground, over the widgets (which fade and recede).
     Rectangle {
         id: sheet
         readonly property real topGap: 8
         visible: home.open > 0
-        x: composer.x * (1 - home.open)
-        y: composer.y + (topGap - composer.y) * home.open
-        width: composer.width + (home.width - composer.width) * home.open
-        height: composer.height + (home.height - topGap - composer.height) * home.open
-        radius: 24 + 4 * home.open
-        color: Qt.alpha(Theme.bgDark, 0.6 + 0.35 * home.open)
+        anchors.fill: parent
+        anchors.topMargin: topGap + 40 * (1 - home.open)
+        opacity: home.open
+        radius: 28
+        color: Qt.alpha(Theme.bgDark, 0.95)
         border.color: Theme.line
 
         // the grip: drag (or tap) to put the conversation away
@@ -222,11 +252,30 @@ Window {
         agent.newConversation()
     }
 
+    // --- Frigg: live, large; in text, small in the corner -----------------------------------
+    FriggStage {
+        id: stage
+        anchors { fill: parent; topMargin: sheet.topGap + grip.height }
+        visible: home.chosen && home.open > 0
+        opacity: home.chatOpacity
+        talk: home.talk
+        settings: home.friggSettings
+        small: home.mode === "text"
+        topInset: 60
+        smallSize: 40
+        smallRight: 16
+        smallTop: 0
+        onCloseAsked: home.collapse()
+        onTextAsked: home.toText()
+        onLiveAsked: home.toLive()
+    }
+
     // --- header: the active agent, and a new conversation ---------------------------------
     Item {
         id: header
         anchors { left: parent.left; right: parent.right; top: parent.top; margins: 16
-                  topMargin: sheet.topGap + grip.height }
+                  topMargin: sheet.topGap + grip.height
+                  rightMargin: home.mode === "text" ? 16 + 40 + 8 : 16 }
         height: 40
         visible: home.chosen && home.open > 0
         opacity: home.chatOpacity
@@ -313,7 +362,7 @@ Window {
         spacing: 10
         clip: true
         model: feed
-        visible: home.chosen && home.open > 0
+        visible: home.chosen && home.open > 0 && home.mode === "text"
         opacity: home.chatOpacity
         // No current item: otherwise the view animates its (invisible) highlight towards
         // it and renders at full frame rate for seconds.
@@ -720,27 +769,11 @@ Window {
         height: 52
         radius: 26
         z: 5
-        // (not while the board is being arranged)
-        visible: !board.editing
+        // in text (or while logging in: the code to paste)
+        visible: home.open > 0 && (home.chosen && home.mode === "text" || home.agent.awaitingCode)
+        opacity: home.chatOpacity
         color: Theme.panel
         border.color: ask.activeFocus ? Theme.accent : Theme.line
-
-        // no agent yet: the pill opens the sheet, to choose one
-        MouseArea {
-            anchors.fill: parent
-            enabled: !home.chosen && !home.agent.awaitingCode
-            onClicked: home.expand()
-        }
-        // the pill: pulled up, it opens the conversation
-        DragHandler {
-            target: null
-            enabled: home.open < 0.5
-            yAxis.enabled: true
-            xAxis.enabled: false
-            onActiveChanged: if (active) home.sheetDragging = true
-                             else home.settle(centroid.velocity.y)
-            onTranslationChanged: if (active) home.open = Math.max(0, Math.min(1, -translation.y / (home.height * 0.6)))
-        }
 
         // Cancel talking.
         MouseArea {
@@ -767,7 +800,6 @@ Window {
             font { family: Theme.font; pixelSize: 15 }
             onAccepted: home.submit()
             enabled: home.chosen || home.agent.awaitingCode
-            onActiveFocusChanged: if (activeFocus) home.expand()
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 visible: !ask.text && !ask.activeFocus
@@ -810,11 +842,7 @@ Window {
                 }
             }
             // Holding the microphone: talk with Frigg, live (ADR 0026); a tap dictates.
-            onPressAndHold: if (mode === "talk") {
-                ask.focus = false
-                home.keyboard.visible = false
-                home.talk.start()
-            }
+            onPressAndHold: if (mode === "talk") home.toLive()
             Text {
                 anchors.centerIn: parent
                 text: ({ stop: "󰓛", finish: "󰒊", wait: "󰔟", send: "󰒊", talk: "󰍬" })[action.mode]
