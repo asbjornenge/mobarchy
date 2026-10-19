@@ -406,8 +406,12 @@ Window {
     Component {
         id: callScreen
         Item {
+            id: inCall
             readonly property var c: win.activeCall
+            property bool showPad: false
+            property string tones: ""   // what was keyed in this call (an answering machine's menu)
             Column {
+                visible: !inCall.showPad
                 anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: 150 }
                 spacing: 12
                 Text {
@@ -424,16 +428,60 @@ Window {
                     font { family: Theme.font; pixelSize: 16 }
                 }
             }
-            // mute and speaker (when the device has call audio)
+            // the keypad: tones to the other end (DTMF)
+            Column {
+                visible: inCall.showPad
+                anchors { horizontalCenter: parent.horizontalCenter; bottom: options.top; bottomMargin: 30 }
+                spacing: 16
+                Text {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: Math.min(inCall.width - 40, 320)
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideLeft
+                    text: inCall.tones
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 32 }
+                }
+                Grid {
+                    id: tonePad
+                    columns: 3
+                    spacing: 16
+                    Repeater {
+                        model: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"]
+                        delegate: Rectangle {
+                            id: toneKey
+                            required property string modelData
+                            width: 72; height: 72; radius: 36
+                            color: toneTap.pressed ? Theme.line : Theme.panel
+                            Text {
+                                anchors.centerIn: parent
+                                text: toneKey.modelData
+                                color: Theme.fg
+                                font { family: Theme.font; pixelSize: 30 }
+                            }
+                            TapHandler {
+                                id: toneTap
+                                onTapped: {
+                                    tel.sendTones(toneKey.modelData)
+                                    inCall.tones += toneKey.modelData
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // the keypad, and mute and speaker (when the device has call audio)
             Row {
+                id: options
                 anchors { horizontalCenter: parent.horizontalCenter; bottom: hangupButton.top; bottomMargin: 40 }
                 spacing: 48
-                visible: tel.callAudio
                 Repeater {
                     model: [
+                        { label: qsTr("Keypad"), icon: "󰌌", on: inCall.showPad, toggle: () => inCall.showPad = !inCall.showPad }
+                    ].concat(tel.callAudio ? [
                         { label: qsTr("Mute"), icon: "󰍭", on: tel.muted, toggle: () => tel.setMuted(!tel.muted) },
                         { label: qsTr("Speaker"), icon: "󰕾", on: tel.speaker, toggle: () => tel.setSpeaker(!tel.speaker) }
-                    ]
+                    ] : [])
                     delegate: Column {
                         id: opt
                         required property var modelData
