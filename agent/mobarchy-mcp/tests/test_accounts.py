@@ -25,6 +25,9 @@ class Server:
         self.polls = 0
         self.calendars_off = False      # (as Google's, with the CalDAV API not turned on)
         self.no_reports = False         # (as Google's with calendar.readonly: no REPORT)
+        self.read_only = False          # (a calendar shared without changes)
+        self.events = {"/cal/work/e1.ics": ("c1", EVENT.replace("&#13;", "\r"))}
+        self.puts = []
         outer = self
 
         class H(http.server.BaseHTTPRequestHandler):
@@ -64,14 +67,18 @@ class Server:
                                    "</d:resourcetype></d:prop></d:propstat></d:response>"
                                    "<d:response><d:href>/cal/work/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/>"
                                    "<cal:calendar/></d:resourcetype><d:displayname>Jobb</d:displayname>"
-                                   "<a:calendar-color>#FF8800FF</a:calendar-color><cal:supported-calendar-component-set>"
+                                   "<a:calendar-color>#FF8800FF</a:calendar-color>"
+                                   + ("<d:current-user-privilege-set><d:privilege><d:read/></d:privilege>"
+                                      "</d:current-user-privilege-set>" if outer.read_only else "")
+                                   + "<cal:supported-calendar-component-set>"
                                    '<cal:comp name="VEVENT"/></cal:supported-calendar-component-set></d:prop></d:propstat></d:response>'
                                    "<d:response><d:href>/cal/tasks/</d:href><d:propstat><d:prop><d:resourcetype><d:collection/>"
                                    "<cal:calendar/></d:resourcetype><d:displayname>Gjøremål</d:displayname><cal:supported-calendar-component-set>"
                                    '<cal:comp name="VTODO"/></cal:supported-calendar-component-set></d:prop></d:propstat></d:response>')
                 if p == "/cal/work/":
-                    return self.ms('<d:response><d:href>/cal/work/</d:href></d:response><d:response><d:href>/cal/work/e1.ics</d:href>'
-                                   "<d:propstat><d:prop><d:getetag>c1</d:getetag></d:prop></d:propstat></d:response>")
+                    return self.ms('<d:response><d:href>/cal/work/</d:href></d:response>' + "".join(
+                        f"<d:response><d:href>{h}</d:href><d:propstat><d:prop><d:getetag>{e}</d:getetag>"
+                        "</d:prop></d:propstat></d:response>" for h, (e, _) in outer.events.items()))
                 if p == "/principal/":
                     return self.ms("<d:response><d:href>/principal/</d:href><d:propstat><d:prop><c:addressbook-home-set>"
                                    "<d:href>/home/</d:href></c:addressbook-home-set></d:prop></d:propstat></d:response>")
@@ -104,9 +111,30 @@ class Server:
                 self.reply(404)
 
             def do_GET(self):
-                if self.path == "/cal/work/e1.ics":
-                    return self.reply(200, EVENT.replace("&#13;", "\r"))
+                if self.path in outer.events:
+                    return self.reply(200, outer.events[self.path][1])
                 self.reply(404)
+
+            def do_PUT(self):
+                ics = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
+                have = outer.events.get(self.path)
+                if outer.read_only:
+                    return self.reply(403)
+                if (self.headers.get("If-None-Match") == "*" and have) or \
+                        (self.headers.get("If-Match") and (not have or have[0] != self.headers["If-Match"])):
+                    return self.reply(412)
+                outer.puts.append((self.path, ics))
+                outer.events[self.path] = (f"v{len(outer.puts)}", ics)
+                self.reply(204 if have else 201, headers={"ETag": f"v{len(outer.puts)}"})
+
+            def do_DELETE(self):
+                have = outer.events.get(self.path)
+                if not have:
+                    return self.reply(404)
+                if self.headers.get("If-Match") and have[0] != self.headers["If-Match"]:
+                    return self.reply(412)
+                del outer.events[self.path]
+                self.reply(204)
 
             def do_REPORT(self):
                 body = self.rfile.read(int(self.headers.get("Content-Length", 0))).decode()
@@ -114,8 +142,12 @@ class Server:
                 if outer.no_reports and "calendar-multiget" in body:
                     return self.reply(403, '<D:error xmlns:D="DAV:"/>')
                 if "calendar-multiget" in body:
-                    return self.ms("<d:response><d:href>/cal/work/e1.ics</d:href><d:propstat><d:prop><d:getetag>c1</d:getetag>"
-                                   "<cal:calendar-data>" + EVENT + "</cal:calendar-data></d:prop></d:propstat></d:response>")
+                    from xml.sax.saxutils import escape
+                    return self.ms("".join(
+                        f"<d:response><d:href>{h}</d:href><d:propstat><d:prop><d:getetag>{e}</d:getetag>"
+                        f"<cal:calendar-data>{escape(ics).replace(chr(13), '&#13;')}</cal:calendar-data>"
+                        "</d:prop></d:propstat></d:response>"
+                        for h, (e, ics) in outer.events.items() if f"<d:href>{h}</d:href>" in body))
                 items = "".join(f"<d:response><d:href>{h}</d:href><d:propstat><d:prop><d:getetag>{e}</d:getetag>"
                                 f"<c:address-data>{c}</c:address-data></d:prop></d:propstat></d:response>"
                                 for h, (e, c) in outer.cards.items() if f"<d:href>{h}</d:href>" in body)
@@ -257,3 +289,53 @@ def test_events_one_by_one_when_reports_are_refused(server):
     start = dt.datetime(2026, 10, 21, tzinfo=dt.timezone.utc)
     [ev] = calendars.events(start, start + dt.timedelta(days=1))
     assert ev["title"] == "Lansering"
+
+
+def _day_events():
+    import datetime as dt
+    from mobarchy_mcp import calendars
+    start = dt.datetime(2026, 10, 21, tzinfo=dt.timezone.utc)
+    return calendars.events(start, start + dt.timedelta(days=1))
+
+
+def test_account_events_changed_and_deleted(server):
+    from mobarchy_mcp import calendars
+    accounts.add_icloud("me@icloud.com", "app-pw")
+    [ev] = _day_events()
+    assert ev["editable"]
+    calendars.update_event("e1", title="Lansering!")
+    path, ics = server.puts[-1]
+    assert path == "/cal/work/e1.ics" and "SUMMARY:Lansering!" in ics
+    assert [e["title"] for e in _day_events()] == ["Lansering!"]     # (before a sync)
+    calendars.delete_event("e1")
+    assert "/cal/work/e1.ics" not in server.events and _day_events() == []
+    accounts.sync()
+    assert _day_events() == []
+
+
+def test_event_added_to_an_account(server):
+    from mobarchy_mcp import calendars
+    cal = accounts.add_icloud("me@icloud.com", "app-pw")["accounts"][0]["calendars"][0]
+    out = calendars.add_event("Planlegging", "2026-10-21T13:00", calendar=f"icloud-me-icloud-com|{cal['url']}")
+    [(path, ics)] = server.puts
+    assert path.startswith("/cal/work/") and out["added"] in ics
+    assert sorted(e["title"] for e in _day_events()) == ["Lansering", "Planlegging"]
+    accounts.sync()      # (what the server has now, with its etag)
+    assert sorted(e["title"] for e in _day_events()) == ["Lansering", "Planlegging"]
+
+
+def test_read_only_calendar_is_not_written(server):
+    from mobarchy_mcp import calendars
+    server.read_only = True
+    accounts.add_icloud("me@icloud.com", "app-pw")
+    [ev] = _day_events()
+    assert not ev["editable"]
+    with pytest.raises(calendars.CalendarError, match="read only"):
+        calendars.delete_event("e1")
+    assert "/cal/work/e1.ics" in server.events
+
+
+def test_google_read_only_sign_in_cannot_write():
+    assert not accounts._may_write({"type": "google", "scope": "https://www.googleapis.com/auth/calendar.readonly"})
+    assert accounts._may_write({"type": "google", "scope": "openid https://www.googleapis.com/auth/calendar"})
+    assert accounts._may_write({"type": "icloud"})

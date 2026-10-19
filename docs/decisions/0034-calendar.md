@@ -23,10 +23,19 @@ from the phone's own calendar and the accounts' CalDAV calendars.**
   from Apple's `calendar-color`) and syncs their events like the contacts: etags, then
   `calendar-multiget` for what changed, into `~/.cache/mobarchy/caldav/<id>.json`. iCloud at
   `caldav.icloud.com` with the same app-specific password, Google at
-  `apidata.googleusercontent.com/caldav/v2/` (the OAuth sign-in asks for
-  `calendar.readonly` too; the CalDAV API must be on in the Google Cloud project), other
-  servers at their address. Read only for now: events are made in the phone's calendar.
-  Each calendar can be turned off in the Accounts app.
+  `apidata.googleusercontent.com/caldav/v2/` (the OAuth sign-in asks for `calendar` too;
+  the CalDAV API must be on in the Google Cloud project), other servers at their address.
+  Google refuses every REPORT to a sign-in with `calendar.readonly` (the first one asked
+  for); its events are then fetched one by one with GET, eight at a time. Each calendar can
+  be turned off in the Accounts app.
+- **Writing to the accounts' calendars** (2026-10-19): an account's event can be changed or
+  deleted, and an event added to an account's calendar, over CalDAV: PUT (with `If-Match`
+  on the etag it was synced with, `If-None-Match: *` for a new one) and DELETE. The synced
+  copy changes at once, so the app shows it before the next sync. A calendar is editable
+  when the server gives the user `write` on it (`current-user-privilege-set`) and the
+  sign-in lets the phone write: a Google account signed in with `calendar.readonly` is read
+  only until it is signed in again (the same account signed in again keeps its settings and
+  takes the new access). A repeating event is changed or deleted whole.
 - **Reading**: `mobarchy-calendar events --from <day> --days <n>` gives every occurrence in
   the range (repeating events expanded by `recurring-ical-events`, cancelled ones left out),
   in local time with the offset, each with its calendar's name and colour. One reader for the
@@ -39,11 +48,13 @@ from the phone's own calendar and the accounts' CalDAV calendars.**
   day or a time on wheels, how long, repeating, where, notes) and to see an account's. The
   home board's Calendar card: what is left of today and tomorrow; compact, the next one and
   when.
-- **Frigg**: `calendar_events`, `calendar_add`, `calendar_update`, `calendar_delete` (the
-  last one asks the owner).
+- **Frigg**: `calendar_events` (with the calendars and whether each is editable),
+  `calendar_add` (to the phone's calendar, or an account's by its id), `calendar_update`,
+  `calendar_delete` (it asks the owner); the last two for the accounts' events too.
 
 ## Consequences
 
-- Writing to the accounts' calendars (CalDAV PUT) comes later; until then an event made on
-  the phone stays on the phone.
+- The Calendar app adds new events to the phone's calendar only (no calendar to choose
+  yet); Frigg can add to an account's. One occurrence of a repeating event cannot be
+  changed or deleted on its own yet.
 - Reminders (alarms in events) are not rung yet.

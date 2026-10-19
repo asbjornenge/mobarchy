@@ -1,5 +1,6 @@
 """The owner's internet accounts (ADR 0032): their contacts from iCloud, Google and other CardDAV
-servers, read-only, kept on the phone beside the owner's own.
+servers, read-only, kept on the phone beside the owner's own; and their calendars (ADR 0034),
+whose events the phone may also change.
 
   ~/.config/mobarchy/accounts.json        the accounts and which address books are on
   the keyring (secret-tool)               passwords, OAuth refresh tokens, the Google client
@@ -16,7 +17,8 @@ Sign-in:
   account.apple.com), checked against the server before it is kept.
 - Other CardDAV servers: a user name and a password, checked the same way.
 
-Nothing is ever written to the servers. `mobarchy-accounts`, the command, prints JSON."""
+Only events are ever written to the servers (write_event, delete_event: an event the owner or
+Frigg added, changed or deleted). `mobarchy-accounts`, the command, prints JSON."""
 
 from __future__ import annotations
 
@@ -33,6 +35,7 @@ import secrets
 import subprocess
 import sys
 import time
+import uuid
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -46,8 +49,8 @@ GOOGLE_DAV = "https://www.googleapis.com/.well-known/carddav"
 GOOGLE_CAL = "https://apidata.googleusercontent.com/caldav/v2/"
 GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
-GOOGLE_SCOPES = ("https://www.googleapis.com/auth/carddav https://www.googleapis.com/auth/calendar.readonly "
-                 "openid email")
+GOOGLE_CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar"   # (read and write)
+GOOGLE_SCOPES = f"https://www.googleapis.com/auth/carddav {GOOGLE_CALENDAR_SCOPE} openid email"
 KEYRING = "mobarchy-accounts"
 # Mobarchy's Google OAuth client: {"client_id", "client_secret"}. A "Desktop app" client's
 # secret is not a secret in Google's sense (every copy of the app has it), but it stays out
@@ -198,6 +201,12 @@ def calendar_base_for(account: dict) -> str:
     return {"icloud": ICLOUD_CAL, "google": GOOGLE_CAL}.get(account["type"], account.get("url", ""))
 
 
+def _may_write(account: dict) -> bool:
+    """Whether the sign-in lets Mobarchy change the account's events (a Google account
+    signed in for reading only does not)."""
+    return account["type"] != "google" or GOOGLE_CALENDAR_SCOPE in account.get("scope", "").split()
+
+
 def _discover_calendars(account: dict) -> str:
     """The account's event calendars, into it (new ones on, the others as they were). What
     went wrong, or "": then the calendars it had stay."""
@@ -208,7 +217,8 @@ def _discover_calendars(account: dict) -> str:
         return str(e)
     old = account.get("calendars", {})
     account["calendars"] = {c.url: {"name": c.name, "color": old.get(c.url, {}).get("color") or c.color,
-                                    "enabled": old.get(c.url, {}).get("enabled", True)} for c in found}
+                                    "enabled": old.get(c.url, {}).get("enabled", True),
+                                    "writable": c.writable and _may_write(account)} for c in found}
     return ""
 
 
@@ -269,7 +279,7 @@ def google_sign_in(open_browser=_open_browser, timeout: float = 300) -> dict:
         raise AccountError("Google gave no refresh token (remove the app's access in the Google "
                            "account and sign in again)")
     email = _jwt_email(tokens.get("id_token", ""))
-    return {"email": email, "refresh_token": tokens["refresh_token"]}
+    return {"email": email, "refresh_token": tokens["refresh_token"], "scope": tokens.get("scope", "")}
 
 
 def _jwt_email(token: str) -> str:
@@ -287,7 +297,8 @@ def _summary(a: dict) -> dict:
     return {"id": a["id"], "type": a["type"], "user": a["user"], "last_sync": a.get("last_sync"),
             "error": a.get("error", ""), "contacts": a.get("count", 0),
             "books": [{"url": u, "name": b["name"], "enabled": b["enabled"]} for u, b in a.get("books", {}).items()],
-            "calendars": [{"url": u, "name": c["name"], "color": c.get("color", ""), "enabled": c["enabled"]}
+            "calendars": [{"url": u, "name": c["name"], "color": c.get("color", ""), "enabled": c["enabled"],
+                           "writable": c.get("writable", False)}
                           for u, c in a.get("calendars", {}).items()]}
 
 
@@ -393,9 +404,23 @@ def add_nextcloud(url: str, **kwargs) -> dict:
 
 
 def add_google(**kwargs) -> dict:
+    """Sign in to Google: a new account, or one already here signed in again (what it may
+    do, as asked for now: an account from before calendars could be written to)."""
     got = google_sign_in(**kwargs)
     email = got["email"] or "google"
-    return _add({"id": _id("google", email), "type": "google", "user": email}, got["refresh_token"])
+    account_id = _id("google", email)
+    with locked():
+        cfg = load_config()
+        account = next((a for a in cfg["accounts"] if a["id"] == account_id), None)
+        if account is not None:
+            secret_store(account_id, got["refresh_token"], f"Mobarchy: google {email}")
+            account["scope"] = got["scope"]
+            _discover_calendars(account)
+            save_config(cfg)
+    if account is not None:
+        return sync(account_id)
+    return _add({"id": account_id, "type": "google", "user": email, "scope": got["scope"]},
+                got["refresh_token"])
 
 
 def remove(account_id: str) -> dict:
@@ -498,6 +523,75 @@ def _sync_calendars(account: dict) -> None:
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.write_text(json.dumps(cache, ensure_ascii=False))
     os.replace(tmp, path)
+
+
+def _writable_calendar(calendar_id: str) -> tuple[dict, str, dict, Path]:
+    """(the account, the calendar's url, its cached events, the cache file) for a calendar
+    that may be written to ("<account id>|<url>")."""
+    account_id, _, url = calendar_id.partition("|")
+    account = next((a for a in load_config()["accounts"] if a["id"] == account_id), None)
+    if account is None or url not in account.get("calendars", {}):
+        raise AccountError(f"no calendar {calendar_id}")
+    if not account["calendars"][url].get("writable"):
+        raise AccountError(_read_only(account))
+    path = caldav_dir() / f"{account_id}.json"
+    try:
+        cache = json.loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        cache = {}
+    return account, url, cache, path
+
+
+def _read_only(account: dict) -> str:
+    if not _may_write(account):
+        return (f"{account['user']}'s calendars are read only for Mobarchy: sign in to Google again "
+                f"(Accounts) to let it change them")
+    return "this calendar is read only (its owner shares it without changes)"
+
+
+def _write_error(account: dict, e: carddav.CardDAVError) -> AccountError:
+    if e.status == 403:
+        return AccountError(_read_only(account))
+    if e.status == 412:
+        return AccountError("the event was changed elsewhere meanwhile: try again (after a sync)")
+    return AccountError(str(e))
+
+
+def _save_cache(path: Path, cache: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(json.dumps(cache, ensure_ascii=False))
+    os.replace(tmp, path)
+
+
+def write_event(calendar_id: str, ics: str, href: str = "") -> str:
+    """An event into an account's calendar: over the one at href, or a new one. Its href.
+    The synced copy is changed at once, so it shows before the next sync."""
+    with locked():
+        account, url, cache, path = _writable_calendar(calendar_id)
+        events = cache.setdefault(url, {})
+        if not href:
+            href = urllib.parse.urljoin(url, f"{uuid.uuid4()}.ics")
+        try:
+            old = events.get(href)
+            etag = carddav.Client(auth_for(account)).put_event(href, ics, old["etag"] if old else None)
+        except carddav.CardDAVError as e:
+            raise _write_error(account, e) from e
+        events[href] = {"etag": etag, "ics": ics}     # ("" when not said: fetched again at the next sync)
+        _save_cache(path, cache)
+    return href
+
+
+def delete_event(calendar_id: str, href: str) -> None:
+    with locked():
+        account, url, cache, path = _writable_calendar(calendar_id)
+        events = cache.get(url, {})
+        try:
+            carddav.Client(auth_for(account)).delete(href, events.get(href, {}).get("etag", ""))
+        except carddav.CardDAVError as e:
+            raise _write_error(account, e) from e
+        events.pop(href, None)
+        _save_cache(path, cache)
 
 
 def _sync_account(account: dict) -> None:

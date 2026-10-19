@@ -1,12 +1,13 @@
-"""A small, read-only CardDAV (RFC 6352) and CalDAV (RFC 4791) client: enough to find a
-user's address books and calendars and fetch their contacts and events, from iCloud, Google
+"""A small CardDAV (RFC 6352) and CalDAV (RFC 4791) client: enough to find a user's address
+books and calendars, fetch their contacts and events, and write events, with iCloud, Google
 and other servers. The standard library only.
 
   discover(base) -> [AddressBook]   current-user-principal -> addressbook-home-set -> books
   list_cards(book) -> {href: etag}  what is in a book or calendar (PROPFIND, depth 1)
   fetch(book, hrefs) -> {href: (etag, vcard)}   addressbook-multiget, in batches
   discover_calendars(base) -> [Calendar]        ... -> calendar-home-set -> event calendars
-  fetch_events(calendar, hrefs) -> {href: (etag, ics)}  calendar-multiget
+  fetch_events(calendar, hrefs) -> {href: (etag, ics)}  calendar-multiget (or GET, one by one)
+  put_event(url, ics, etag) -> etag, delete(url, etag)  an event written or deleted
 
 Authentication is the caller's: a function that returns the Authorization header's value
 (Basic for iCloud's app-specific passwords, Bearer for Google's OAuth tokens)."""
@@ -47,6 +48,7 @@ class Calendar:
     url: str
     name: str
     color: str      # "#rrggbb", or ""
+    writable: bool = True   # (what the server says the user may do; the sign-in may say less)
 
 
 class Client:
@@ -55,23 +57,27 @@ class Client:
         self.timeout = timeout
 
     def request(self, method: str, url: str, body: str = "", depth: str | None = None,
-                redirects: int = 5) -> tuple[int, bytes, str]:
+                redirects: int = 5, headers: dict | None = None,
+                answer: dict | None = None) -> tuple[int, bytes, str]:
         """(status, body, final url); redirects followed for any method (urllib only does it
-        for GET), keeping the method and body."""
-        headers = {"Authorization": self.auth(), "User-Agent": USER_AGENT,
-                   "Content-Type": "application/xml; charset=utf-8"}
+        for GET), keeping the method and body. headers: more to send; answer: filled with
+        the response's."""
+        sent = {"Authorization": self.auth(), "User-Agent": USER_AGENT,
+                "Content-Type": "application/xml; charset=utf-8", **(headers or {})}
         if depth is not None:
-            headers["Depth"] = depth
+            sent["Depth"] = depth
         req = urllib.request.Request(url, data=body.encode() if body else None, method=method,
-                                     headers=headers)
+                                     headers=sent)
         opener = urllib.request.build_opener(NoRedirect)
         try:
             with opener.open(req, timeout=self.timeout) as r:
+                if answer is not None:
+                    answer.update(r.headers.items())
                 return r.status, r.read(), url
         except urllib.error.HTTPError as e:
             if e.code in (301, 302, 307, 308) and redirects and e.headers.get("Location"):
                 return self.request(method, urllib.parse.urljoin(url, e.headers["Location"]), body,
-                                    depth, redirects - 1)
+                                    depth, redirects - 1, headers, answer)
             if e.code == 403 and b"accessNotConfigured" in (e.read() or b""):
                 # (Google: the sign-in is fine, the API is not turned on in the client's project)
                 raise CardDAVError(f"{urllib.parse.urlsplit(url).netloc} is not turned on for this "
@@ -125,7 +131,8 @@ class Client:
             raise CardDAVError("the server has no calendars for this user")
         home = urllib.parse.urljoin(url, home)
         root, url = self.propfind(home, "<d:resourcetype/><d:displayname/><a:calendar-color/>"
-                                        "<cal:supported-calendar-component-set/>", "1")
+                                        "<cal:supported-calendar-component-set/>"
+                                        "<d:current-user-privilege-set/>", "1")
         out = []
         for resp in root.findall("d:response", NS):
             if resp.find(".//d:resourcetype/cal:calendar", NS) is None:
@@ -136,8 +143,30 @@ class Client:
             href = urllib.parse.urljoin(url, resp.findtext("d:href", "", NS))
             name = (resp.findtext(".//d:displayname", "", NS) or "").strip()
             color = (resp.findtext(".//a:calendar-color", "", NS) or "").strip()[:7]
-            out.append(Calendar(href, name or _last_segment(href), color if color.startswith("#") else ""))
+            privileges = resp.find(".//d:current-user-privilege-set", NS)
+            writable = privileges is None or any(
+                privileges.find(f".//d:privilege/d:{p}", NS) is not None for p in ("all", "write", "write-content"))
+            out.append(Calendar(href, name or _last_segment(href), color if color.startswith("#") else "",
+                                writable))
         return out
+
+    def put_event(self, url: str, ics: str, etag: str | None = None) -> str:
+        """Write an event at url: over the one with etag ("": whatever is there), or a new one
+        (None: none may be there). Its new etag, or "" if the server did not say."""
+        answer: dict = {}
+        condition = {"If-None-Match": "*"} if etag is None else {"If-Match": etag} if etag else {}
+        status, _, _ = self.request("PUT", url, ics, headers={
+            "Content-Type": "text/calendar; charset=utf-8", **condition}, answer=answer)
+        if status not in (200, 201, 204):
+            raise CardDAVError(f"PUT {url}: HTTP {status}", status)
+        return {k.lower(): v for k, v in answer.items()}.get("etag", "")
+
+    def delete(self, url: str, etag: str = "") -> None:
+        try:
+            self.request("DELETE", url, headers={"If-Match": etag} if etag else {})
+        except CardDAVError as e:
+            if e.status != 404:      # (gone already)
+                raise
 
     def fetch_events(self, calendar: str, hrefs: list[str]) -> dict[str, tuple[str, str]]:
         try:

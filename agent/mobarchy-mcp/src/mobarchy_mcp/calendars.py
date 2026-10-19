@@ -24,6 +24,8 @@ from pathlib import Path
 import icalendar
 import recurring_ical_events
 
+from . import accounts
+
 PHONE = "phone"
 PHONE_NAME = "Phone"
 PHONE_COLOR = "#7aa2f7"
@@ -107,18 +109,20 @@ def calendars() -> list[dict]:
     for a in accounts:
         for url, c in a.get("calendars", {}).items():
             out.append({"id": f"{a['id']}|{url}", "name": c.get("name", ""), "color": c.get("color") or PHONE_COLOR,
-                        "account": a.get("user", ""), "enabled": c.get("enabled", True), "editable": False})
+                        "account": a.get("user", ""), "enabled": c.get("enabled", True),
+                        "editable": c.get("writable", False)})
     return out
 
 
-def _sources() -> list[tuple[dict, list[icalendar.Calendar]]]:
-    """(calendar, its iCalendar objects), for the enabled ones."""
+def _sources(enabled_only: bool = True) -> list[tuple[dict, list[icalendar.Calendar]]]:
+    """(calendar, its iCalendar objects), for the enabled ones. An account's object knows
+    where it is on the server (.href)."""
     out = []
     by_id = {c["id"]: c for c in calendars()}
     out.append((by_id[PHONE], [_phone_calendar()]))
     caches = {}
     for c in by_id.values():
-        if c["id"] == PHONE or not c["enabled"]:
+        if c["id"] == PHONE or (enabled_only and not c["enabled"]):
             continue
         account, url = c["id"].split("|", 1)
         if account not in caches:
@@ -127,11 +131,13 @@ def _sources() -> list[tuple[dict, list[icalendar.Calendar]]]:
             except (FileNotFoundError, json.JSONDecodeError):
                 caches[account] = {}
         objects = []
-        for item in caches[account].get(url, {}).values():
+        for href, item in caches[account].get(url, {}).items():
             try:
-                objects.append(icalendar.Calendar.from_ical(item["ics"]))
+                obj = icalendar.Calendar.from_ical(item["ics"])
             except ValueError:
                 continue
+            obj.href = href
+            objects.append(obj)
         out.append((c, objects))
     return out
 
@@ -192,10 +198,11 @@ def _parse_when(text: str, tz) -> tuple[dt.datetime | dt.date, bool]:
 
 
 def add_event(title: str, start: str, end: str = "", location: str = "", notes: str = "",
-              repeat: str = "") -> dict:
-    """An event in the phone's calendar. start/end: "YYYY-MM-DD" for all day, or
-    "YYYY-MM-DDTHH:MM". end defaults to an hour on (a day for all day). repeat: an RRULE
-    ("FREQ=WEEKLY;BYDAY=MO") or "daily", "weekly", "monthly", "yearly"."""
+              repeat: str = "", calendar: str = PHONE) -> dict:
+    """An event in a calendar (the phone's, or an account's by its id). start/end:
+    "YYYY-MM-DD" for all day, or "YYYY-MM-DDTHH:MM". end defaults to an hour on (a day for
+    all day). repeat: an RRULE ("FREQ=WEEKLY;BYDAY=MO") or "daily", "weekly", "monthly",
+    "yearly"."""
     if not title.strip():
         raise CalendarError("an event needs a title")
     tz = local_tz()
@@ -228,57 +235,120 @@ def add_event(title: str, start: str, end: str = "", location: str = "", notes: 
             ev.add("rrule", icalendar.vRecur.from_ical(simple))
         except ValueError as e:
             raise CalendarError(f"repeat: not a rule ({simple})") from e
-    with locked():
-        cal = _phone_calendar()
-        cal.add_component(ev)
-        _save_phone(cal)
-    return {"added": uid, "title": title.strip(), "start": str(begin), "end": str(finish)}
+    if calendar and calendar != PHONE:
+        obj = icalendar.Calendar()
+        obj.add("prodid", "-//Mobarchy//Calendar//EN")
+        obj.add("version", "2.0")
+        obj.add_component(ev)
+        _write_account(calendar, obj, "")
+    else:
+        with locked():
+            cal = _phone_calendar()
+            cal.add_component(ev)
+            _save_phone(cal)
+    return {"added": uid, "title": title.strip(), "start": str(begin), "end": str(finish),
+            "calendar": calendar or PHONE}
 
 
 def _phone_event(uid: str, cal: icalendar.Calendar):
     for ev in cal.walk("VEVENT"):
-        if str(ev.get("uid")) == uid:
+        if str(ev.get("uid")) == uid and ev.get("recurrence-id") is None:
             return ev
-    raise CalendarError(f"no event {uid!r} in the phone's calendar (account calendars are read-only)")
+    return None
+
+
+def _account_event(uid: str):
+    """(calendar id, its object, the event) of an account's event by its uid."""
+    for c, objects in _sources(enabled_only=False):
+        if c["id"] == PHONE:
+            continue
+        for obj in objects:
+            ev = _phone_event(uid, obj)
+            if ev is not None:
+                return c, obj, ev
+    raise CalendarError(f"no event {uid!r}")
+
+
+def _write_account(calendar: str, obj: icalendar.Calendar, href: str) -> str:
+    with contextlib.suppress(Exception):
+        obj.add_missing_timezones()
+    try:
+        return accounts.write_event(calendar, obj.to_ical().decode(), href)
+    except accounts.AccountError as e:
+        raise CalendarError(str(e)) from e
+
+
+def _change(ev, tz, title, start, end, location, notes) -> None:
+    if title is not None:
+        ev["summary"] = icalendar.vText(title)
+    if start is not None:
+        old_start = ev.get("dtstart").dt
+        old_end = ev.get("dtend").dt if ev.get("dtend") is not None else old_start
+        begin, _ = _parse_when(start, tz)
+        ev.pop("dtstart")
+        ev.add("dtstart", begin)
+        if end is None:     # (moved: the same length)
+            ev.pop("dtend", None)
+            ev.pop("duration", None)
+            ev.add("dtend", begin + (old_end - old_start))
+    if end is not None:
+        finish, _ = _parse_when(end, tz)
+        ev.pop("dtend", None)
+        ev.pop("duration", None)
+        ev.add("dtend", finish)
+    for key, value in (("location", location), ("description", notes)):
+        if value is not None:
+            ev.pop(key, None)
+            if value:
+                ev.add(key, value)
+    for key in ("dtstamp", "last-modified"):
+        ev.pop(key, None)
+        ev.add(key, dt.datetime.now(dt.timezone.utc))
+    ev["sequence"] = int(ev.get("sequence", 0)) + 1
 
 
 def update_event(uid: str, title: str | None = None, start: str | None = None, end: str | None = None,
                  location: str | None = None, notes: str | None = None) -> dict:
+    """An event changed, in the phone's calendar or an account's (a repeating one: all of
+    its occurrences)."""
     tz = local_tz()
     with locked():
         cal = _phone_calendar()
         ev = _phone_event(uid, cal)
-        if title is not None:
-            ev["summary"] = icalendar.vText(title)
-        if start is not None:
-            old_start = ev.get("dtstart").dt
-            old_end = ev.get("dtend").dt if ev.get("dtend") is not None else old_start
-            begin, _ = _parse_when(start, tz)
-            ev.pop("dtstart")
-            ev.add("dtstart", begin)
-            if end is None:     # (moved: the same length)
-                ev.pop("dtend", None)
-                ev.add("dtend", begin + (old_end - old_start))
-        if end is not None:
-            finish, _ = _parse_when(end, tz)
-            ev.pop("dtend", None)
-            ev.add("dtend", finish)
-        for key, value in (("location", location), ("description", notes)):
-            if value is not None:
-                ev.pop(key, None)
-                if value:
-                    ev.add(key, value)
-        _save_phone(cal)
-    return {"updated": uid}
+        if ev is not None:
+            _change(ev, tz, title, start, end, location, notes)
+            _save_phone(cal)
+            return {"updated": uid}
+    c, obj, ev = _account_event(uid)
+    if not c["editable"]:
+        raise CalendarError(_read_only(c))
+    _change(ev, tz, title, start, end, location, notes)
+    _write_account(c["id"], obj, obj.href)
+    return {"updated": uid, "calendar": c["name"]}
 
 
 def delete_event(uid: str) -> dict:
+    """An event gone, from the phone's calendar or an account's (a repeating one: all of it)."""
     with locked():
         cal = _phone_calendar()
         ev = _phone_event(uid, cal)
-        cal.subcomponents.remove(ev)
-        _save_phone(cal)
-    return {"deleted": uid}
+        if ev is not None:
+            cal.subcomponents.remove(ev)
+            _save_phone(cal)
+            return {"deleted": uid}
+    c, obj, ev = _account_event(uid)
+    if not c["editable"]:
+        raise CalendarError(_read_only(c))
+    try:
+        accounts.delete_event(c["id"], obj.href)
+    except accounts.AccountError as e:
+        raise CalendarError(str(e)) from e
+    return {"deleted": uid, "calendar": c["name"]}
+
+
+def _read_only(c: dict) -> str:
+    return (f"{c['name']} ({c['account']}) is read only for Mobarchy: sign in to the account again "
+            f"in Accounts to let it change events there")
 
 
 # --- the command ----------------------------------------------------------------------------
@@ -301,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument("--location", default="")
     a.add_argument("--notes", default="")
     a.add_argument("--repeat", default="")
+    a.add_argument("--calendar", default=PHONE)
     u = sub.add_parser("update")
     u.add_argument("uid")
     for f in ("title", "start", "end", "location", "notes"):
@@ -315,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
         elif a_.cmd == "calendars":
             out = {"calendars": calendars()}
         elif a_.cmd == "add":
-            out = add_event(a_.title, a_.start, a_.end, a_.location, a_.notes, a_.repeat)
+            out = add_event(a_.title, a_.start, a_.end, a_.location, a_.notes, a_.repeat, a_.calendar)
         elif a_.cmd == "update":
             out = update_event(a_.uid, a_.title, a_.start, a_.end, a_.location, a_.notes)
         else:

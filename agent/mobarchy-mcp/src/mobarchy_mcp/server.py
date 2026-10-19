@@ -702,7 +702,8 @@ def calendar_events(start: str = "", days: int = 1) -> dict:
     """The owner's calendar: every event (each occurrence of repeating ones) from a day
     ("YYYY-MM-DD", default today) for some days, from the phone's calendar and the accounts'
     (iCloud, Google, ...: synced every half hour). Times are local, with their offset. Use it
-    for "what do I have tomorrow", "am I free on Friday afternoon"."""
+    for "what do I have tomorrow", "am I free on Friday afternoon". Also lists the calendars
+    (id, name, account, editable: whether events can be added, changed or deleted there)."""
     import datetime as dt
     try:
         day = dt.date.fromisoformat(start) if start else dt.date.today()
@@ -710,19 +711,22 @@ def calendar_events(start: str = "", days: int = 1) -> dict:
         raise ToolError("start: a date, YYYY-MM-DD") from e
     begin = dt.datetime.combine(day, dt.time(), calendars.local_tz())
     return {"from": day.isoformat(), "days": days,
+            "calendars": [{k: c[k] for k in ("id", "name", "account", "editable")}
+                          for c in calendars.calendars() if c["enabled"]],
             "events": calendars.events(begin, begin + dt.timedelta(days=max(1, min(days, 62))))}
 
 
 @tool(Risk.ACT, "Add to the calendar")
 def calendar_add(title: str, start: str, end: str = "", location: str = "", notes: str = "",
-                 repeat: str = "") -> dict:
-    """Put an event in the phone's calendar. start/end: "YYYY-MM-DD" for all day, or
-    "YYYY-MM-DDTHH:MM" local time (end defaults to an hour later). repeat: "daily", "weekly",
-    "monthly", "yearly" or an RRULE ("FREQ=WEEKLY;BYDAY=MO,WE"). Check the date with the
-    owner when it is not clear (e.g. "Friday": which one). The accounts' calendars are read
-    only for now."""
+                 repeat: str = "", calendar: str = "phone") -> dict:
+    """Put an event in a calendar: the phone's ("phone", the default) or an account's that is
+    editable (its id, from calendar_events: e.g. the owner's Google calendar when they say
+    so). start/end: "YYYY-MM-DD" for all day, or "YYYY-MM-DDTHH:MM" local time (end defaults
+    to an hour later). repeat: "daily", "weekly", "monthly", "yearly" or an RRULE
+    ("FREQ=WEEKLY;BYDAY=MO,WE"). Check the date with the owner when it is not clear (e.g.
+    "Friday": which one)."""
     try:
-        return calendars.add_event(title, start, end, location, notes, repeat)
+        return calendars.add_event(title, start, end, location, notes, repeat, calendar)
     except calendars.CalendarError as e:
         raise ToolError(str(e)) from e
 
@@ -730,8 +734,9 @@ def calendar_add(title: str, start: str, end: str = "", location: str = "", note
 @tool(Risk.ACT, "Change a calendar event")
 def calendar_update(uid: str, title: str | None = None, start: str | None = None, end: str | None = None,
                     location: str | None = None, notes: str | None = None) -> dict:
-    """Change an event in the phone's calendar (uid from calendar_events). A new start keeps its
-    length unless an end is given too."""
+    """Change an event (uid from calendar_events), in the phone's calendar or an account's
+    (written to the account at once). A new start keeps its length unless an end is given
+    too. A repeating event changes in all its occurrences."""
     try:
         return calendars.update_event(uid, title, start, end, location, notes)
     except calendars.CalendarError as e:
@@ -740,7 +745,9 @@ def calendar_update(uid: str, title: str | None = None, start: str | None = None
 
 @tool(Risk.CONFIRM, "Delete a calendar event")
 def calendar_delete(uid: str) -> dict:
-    """Delete an event from the phone's calendar (all its occurrences, if it repeats)."""
+    """Delete an event (uid from calendar_events), from the phone's calendar or an account's
+    (deleted there too: from Google Calendar, iCloud, ...); all its occurrences, if it
+    repeats."""
     try:
         return calendars.delete_event(uid)
     except calendars.CalendarError as e:

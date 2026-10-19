@@ -3,8 +3,8 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Mobarchy.Shell
 
-// An event, in a sheet over the calendar: an account's (read only) as it is, a new one or one
-// of the phone's as a form: the title, all day or a time, the day, how long, whether it
+// An event, in a sheet over the calendar: a read-only one as it is, a new one or one that can
+// be changed (the phone's, or an account's the sign-in lets the phone write to) as a form: the title, all day or a time, the day, how long, whether it
 // repeats, where, notes.
 Item {
     id: sheet
@@ -144,7 +144,9 @@ Item {
                     }
                     Text {
                         topPadding: 6
-                        text: qsTr("From an account: read only for now.")
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: qsTr("Read only here. If it is your own calendar, sign in to the account again in Accounts to change it.")
                         color: Qt.alpha(Theme.muted, 0.8)
                         font { family: Theme.font; pixelSize: 12; italic: true }
                     }
