@@ -38,6 +38,9 @@ class Telephony : public QObject
     Q_PROPERTY(int signalStrength READ signalStrength NOTIFY changed)  // 0..100
     // "nr" (5G), "lte" (4G), "umts"/"hspa" (3G), "gsm"/"edge" (2G), "" (unknown)
     Q_PROPERTY(QString technology READ technology NOTIFY changed)
+    // the internet over the modem is up (its internet context active: mobarchy-mobile-data,
+    // ADR 0036)
+    Q_PROPERTY(bool dataActive READ dataActive NOTIFY changed)
     // this instance keeps incoming SMS in messages.json (the shell's; the apps' are false,
     // so a message is stored once however many are running)
     Q_PROPERTY(bool keeper MEMBER m_keeper)
@@ -65,6 +68,7 @@ public:
     QString registration() const { return m_registration; }
     int signalStrength() const { return m_signal; }
     QString technology() const { return m_technology; }
+    bool dataActive() const { return m_dataActive; }
     bool radio() const { return m_radio; }
     void setRadio(bool on);
     bool callAudio() const { return m_callAudio; }
@@ -109,6 +113,8 @@ private slots:
     void modemPropertyChanged(const QString &name, const QDBusVariant &value);
     void simPropertyChanged(const QString &name, const QDBusVariant &value);
     void networkPropertyChanged(const QString &name, const QDBusVariant &value);
+    void contextPropertyChanged(const QString &name, const QDBusVariant &value);
+    void refreshData();
     void callAdded(const QDBusObjectPath &path, const QVariantMap &properties);
     void callRemoved(const QDBusObjectPath &path);
     void callPropertyChanged(const QString &name, const QDBusVariant &value, const QDBusMessage &message);
@@ -141,6 +147,7 @@ private:
     QString m_operator;
     QString m_registration = QStringLiteral("unregistered");
     int m_signal = 0;
+    bool m_dataActive = false;
     QString m_technology;
     bool m_keeper = false;
     bool m_radio = true;

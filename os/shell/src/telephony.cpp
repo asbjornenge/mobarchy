@@ -57,6 +57,8 @@ const QString NetIface = QStringLiteral("org.ofono.NetworkRegistration");
 const QString CallManagerIface = QStringLiteral("org.ofono.VoiceCallManager");
 const QString CallIface = QStringLiteral("org.ofono.VoiceCall");
 const QString MessageIface = QStringLiteral("org.ofono.MessageManager");
+const QString DataIface = QStringLiteral("org.ofono.ConnectionManager");
+const QString ContextIface = QStringLiteral("org.ofono.ConnectionContext");
 
 QDBusConnection bus() { return QDBusConnection::systemBus(); }
 
@@ -264,6 +266,10 @@ void Telephony::useModem(const QString &path, const QVariantMap &properties)
                   SLOT(callRemoved(QDBusObjectPath)));
     bus().connect(Service, m_modem, MessageIface, QStringLiteral("IncomingMessage"), this,
                   SLOT(incomingMessage(QString, QVariantMap)));
+    // (the contexts are objects of their own, below the modem: any path, then asked again)
+    bus().connect(Service, QString(), ContextIface, QStringLiteral("PropertyChanged"), this,
+                  SLOT(contextPropertyChanged(QString, QDBusVariant)));
+    bus().connect(Service, m_modem, DataIface, QStringLiteral("ContextRemoved"), this, SLOT(refreshData()));
 
     watchInterfaces(asStringList(properties.value(QStringLiteral("Interfaces"))));
     emit changed();
@@ -275,6 +281,7 @@ void Telephony::dropModem()
     if (m_modem.isEmpty())
         return;
     bus().disconnect(Service, m_modem, QString(), QString(), this, nullptr);
+    bus().disconnect(Service, QString(), ContextIface, QStringLiteral("PropertyChanged"), this, nullptr);
     const QList<QString> callPaths = m_callMap.keys();
     for (const QString &p : callPaths)
         bus().disconnect(Service, p, CallIface, QStringLiteral("PropertyChanged"), this, nullptr);
@@ -286,6 +293,7 @@ void Telephony::dropModem()
     m_operator.clear();
     m_registration = QStringLiteral("unregistered");
     m_signal = 0;
+    m_dataActive = false;
     m_callMap.clear();
     m_ringing.clear();
     rebuildCalls();
@@ -301,6 +309,7 @@ void Telephony::watchInterfaces(const QStringList &interfaces)
         refreshNetwork();
     if (interfaces.contains(CallManagerIface))
         refreshCalls();
+    refreshData();
 }
 
 // ---- SIM ----
@@ -448,6 +457,52 @@ void Telephony::networkPropertyChanged(const QString &name, const QDBusVariant &
     else
         return;
     emit changed();
+}
+
+// ---- data ----
+
+void Telephony::contextPropertyChanged(const QString &name, const QDBusVariant &)
+{
+    if (name == QLatin1String("Active"))
+        refreshData();
+}
+
+void Telephony::refreshData()
+{
+    if (m_modem.isEmpty() || !m_interfaces.contains(DataIface)) {
+        if (m_dataActive) {
+            m_dataActive = false;
+            emit changed();
+        }
+        return;
+    }
+    QDBusMessage m = QDBusMessage::createMethodCall(Service, m_modem, DataIface, QStringLiteral("GetContexts"));
+    auto *w = new QDBusPendingCallWatcher(bus().asyncCall(m), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
+        const QDBusMessage reply = w->reply();
+        if (reply.type() != QDBusMessage::ReplyMessage || reply.arguments().isEmpty())
+            return;
+        // a(oa{sv}): is an internet context active?
+        bool active = false;
+        const QDBusArgument arg = reply.arguments().constFirst().value<QDBusArgument>();
+        arg.beginArray();
+        while (!arg.atEnd()) {
+            QDBusObjectPath path;
+            QVariantMap props;
+            arg.beginStructure();
+            arg >> path >> props;
+            arg.endStructure();
+            if (props.value(QStringLiteral("Type")).toString() == QLatin1String("internet")
+                && props.value(QStringLiteral("Active")).toBool())
+                active = true;
+        }
+        arg.endArray();
+        if (active != m_dataActive) {
+            m_dataActive = active;
+            emit changed();
+        }
+    });
 }
 
 // ---- calls ----

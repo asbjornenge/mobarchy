@@ -45,7 +45,8 @@ LayerWindow {
         const icons = ["󰂎", "󰁺", "󰁻", "󰁼", "󰁽", "󰁾", "󰁿", "󰂀", "󰂁", "󰂂", "󰁹"]
         return icons[Math.round(system.battery / 10)]
     }
-    // the mobile network: "5G", "4G", "No SIM", "No service" (nothing when there is no modem)
+    // the mobile network: its signal (and "4G" etc. on mobile data), "No SIM", "No service"
+    // (nothing when there is no modem)
     readonly property string cellText: {
         const t = telephony
         if (bar.flight) return "󰀝"
@@ -55,9 +56,13 @@ LayerWindow {
         if (t.pinRequired !== "none") return "SIM locked"
         if (t.registration !== "registered" && t.registration !== "roaming")
             return t.registration === "searching" ? "Searching" : "No service"
+        // the signal as bars; the network's kind beside them while the internet goes over
+        // it (mobile data up, no Wi-Fi)
+        const bars = ["\u{F08BF}", "\u{F08BC}", "\u{F08BD}", "\u{F08BE}"][Math.min(3, Math.ceil(t.signalStrength / 25))]
         const tech = ({ nr: "5G", lte: "4G", umts: "3G", hspa: "3G", hsdpa: "3G", hsupa: "3G",
                         edge: "E", gprs: "G", gsm: "2G" })[t.technology] ?? ""
-        return (tech || "Mobile") + (t.registration === "roaming" ? " R" : "")
+        return bars + (t.dataActive && !system.wifiConnected && tech ? " " + tech : "")
+               + (t.registration === "roaming" ? " R" : "")
     }
     readonly property string wifiIcon: !system.wifiConnected ? "󰤮"
         : system.wifiStrength < 0 ? "󰤨" : ["󰤯", "󰤟", "󰤢", "󰤥", "󰤨"][system.wifiStrength]
