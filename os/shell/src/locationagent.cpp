@@ -16,8 +16,10 @@ namespace {
 const QString Service = QStringLiteral("org.freedesktop.GeoClue2");
 const QString AgentPath = QStringLiteral("/org/freedesktop/GeoClue2/Agent");
 
-// the shell, and the agent layer (mobarchy-mcp's location tool)
-const QStringList Trusted = {QStringLiteral("org.mobarchy.Shell"), QStringLiteral("org.mobarchy.Agent")};
+// the shell, the agent layer (mobarchy-mcp's location tool), and Android (its apps' own
+// location permission decides there: mobarchy-android-location, ADR 0029)
+const QStringList Trusted = {QStringLiteral("org.mobarchy.Shell"), QStringLiteral("org.mobarchy.Agent"),
+                             QStringLiteral("org.mobarchy.Android")};
 
 bool ownerAllowed(const QString &desktopId)
 {

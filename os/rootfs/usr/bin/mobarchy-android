@@ -20,8 +20,13 @@ if [ "$(session)" != "RUNNING" ]; then
     done
 fi
 
+# where the phone is, for Android's apps (while the session is up)
+systemctl --user reset-failed mobarchy-android-location 2>/dev/null || true
+systemd-run --user --quiet --collect --unit=mobarchy-android-location /usr/lib/mobarchy/android-location || true
+
 # the UI window; blocks until the owner closes it
 waydroid show-full-ui || true
 
 # closed: free the memory
+systemctl --user stop mobarchy-android-location 2>/dev/null || true
 waydroid session stop 2>/dev/null || true

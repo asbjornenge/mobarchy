@@ -51,6 +51,12 @@ drawing its windows as Wayland clients of Hyprland.
   (google.com/android/uncertified, with GSF's Android ID) for the Play Store to sign in.
   Google Play services in the image is old; it is updated from Google's own signed APKs
   (Android accepts an update only with the same signature).
+- **Location (2026-10-19).** Waydroid has no location of its own. `android-location`
+  (started by `mobarchy-android` with the session) asks GeoClue where the phone is (ADR
+  0033; the shell's location agent trusts `org.mobarchy.Android`, and Android's own
+  per-app permission decides from there) and gives it to Android over adb as a test
+  provider named "gps" (`cmd location providers set-test-provider-location`). Android
+  marks those fixes as from a test provider: an app that refuses them, refuses.
 - **No spoofing.** Play Integrity will say the device is not certified. We don't fake
   certification or fingerprints to get past that: if an app refuses, it refuses.
 
