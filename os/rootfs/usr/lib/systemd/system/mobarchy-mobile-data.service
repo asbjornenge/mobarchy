@@ -1,0 +1,16 @@
+[Unit]
+Description=Mobile data: the modem's data connection set up for the system (ADR 0036)
+After=ofono.service systemd-resolved.service
+Wants=ofono.service
+
+[Service]
+ExecStart=/usr/lib/mobarchy/mobile-data
+Restart=on-failure
+RestartSec=5
+CapabilityBoundingSet=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

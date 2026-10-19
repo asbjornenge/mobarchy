@@ -50,6 +50,16 @@ turn; the shell kept running (not restarted). That allocation was fast enough th
 kernel's OOM killer acted before oomd's 10 s; oomd is for the slow case, the phone that
 thrashes without running out.
 
+## On comet (2026-10-19)
+
+zram works on the phone (7.6 GB). **systemd-oomd does not**: Google's GKI kernel has
+`cgroup_disable=pressure` in its built-in command line, so there are no per-cgroup
+pressure files (`memory.pressure`), and oomd rejects the slice ("Failed to get
+OomdCGroupContext"). It is enabled and watches nothing. Either the kernel's command line
+changes (our kernel build; a boot image to flash) or a watchdog of our own reads the
+system-wide pressure (`/proc/pressure/memory`, as Android's lmkd does) and kills the
+largest app. Not decided yet.
+
 ## Consequences
 
 - The phone has more memory in practice (what is idle is compressed), and when it still

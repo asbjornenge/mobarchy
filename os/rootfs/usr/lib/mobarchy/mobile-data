@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+"""Mobile data (ADR 0036): the internet over the modem, through oFono.
+
+oFono brings a data call up and says how the network is to be set (the context's
+Settings: the interface, the address, the gateway, the name servers), but leaves setting it
+to a connection manager (ConnMan, on Sailfish). Mobarchy's is systemd-networkd, which
+knows nothing of oFono, so this does that part:
+
+- the SIM's modem attaches to the packet network (ConnectionManager Powered) and its
+  internet context is turned on (Active) while it is attached (oFono provisions its APN
+  from mobile-broadband-provider-info);
+- when the context is up, its interface gets the address and a default route behind wifi's
+  (metric 1000; wifi's is 600, so wifi is used when there is one) and its name servers go to
+  systemd-resolved; when it goes down, all of that is taken away again.
+
+Data goes with the mobile radio: the shell's "Mobile" switch and flight mode turn the
+modem off (Online), and the data with it. Roaming is left as oFono has it (off).
+
+    mobile-data            (the service: mobarchy-mobile-data.service)
+"""
+import ipaddress
+import subprocess
+import sys
+
+from gi.repository import Gio, GLib
+
+OFONO = "org.ofono"
+METRIC = "1000"
+RETRY_S = 15
+
+
+def log(msg: str) -> None:
+    print(f"mobile-data: {msg}", flush=True)
+
+
+def run(*cmd: str) -> bool:
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        log(f"{' '.join(cmd)}: {r.stderr.strip()}")
+    return r.returncode == 0
+
+
+def unpack(v):
+    return v.unpack() if isinstance(v, GLib.Variant) else v
+
+
+class Link:
+    """What was set on an interface for a context, to take away again."""
+
+    def __init__(self, iface: str):
+        self.iface = iface
+        self.dns: list[str] = []
+
+    def set_v4(self, s: dict) -> None:
+        address, netmask, gateway = s.get("Address", ""), s.get("Netmask", "255.255.255.255"), s.get("Gateway", "")
+        if s.get("Method", "static") != "static" or not address:
+            log(f"{self.iface}: IPv4 method {s.get('Method')!r} is not handled")
+            return
+        prefix = ipaddress.IPv4Network(f"0.0.0.0/{netmask}").prefixlen
+        run("ip", "link", "set", self.iface, "up")
+        run("ip", "-4", "addr", "flush", "dev", self.iface)
+        run("ip", "-4", "addr", "add", f"{address}/{prefix}", "dev", self.iface)
+        if gateway and gateway != "0.0.0.0":
+            run("ip", "-4", "route", "replace", "default", "via", gateway, "dev", self.iface, "metric", METRIC)
+        else:   # (a point-to-point link: no gateway to go through)
+            run("ip", "-4", "route", "replace", "default", "dev", self.iface, "metric", METRIC)
+        self.dns += s.get("DomainNameServers", [])
+        log(f"{self.iface}: {address}/{prefix} via {gateway or '(the link)'}")
+
+    def set_v6(self, s: dict) -> None:
+        address, prefix, gateway = s.get("Address", ""), s.get("PrefixLength", 64), s.get("Gateway", "")
+        if not address:
+            return
+        run("ip", "link", "set", self.iface, "up")
+        run("ip", "-6", "addr", "replace", f"{address}/{prefix}", "dev", self.iface)
+        if gateway:
+            run("ip", "-6", "route", "replace", "default", "via", gateway, "dev", self.iface, "metric", METRIC)
+        else:
+            run("ip", "-6", "route", "replace", "default", "dev", self.iface, "metric", METRIC)
+        self.dns += s.get("DomainNameServers", [])
+        log(f"{self.iface}: {address}/{prefix}")
+
+    def set_dns(self) -> None:
+        if self.dns:
+            run("resolvectl", "dns", self.iface, *dict.fromkeys(self.dns))
+            run("resolvectl", "default-route", self.iface, "true")
+
+    def clear(self) -> None:
+        run("resolvectl", "revert", self.iface)
+        run("ip", "addr", "flush", "dev", self.iface)
+        run("ip", "link", "set", self.iface, "down")
+        log(f"{self.iface}: down")
+
+
+class Modem:
+    def __init__(self, bus: Gio.DBusConnection, path: str):
+        self.bus, self.path = bus, path
+        self.interfaces: list[str] = []
+        self.sim_present = False
+        self.attached = False
+        self.context = ""           # the internet context's path
+        self.active = False
+        self.link: Link | None = None
+        self.retry = 0
+        self.subs = [
+            bus.signal_subscribe(OFONO, None, "PropertyChanged", path, None, Gio.DBusSignalFlags.NONE,
+                                 self.changed, None),
+            bus.signal_subscribe(OFONO, "org.ofono.ConnectionManager", "ContextAdded", path, None,
+                                 Gio.DBusSignalFlags.NONE, lambda *a: self.find_context(), None),
+        ]
+
+    # --- oFono ------------------------------------------------------------------------------
+    def call(self, path: str, iface: str, method: str, args=None, sig: str | None = None):
+        try:
+            return self.bus.call_sync(OFONO, path, iface, method, GLib.Variant(sig, args) if sig else None,
+                                      None, Gio.DBusCallFlags.NONE, 30000, None).unpack()
+        except GLib.Error as e:
+            log(f"{path} {iface}.{method}: {e.message}")
+            return None
+
+    def props(self, path: str, iface: str) -> dict:
+        r = self.call(path, iface, "GetProperties")
+        return r[0] if r else {}
+
+    def set(self, path: str, iface: str, name: str, value: GLib.Variant) -> bool:
+        return self.call(path, iface, "SetProperty", (name, value), "(sv)") is not None
+
+    def refresh(self) -> None:
+        self.interfaces = self.props(self.path, "org.ofono.Modem").get("Interfaces", [])
+        if "org.ofono.SimManager" in self.interfaces:
+            self.sim_present = bool(self.props(self.path, "org.ofono.SimManager").get("Present"))
+        if "org.ofono.ConnectionManager" in self.interfaces and self.sim_present:
+            cm = self.props(self.path, "org.ofono.ConnectionManager")
+            if not cm.get("Powered", False):
+                self.set(self.path, "org.ofono.ConnectionManager", "Powered", GLib.Variant("b", True))
+            self.attached = bool(cm.get("Attached"))
+            self.find_context()
+        else:
+            self.attached = False
+        self.steer()
+
+    def find_context(self) -> None:
+        r = self.call(self.path, "org.ofono.ConnectionManager", "GetContexts")
+        for path, p in (r[0] if r else []):
+            if p.get("Type") == "internet":
+                if path != self.context:
+                    self.context = path
+                    self.subs.append(self.bus.signal_subscribe(
+                        OFONO, "org.ofono.ConnectionContext", "PropertyChanged", path, None,
+                        Gio.DBusSignalFlags.NONE, self.context_changed, None))
+                    log(f"{self.path}: internet context {path} (APN {p.get('AccessPointName')!r})")
+                self.active = bool(p.get("Active"))
+                if self.active:
+                    self.configure(p)
+                return
+        if self.attached:
+            log(f"{self.path}: no internet context (is the APN provisioned?)")
+
+    def steer(self) -> None:
+        """Turn the context on while attached (again later, if the network said no)."""
+        if self.attached and self.context and not self.active:
+            log(f"{self.path}: activating {self.context}")
+            if not self.set(self.context, "org.ofono.ConnectionContext", "Active", GLib.Variant("b", True)) \
+                    and not self.retry:
+                self.retry = GLib.timeout_add_seconds(RETRY_S, self.again)
+
+    def again(self) -> bool:
+        self.retry = 0
+        self.steer()
+        return False
+
+    def changed(self, _bus, _sender, _path, iface, _signal, params, _data) -> None:
+        name, value = params.unpack()
+        if iface == "org.ofono.Modem" and name in ("Interfaces", "Online"):
+            self.refresh()
+        elif iface == "org.ofono.SimManager" and name == "Present":
+            self.refresh()
+        elif iface == "org.ofono.ConnectionManager" and name == "Attached":
+            self.attached = bool(value)
+            log(f"{self.path}: {'attached' if value else 'detached'}")
+            if self.attached:
+                self.find_context()
+            self.steer()
+
+    def context_changed(self, _bus, _sender, path, _iface, _signal, params, _data) -> None:
+        if path != self.context:
+            return
+        name, value = params.unpack()
+        if name == "Active":
+            self.active = bool(value)
+            if not self.active:
+                self.unconfigure()
+                self.steer()
+        elif name in ("Settings", "IPv6.Settings") and self.active:
+            self.configure(self.props(self.context, "org.ofono.ConnectionContext"))
+
+    # --- the network --------------------------------------------------------------------
+    def configure(self, p: dict) -> None:
+        v4, v6 = unpack(p.get("Settings", {})) or {}, unpack(p.get("IPv6.Settings", {})) or {}
+        iface = v4.get("Interface") or v6.get("Interface")
+        if not iface:
+            return
+        if self.link and self.link.iface != iface:
+            self.unconfigure()
+        self.link = Link(iface)
+        if v4:
+            self.link.set_v4(v4)
+        if v6:
+            self.link.set_v6(v6)
+        self.link.set_dns()
+
+    def unconfigure(self) -> None:
+        if self.link:
+            self.link.clear()
+            self.link = None
+
+    def close(self) -> None:
+        for s in self.subs:
+            self.bus.signal_unsubscribe(s)
+        self.unconfigure()
+
+
+def main() -> int:
+    bus = Gio.bus_get_sync(Gio.BusType.SYSTEM)
+    modems: dict[str, Modem] = {}
+
+    def add(path: str) -> None:
+        if path not in modems:
+            modems[path] = Modem(bus, path)
+            modems[path].refresh()
+
+    def remove(path: str) -> None:
+        if path in modems:
+            modems.pop(path).close()
+
+    def appeared(*_):
+        try:
+            (listed,) = bus.call_sync(OFONO, "/", "org.ofono.Manager", "GetModems", None, None,
+                                      Gio.DBusCallFlags.NONE, 30000, None).unpack()
+        except GLib.Error as e:
+            log(f"oFono: {e.message}")
+            return
+        for path, _ in listed:
+            add(path)
+
+    def vanished(*_):
+        for path in list(modems):
+            remove(path)
+
+    bus.signal_subscribe(OFONO, "org.ofono.Manager", "ModemAdded", "/", None, Gio.DBusSignalFlags.NONE,
+                         lambda _b, _s, _p, _i, _n, params, _d: add(params.unpack()[0]), None)
+    bus.signal_subscribe(OFONO, "org.ofono.Manager", "ModemRemoved", "/", None, Gio.DBusSignalFlags.NONE,
+                         lambda _b, _s, _p, _i, _n, params, _d: remove(params.unpack()[0]), None)
+    Gio.bus_watch_name_on_connection(bus, OFONO, Gio.BusNameWatcherFlags.NONE, appeared, vanished)
+    loop = GLib.MainLoop()
+    GLib.unix_signal_add(GLib.PRIORITY_HIGH, 15, loop.quit)    # SIGTERM: take the links down
+    loop.run()
+    vanished()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
