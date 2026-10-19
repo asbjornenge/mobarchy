@@ -51,9 +51,13 @@ signals:
 
 private:
     void run(const QString &what, const QStringList &args, const QString &input = {}, bool adds = false);
+    // a switch turned: no word while it is saved (the switch says it), and none lost if
+    // another is turned meanwhile
+    void quietly(const QStringList &args);
     void take(const QByteArray &json);
 
     QProcess *m_proc = nullptr;
+    QList<QStringList> m_queue;     // (quietly's, waiting for the one running)
     QVariantList m_accounts;
     bool m_googleClient = false;
     QString m_busy, m_error;

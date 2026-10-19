@@ -52,6 +52,8 @@ void Accounts::run(const QString &what, const QStringList &args, const QString &
             else
                 refresh();
         }
+        if (!m_queue.isEmpty())
+            run({}, m_queue.takeFirst());
     });
     connect(m_proc, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
         if (e != QProcess::FailedToStart)
@@ -103,6 +105,14 @@ void Accounts::addNextcloud(const QString &url)
     run(tr("Sign in to Nextcloud in the browser …"), {QStringLiteral("add-nextcloud"), url.trimmed()}, {}, true);
 }
 
+void Accounts::quietly(const QStringList &args)
+{
+    if (m_proc)
+        m_queue.append(args);
+    else
+        run({}, args);
+}
+
 void Accounts::openUrl(const QString &url)
 {
     launch::detached(QStringLiteral("mobarchy-open"), {url});
@@ -120,12 +130,12 @@ void Accounts::remove(const QString &id)
 
 void Accounts::setBook(const QString &id, const QString &url, bool enabled)
 {
-    run(tr("Saving …"), {QStringLiteral("book"), id, url, enabled ? QStringLiteral("on") : QStringLiteral("off")});
+    quietly({QStringLiteral("book"), id, url, enabled ? QStringLiteral("on") : QStringLiteral("off")});
 }
 
 void Accounts::setCalendar(const QString &id, const QString &url, bool enabled)
 {
-    run(tr("Saving …"), {QStringLiteral("calendar"), id, url, enabled ? QStringLiteral("on") : QStringLiteral("off")});
+    quietly({QStringLiteral("calendar"), id, url, enabled ? QStringLiteral("on") : QStringLiteral("off")});
 }
 
 void Accounts::sync()
