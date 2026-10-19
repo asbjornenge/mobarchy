@@ -90,7 +90,8 @@ void AppModel::reload()
         if (!f.open(QIODevice::ReadOnly))
             continue;
         for (const QByteArray &line : f.readAll().split('\n')) {
-            const QString id = QString::fromUtf8(line.left(line.indexOf('#'))).trimmed();
+            const qsizetype hash = line.indexOf('#');
+            const QString id = QString::fromUtf8(hash < 0 ? line : line.left(hash)).trimmed();
             if (!id.isEmpty())
                 hidden.insert(id.endsWith(QLatin1String(".desktop")) ? id : id + QStringLiteral(".desktop"));
         }

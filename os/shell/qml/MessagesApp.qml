@@ -129,8 +129,7 @@ Window {
                 text: ""
                 onTextChanged: win.compose = " " + text
                 color: Theme.fg; font { family: Theme.font; pixelSize: 17 }
-                inputMethodHints: Qt.ImhDialableCharactersOnly
-                Text { visible: parent.text === ""; text: qsTr("Phone number"); color: Theme.muted; font: parent.font }
+                Text { visible: parent.text === ""; text: qsTr("Name or number"); color: Theme.muted; font: parent.font }
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line; opacity: 0.4 }
         }
@@ -192,7 +191,9 @@ Window {
                 id: sendBtn
                 anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
                 width: 56; height: 40; radius: 20
-                readonly property string to: win.open !== "" ? win.open : win.compose.trim()
+                // (a new one: to what is typed if it is a number; a name is for picking a contact)
+                readonly property string to: win.open !== "" ? win.open
+                    : /^\+?[0-9 -]{3,}$/.test(win.compose.trim()) ? win.compose.trim().replace(/[ -]/g, "") : ""
                 enabled: body.text !== "" && to !== ""
                 color: enabled ? Theme.accent : Theme.line
                 Text { anchors.centerIn: parent; text: qsTr("Send"); color: Theme.bg; font { family: Theme.font; pixelSize: 13; bold: true } }

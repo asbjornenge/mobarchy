@@ -87,7 +87,8 @@ Item {
                     required property var modelData
                     width: person.width; height: 44
                     color: numTap.pressed ? Theme.panel : "transparent"
-                    TapHandler { id: numTap; onTapped: list.act(list.actions[0], num.modelData.number) }
+                    // (MouseAreas: a tap on a button is the button's alone, not the row's too)
+                    MouseArea { id: numTap; anchors.fill: parent; onClicked: list.act(list.actions[0], num.modelData.number) }
                     Text {
                         x: 20; anchors.verticalCenter: parent.verticalCenter
                         width: parent.width - buttons.width - 40
@@ -113,7 +114,7 @@ Item {
                                          : button.modelData === "message" ? Theme.accent : Theme.muted
                                     font { family: Theme.font; pixelSize: 21 }
                                 }
-                                TapHandler { onTapped: list.act(button.modelData, num.modelData.number) }
+                                MouseArea { anchors.fill: parent; onClicked: list.act(button.modelData, num.modelData.number) }
                             }
                         }
                     }
