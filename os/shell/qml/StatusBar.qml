@@ -87,11 +87,20 @@ LayerWindow {
             font { family: Theme.font; pixelSize: 13 }
         }
     }
-    Text {
+    Row {
         anchors { right: parent.right; rightMargin: 16; verticalCenter: row.verticalCenter }
-        text: (bar.listening ? "󰍬   " : "") + (bar.alarmSet ? "󰀠   " : "") + (bar.cellText ? bar.cellText + "   " : "") + bar.wifiIcon + "   " + bar.batteryIcon + (bar.system.battery >= 0 ? " " + bar.system.battery + "%" : "")
-        color: Theme.fg
-        font { family: Theme.font; pixelSize: 13 }
+        spacing: 9
+        Repeater {
+            model: [bar.listening ? "󰍬" : "", bar.alarmSet ? "󰀠" : "", bar.cellText, bar.wifiIcon,
+                    bar.batteryIcon + (bar.system.battery >= 0 ? " " + bar.system.battery + "%" : "")]
+                   .filter(t => t !== "")
+            delegate: Text {
+                required property string modelData
+                text: modelData
+                color: Theme.fg
+                font { family: Theme.font; pixelSize: 13 }
+            }
+        }
     }
 
     // Swipe down (or tap) for quick settings.
