@@ -241,7 +241,7 @@ LayerWindow {
                   bottomMargin: 120 + lock.insetBottom }
         transform: Translate { y: -lock.lift * lock.height * 0.5 }
         opacity: 1 - lock.lift
-        compact: true
+        large: true
         visible: !lock.askingPin && player.available && (player.title.length > 0 || player.identity.length > 0)
         player: lock.media
         onVisibleChanged: if (visible) lock.media.refreshPosition()

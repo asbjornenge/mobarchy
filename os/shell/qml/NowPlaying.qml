@@ -1,18 +1,20 @@
 import QtQuick
 import Mobarchy.Shell
 
-// What's playing, with its controls: in quick settings (full: cover, progress you can drag)
-// and on the lock screen (compact). Acts on the player in charge (MediaPlayers).
+// What's playing, with its controls: in quick settings (full: cover, progress you can drag),
+// on the lock screen (large: the same, bigger, the time left as phones show it), or compact.
+// Acts on the player in charge (MediaPlayers).
 Rectangle {
     id: card
 
     required property MediaPlayers player
     property bool compact: false
+    property bool large: false
 
     visible: player.available && (player.title.length > 0 || player.identity.length > 0)
     implicitHeight: compact ? 72 : column.implicitHeight + 28
-    radius: 14
-    color: Theme.panel
+    radius: large ? 24 : 14
+    color: large ? Qt.alpha(Theme.panel, 0.85) : Theme.panel
     border.color: Theme.line
 
     function time(ms) {
@@ -27,7 +29,7 @@ Rectangle {
         property bool enabledControl: true
         color: enabledControl ? Theme.fg : Theme.muted
         opacity: enabledControl ? (controlTap.pressed ? 0.6 : 1) : 0.4
-        font { family: Theme.font; pixelSize: big ? 30 : 22 }
+        font { family: Theme.font; pixelSize: big ? (card.large ? 44 : 30) : (card.large ? 32 : 22) }
         MouseArea {
             id: controlTap
             anchors { fill: parent; margins: -12 }
@@ -38,8 +40,8 @@ Rectangle {
 
     Column {
         id: column
-        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 14 }
-        spacing: 12
+        anchors { left: parent.left; right: parent.right; top: parent.top; margins: card.large ? 18 : 14 }
+        spacing: card.large ? 16 : 12
 
         Row {
             width: parent.width
@@ -47,7 +49,7 @@ Rectangle {
 
             Rectangle {
                 id: cover
-                width: card.compact ? 44 : 64
+                width: card.compact ? 44 : card.large ? 72 : 64
                 height: width
                 radius: 10
                 color: Theme.bg
@@ -79,7 +81,7 @@ Rectangle {
                     text: card.player.title || card.player.identity
                     elide: Text.ElideRight
                     color: Theme.fg
-                    font { family: Theme.font; pixelSize: 14; bold: true }
+                    font { family: Theme.font; pixelSize: card.large ? 17 : 14; bold: true }
                 }
                 Text {
                     width: parent.width
@@ -87,7 +89,7 @@ Rectangle {
                     text: card.player.artist || (card.player.title ? card.player.identity : "")
                     elide: Text.ElideRight
                     color: Theme.muted
-                    font { family: Theme.font; pixelSize: 12 }
+                    font { family: Theme.font; pixelSize: card.large ? 14 : 12 }
                 }
             }
 
@@ -132,13 +134,14 @@ Rectangle {
                 anchors { left: parent.left; bottom: parent.bottom }
                 text: card.time(seekArea.pressed ? seekArea.preview : card.player.position)
                 color: Theme.muted
-                font { family: Theme.font; pixelSize: 10 }
+                font { family: Theme.font; pixelSize: card.large ? 12 : 10 }
             }
             Text {
                 anchors { right: parent.right; bottom: parent.bottom }
-                text: card.time(card.player.length)
+                text: card.large ? "−" + card.time(Math.max(0, card.player.length - (seekArea.pressed ? seekArea.preview : card.player.position)))
+                                 : card.time(card.player.length)
                 color: Theme.muted
-                font { family: Theme.font; pixelSize: 10 }
+                font { family: Theme.font; pixelSize: card.large ? 12 : 10 }
             }
             MouseArea {
                 id: seekArea
@@ -155,7 +158,7 @@ Rectangle {
         Row {
             visible: !card.compact
             anchors.horizontalCenter: parent.horizontalCenter
-            spacing: 44
+            spacing: card.large ? 64 : 44
             Control {
                 anchors.verticalCenter: parent.verticalCenter
                 text: "󰒮"
