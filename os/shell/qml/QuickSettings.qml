@@ -44,6 +44,25 @@ Sheet {
                           // 4: notifications, 5: hotspot
     // sharing the internet over Wi-Fi (ADR 0039): followed while the panel is open
     readonly property Hotspot hotspot: Hotspot { watching: quick.shown }
+    property bool renamingHotspot: false
+    function startRenamingHotspot() {
+        renamingHotspot = true
+        keyboard.startCapture()
+        keyboard.visible = true
+    }
+    function renameHotspot() {
+        const name = keyboard.captured.trim()
+        renamingHotspot = false
+        keyboard.stopCapture()
+        keyboard.visible = false
+        if (name !== "" && name !== hotspot.name)
+            hotspot.configure(name, hotspot.password)
+    }
+    Connections {
+        target: quick.keyboard
+        function onCaptureAccepted() { if (quick.renamingHotspot) quick.renameHotspot() }
+    }
+
     property string wifiError: ""
     property string bluetoothError: ""
 
@@ -158,7 +177,14 @@ Sheet {
                 quick.haptics.click()
         }
     }
-    onShownChanged: if (!shown && fingerprint.enrolling) fingerprint.stop()
+    onShownChanged: {
+        if (!shown && fingerprint.enrolling)
+            fingerprint.stop()
+        if (!shown && renamingHotspot) {
+            renamingHotspot = false
+            keyboard.stopCapture()
+        }
+    }
     Connections {
         target: quick.pinLock
         function onVerified(ok) {
@@ -731,7 +757,22 @@ Sheet {
                                 Text { text: fact.value; color: Theme.fg
                                        font { family: Theme.font; pixelSize: 15; bold: true } }
                             }
-                            Fact { label: qsTr("Name"); value: quick.hotspot.name }
+                            // the name: a tap to type a new one (the shell's keyboard, as the
+                            // drawer's search: quick settings take no text input); Return keeps it
+                            Item {
+                                width: parent.width
+                                height: nameFact.height
+                                Fact {
+                                    id: nameFact
+                                    label: qsTr("Name")
+                                    value: quick.renamingHotspot ? quick.keyboard.captured + "▏"
+                                                                 : quick.hotspot.name + "  ✎"
+                                }
+                                MouseArea {
+                                    anchors { fill: parent; margins: -8 }
+                                    onClicked: quick.renamingHotspot ? quick.renameHotspot() : quick.startRenamingHotspot()
+                                }
+                            }
                             Fact { label: qsTr("Password"); value: quick.hotspot.password }
                             Fact { label: qsTr("Joined"); value: quick.hotspot.on ? quick.hotspot.clients : "–" }
                         }

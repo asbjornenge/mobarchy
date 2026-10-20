@@ -32,6 +32,6 @@ settings.**
 
 ## Not done (yet)
 
-- Changing the name (quick settings has no text input; Frigg or a settings page later).
+- (Renaming: a tap on the name types a new one with the shell's keyboard, captured as the drawer's search.)
 - USB tethering (the USB gadget is there), Bluetooth (PAN).
 - 5 GHz on its own when the phone's Wi-Fi is not connected.
