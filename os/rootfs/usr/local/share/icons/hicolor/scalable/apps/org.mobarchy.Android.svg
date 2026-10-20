@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Mobarchy's app icons: a line glyph in the accent gradient, no tile -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7aa2f7"/>
+      <stop offset="1" stop-color="#bb9af7"/>
+    </linearGradient>
+  </defs>
+  <g fill="none" stroke="url(#g)" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Android's head: a dome with its antennae and eyes -->
+    <path d="M24 88 a40 40 0 0 1 80 0 z"/>
+    <path d="M42 46 l-10 -16 M86 46 l10 -16"/>
+  </g>
+  <g fill="url(#g)">
+    <circle cx="48" cy="70" r="5"/>
+    <circle cx="80" cy="70" r="5"/>
+  </g>
+</svg>

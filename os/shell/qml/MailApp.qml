@@ -107,18 +107,6 @@ Window {
             color: Theme.fg
             font { family: Theme.font; pixelSize: 26; bold: true }
         }
-        Text {
-            id: syncIcon
-            anchors { right: newButton.left; rightMargin: 20; verticalCenter: heading.verticalCenter }
-            text: "󰑓"
-            color: Theme.muted
-            font { family: Theme.font; pixelSize: 22 }
-            RotationAnimator on rotation {
-                running: mail.syncing; loops: Animation.Infinite; from: 0; to: 360; duration: 900
-                onRunningChanged: if (!running) syncIcon.rotation = 0
-            }
-            MouseArea { anchors { fill: parent; margins: -12 } onClicked: mail.sync() }
-        }
         Rectangle {
             id: newButton
             anchors { right: parent.right; rightMargin: 18; verticalCenter: heading.verticalCenter }

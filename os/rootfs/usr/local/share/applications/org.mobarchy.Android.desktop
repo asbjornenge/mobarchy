@@ -3,5 +3,5 @@ Type=Application
 Name=Android
 Comment=Android apps (Waydroid), started on demand
 Exec=mobarchy-android
-Icon=waydroid
+Icon=org.mobarchy.Android
 Categories=Utility;
