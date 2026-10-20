@@ -145,6 +145,7 @@ qt_add_qml_module(mobarchy-shell
         data/sounds/alarm.wav
         data/sounds/ringback.wav
         data/sounds/message.wav
+        data/sounds/ringtone.wav
 )
 qt6_generate_wayland_protocol_client_sources(mobarchy-shell
     FILES

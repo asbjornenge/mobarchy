@@ -115,8 +115,9 @@ QtObject {
     }
     readonly property HardwareKeys keys: HardwareKeys {
         // (an alarm ringing: the power key snoozes it, as on other phones)
-        onPowerPressed: shell.alarms.ringing ? shell.alarms.snooze()
-                                             : shell.screen.on ? shell.screenOff() : shell.wake()
+        onPowerPressed: shell.ringing && !shell.ringerSilenced ? shell.ringerSilenced = true
+                      : shell.alarms.ringing ? shell.alarms.snooze()
+                      : shell.screen.on ? shell.screenOff() : shell.wake()
         // A tap on the dark screen (where the touchscreen supports it) shows the lock
         // screen for a glance: the clock and notifications, dark again after a while.
         onWakeGesture: if (!shell.screen.on) shell.wake()
@@ -140,13 +141,13 @@ QtObject {
     // inhibitors count too: the compositor holds the notification back), or Frigg is in a
     // conversation.
     readonly property Idle idle: Idle {
-        timeout: shell.inhibitors.active || shell.talk.talking || shell.alarms.ringing ? 0 : 60
+        timeout: shell.inhibitors.active || shell.talk.talking || shell.alarms.ringing || shell.ringing ? 0 : 60
         onIdleChanged: if (idle && shell.screen.on) shell.screenOff()
     }
     // A woken but untouched lock screen goes dark again soon.
     readonly property Timer lockTimeout: Timer {
         interval: 10000
-        running: shell.lockScreen.shown && shell.screen.on && !shell.alarms.ringing
+        running: shell.lockScreen.shown && shell.screen.on && !shell.alarms.ringing && !shell.ringing
         // (not while an alarm rings: wake() restarts this, which ends the binding above)
         onTriggered: if (shell.lockScreen.shown && !shell.alarms.ringing) shell.screen.on = false
     }
@@ -281,6 +282,30 @@ QtObject {
                     && !shell.toplevels.activateApp(shell.apps.windowIds("org.mobarchy.Phone")))
                 shell.apps.launch("org.mobarchy.Phone")
         }
+    }
+
+    // A call coming in rings (the ringtone, over and over, and a buzz) until it is answered,
+    // declined or gone; the power key silences it. Muted: only the buzz.
+    readonly property bool ringing: telephony.calls.some(c => c.state === "incoming" || c.state === "waiting")
+    property bool ringerSilenced: false
+    onRingingChanged: {
+        ringerSilenced = false
+        if (ringing && !volume.muted && !telephony.calls.some(c => c.state === "active")) {
+            ringtone.play()
+        } else {
+            ringtone.stop()
+        }
+    }
+    onRingerSilencedChanged: if (ringerSilenced) ringtone.stop()
+    readonly property MediaPlayer ringtone: MediaPlayer {
+        source: "qrc:/qt/qml/Mobarchy/Shell/data/sounds/ringtone.wav"
+        loops: MediaPlayer.Infinite
+        audioOutput: AudioOutput { volume: 1.0 }
+    }
+    readonly property Timer ringBuzz: Timer {
+        interval: 1500; repeat: true; triggeredOnStart: true
+        running: shell.ringing && !shell.ringerSilenced
+        onTriggered: shell.haptics.buzz()
     }
 
     // A text message: a notification with who and what (the sender by name, if a contact),
