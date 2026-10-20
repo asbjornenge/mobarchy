@@ -20,7 +20,7 @@ settings.**
   on its Wi-Fi and shares at once.
 - **Addresses:** a `.network` written to /run while on: 192.168.44.1/24 and networkd's DHCP
   server, which hands out the uplink's name servers.
-- **Out:** iptables MASQUERADE and forwarding for 192.168.44.0/24, through whatever the
+- **Out:** iptables(-legacy) MASQUERADE and forwarding for 192.168.44.0/24, through whatever the
   phone is on (mobile data, or Wi-Fi). iptables, not nftables: the kernel has no nftables
   NAT (the same as Waydroid, ADR 0029).
 - **The name and password:** made up the first time (Mobarchy-XXXX, three groups of four

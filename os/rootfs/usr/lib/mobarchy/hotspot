@@ -2,7 +2,7 @@
 """The phone's internet shared over Wi-Fi (ADR 0039): an access point beside the Wi-Fi it is
 on (hostapd), addresses for the devices that join (systemd-networkd's DHCP server, the
 uplink's name servers), and their traffic out through whatever the phone is on, mobile data
-or Wi-Fi (iptables NAT; the kernel has no nftables NAT).
+or Wi-Fi (iptables-legacy NAT; the kernel has no nftables NAT).
 
 The access point's interface: the device's `[wifi] ap_interface` (device.toml; comet's chip
 has a second one, wlan1), else one added beside wlan0 (ap0). On the same channel as wlan0,
@@ -91,6 +91,11 @@ def uplink_channel() -> tuple[int, str]:
     return channel, "a" if mhz > 4000 else "g"
 
 
+# iptables' legacy (xtables) backend: the kernel has its NAT, not nftables' (the nft
+# backend's "iptables" takes the rule and does nothing with it); Waydroid uses it too
+IPTABLES = "iptables-legacy" if Path("/usr/bin/iptables-legacy").exists() else "iptables"
+
+
 def nat(on: bool) -> None:
     rules = [("-t", "nat", "POSTROUTING", "-s", f"{SUBNET}.0/24", "!", "-d", f"{SUBNET}.0/24", "-j", "MASQUERADE"),
              ("FORWARD", "-s", f"{SUBNET}.0/24", "-j", "ACCEPT"),
@@ -99,11 +104,11 @@ def nat(on: bool) -> None:
         table = list(r[:2]) if r[0] == "-t" else []
         rest = list(r[2:]) if r[0] == "-t" else list(r)
         chain, spec = rest[0], rest[1:]
-        present = sh("iptables", *table, "-C", chain, *spec).returncode == 0
+        present = sh(IPTABLES, *table, "-C", chain, *spec).returncode == 0
         if on and not present:
-            sh("iptables", *table, "-A", chain, *spec)
+            sh(IPTABLES, *table, "-A", chain, *spec)
         elif not on and present:
-            sh("iptables", *table, "-D", chain, *spec)
+            sh(IPTABLES, *table, "-D", chain, *spec)
     if on:
         Path("/proc/sys/net/ipv4/ip_forward").write_text("1\n")
 
