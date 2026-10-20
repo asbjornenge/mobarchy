@@ -85,10 +85,16 @@ Window {
     Connections { target: tel; function onCallsChanged() { Qt.callLater(win.reloadRecents) } }
     Component.onCompleted: reloadRecents()
     function call(number) { if (number !== "") { tel.dial(number); win.entry = "" } }
+    // when: the time today; "Yesterday", the weekday this week, else the date, with the time
     function timeText(epoch) {
         const d = new Date(epoch * 1000), now = new Date()
-        return d.toDateString() === now.toDateString() ? Qt.formatTime(d, "HH:mm")
-             : Qt.formatDate(d, "d. MMM")
+        const days = Math.round((new Date(now.getFullYear(), now.getMonth(), now.getDate())
+                                 - new Date(d.getFullYear(), d.getMonth(), d.getDate())) / 86400000)
+        const time = Qt.formatTime(d, "HH:mm")
+        return days === 0 ? time
+             : days === 1 ? qsTr("Yesterday") + " " + time
+             : days < 7 ? d.toLocaleDateString(Qt.locale(), "ddd") + " " + time
+             : Qt.formatDate(d, "d. MMM") + " " + time
     }
 
     Contacts { id: contacts }
