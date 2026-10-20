@@ -13,6 +13,8 @@ class AppFilter : public QSortFilterProxyModel
     Q_PROPERTY(QAbstractItemModel *source READ sourceModel WRITE setSource NOTIFY sourceChanged)
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged)
     Q_PROPERTY(int count READ count NOTIFY countChanged)
+    // which apps: "" all, "own" Mobarchy's (org.mobarchy.*), "others" the rest
+    Q_PROPERTY(QString group READ group WRITE setGroup NOTIFY groupChanged)
 
 public:
     explicit AppFilter(QObject *parent = nullptr);
@@ -20,6 +22,8 @@ public:
     void setSource(QAbstractItemModel *source);
     QString query() const { return m_query; }
     void setQuery(const QString &query);
+    QString group() const { return m_group; }
+    void setGroup(const QString &group);
     int count() const { return rowCount(); }
     // the first match's app ID ("" if none): Return opens it
     Q_INVOKABLE QString first() const;
@@ -30,6 +34,7 @@ public:
 signals:
     void sourceChanged();
     void queryChanged();
+    void groupChanged();
     void countChanged();
 
 protected:
@@ -38,4 +43,5 @@ protected:
 
 private:
     QString m_query;
+    QString m_group;
 };

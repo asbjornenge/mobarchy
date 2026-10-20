@@ -33,6 +33,16 @@ void AppFilter::setQuery(const QString &query)
     emit countChanged();
 }
 
+void AppFilter::setGroup(const QString &group)
+{
+    if (group == m_group)
+        return;
+    m_group = group;
+    invalidate();
+    emit groupChanged();
+    emit countChanged();
+}
+
 bool AppFilter::matches(const QString &name, const QString &query)
 {
     return query.isEmpty() || name.contains(query, Qt::CaseInsensitive);
@@ -49,8 +59,13 @@ bool AppFilter::wordStart(const QString &name, const QString &query)
 
 bool AppFilter::filterAcceptsRow(int row, const QModelIndex &parent) const
 {
-    const QString name = sourceModel()->index(row, 0, parent).data(AppModel::NameRole).toString();
-    return matches(name, m_query);
+    const QModelIndex i = sourceModel()->index(row, 0, parent);
+    if (!m_group.isEmpty()) {
+        const bool own = i.data(AppModel::IdRole).toString().startsWith(QLatin1String("org.mobarchy."));
+        if (own != (m_group == QLatin1String("own")))
+            return false;
+    }
+    return matches(i.data(AppModel::NameRole).toString(), m_query);
 }
 
 bool AppFilter::lessThan(const QModelIndex &left, const QModelIndex &right) const

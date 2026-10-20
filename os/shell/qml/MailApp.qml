@@ -96,6 +96,7 @@ Window {
 
     // --- the list --------------------------------------------------------------------------
     Item {
+        id: listPage
         anchors.fill: parent
         visible: win.view === "list"
 
@@ -197,13 +198,49 @@ Window {
             z: 2
         }
 
+        // Pulled down: Frigg's orb comes out of the top, growing and turning with the pull;
+        // let go past the mark, it swirls while the mail syncs (the list makes room for it).
+        readonly property real pull: Math.max(0, list.originY - list.contentY)
+        readonly property bool armed: pull > 90
+        Item {
+            id: pullZone
+            anchors { left: parent.left; right: parent.right; top: chips.bottom; topMargin: 6 }
+            height: 64
+            visible: mail.syncing || parent.pull > 4
+            FriggOrb {
+                id: pullOrb
+                anchors.centerIn: parent
+                width: 48; height: 48
+                points: 140
+                color: listPage.armed || mail.syncing ? Theme.accent : Theme.muted
+                state: mail.syncing ? "thinking" : listPage.armed ? "listening" : "idle"
+                running: pullZone.visible
+                scale: mail.syncing ? 1 : Math.min(1, 0.3 + listPage.pull / 130)
+                opacity: mail.syncing ? 1 : Math.min(1, listPage.pull / 60)
+                Behavior on scale { NumberAnimation { duration: 120 } }
+                Behavior on color { ColorAnimation { duration: 200 } }
+                // (turned as it is pulled)
+                property real last: 0
+                Connections {
+                    target: list
+                    function onContentYChanged() {
+                        const p = Math.max(0, list.originY - list.contentY)
+                        pullOrb.turnBy((p - pullOrb.last) * 1.5, 0)
+                        pullOrb.last = p
+                    }
+                }
+            }
+        }
+
         ListView {
             id: list
-            anchors { left: parent.left; right: parent.right; top: chips.bottom; topMargin: 10; bottom: parent.bottom }
+            anchors { left: parent.left; right: parent.right; top: chips.bottom; bottom: parent.bottom
+                      topMargin: mail.syncing ? 70 : 10 }
+            Behavior on anchors.topMargin { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
             clip: true
             boundsBehavior: Flickable.DragAndOvershootBounds
             model: mail.messages
-            // pulled down past the top: sync
+            // pulled down past the mark: sync
             onDragEnded: if (contentY < originY - 90) mail.sync()
             delegate: Item {
                 id: row
@@ -410,24 +447,31 @@ Window {
                 model: [{ id: "reply", icon: "󰑚", label: qsTr("Reply") }, { id: "forward", icon: "󰒊", label: qsTr("Forward") },
                         { id: "archive", icon: "󰀼", label: qsTr("Archive") }, { id: "snooze", icon: "󰒲", label: qsTr("Snooze") },
                         { id: "trash", icon: "󰆴", label: qsTr("Delete") }]
-                delegate: Column {
+                delegate: Item {
                     id: act
                     required property var modelData
-                    spacing: 4
-                    Text {
+                    // (the tap area over the icon and its label: a MouseArea in a Column would be
+                    // placed under them)
+                    width: Math.max(actColumn.width, 56); height: actColumn.height
+                    Column {
+                        id: actColumn
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: act.modelData.icon
-                        color: act.modelData.id === "trash" ? Theme.red : Theme.fg
-                        font { family: Theme.font; pixelSize: 24 }
-                    }
-                    Text {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        text: act.modelData.label
-                        color: Theme.muted
-                        font { family: Theme.font; pixelSize: 11 }
+                        spacing: 4
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: act.modelData.icon
+                            color: act.modelData.id === "trash" ? Theme.red : Theme.fg
+                            font { family: Theme.font; pixelSize: 24 }
+                        }
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: act.modelData.label
+                            color: Theme.muted
+                            font { family: Theme.font; pixelSize: 11 }
+                        }
                     }
                     MouseArea {
-                        width: 56; height: 56; x: (parent.width - width) / 2; y: -6
+                        anchors { fill: parent; margins: -10 }
                         onClicked: {
                             const id = win.item.id
                             switch (act.modelData.id) {

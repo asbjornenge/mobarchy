@@ -5,7 +5,7 @@ import Mobarchy.Shell
 
 // The calendar (ADR 0034), in the manner of Notion Calendar: a week strip, the day as a
 // timeline with the events as soft blocks in their calendars' colours, a line for now, the
-// month at a glance, and a sheet for a new event or one of the phone's. The accounts'
+// week as seven such columns side by side, the month at a glance, and a sheet for a new event or one of the phone's. The accounts'
 // calendars (iCloud, Google, ...) are read only for now. Its own window
 // (mobarchy-shell --calendar); the events are mobarchy-calendar's (CalendarData).
 Window {
@@ -17,6 +17,7 @@ Window {
 
     property date day: new Date()               // the day shown
     property bool monthView: false
+    property bool weekView: false
     property var editing: null                  // the event in the sheet ({} for a new one)
     property real now: Date.now()
     Timer { interval: 30000; running: true; repeat: true; onTriggered: win.now = Date.now() }
@@ -45,6 +46,22 @@ Window {
         days: 7
     }
 
+    // a day's timed events laid out: [{ev, top, hours, lane, lanes}], side by side where they
+    // overlap
+    function layout(evs, d) {
+        evs = evs.filter(e => !e.all_day).sort((a, b) => a.start.localeCompare(b.start))
+        const lanes = []    // each lane's end
+        const placed = []
+        const dayStart = dayOnly(d).getTime()
+        for (const e of evs) {
+            const s = Math.max(new Date(e.start).getTime(), dayStart)
+            const en = Math.min(new Date(e.end).getTime(), dayStart + 86400000)
+            let lane = lanes.findIndex(l => l <= s)
+            if (lane < 0) { lane = lanes.length; lanes.push(en) } else lanes[lane] = en
+            placed.push({ ev: e, top: (s - dayStart) / 3600000, hours: Math.max(0.4, (en - s) / 3600000), lane: lane })
+        }
+        return placed.map(p => Object.assign(p, { lanes: lanes.length }))
+    }
     function eventsOn(list, d) {
         const start = dayOnly(d).getTime(), end = addDays(d, 1).getTime()
         return list.filter(e => new Date(e.start).getTime() < end && new Date(e.end).getTime() > start
@@ -95,15 +112,17 @@ Window {
                 visible: !win.sameDay(win.day, new Date())
                 onClicked: win.day = new Date()
             }
-            Pill { label: qsTr("Day"); on: !win.monthView; onClicked: win.monthView = false }
-            Pill { label: qsTr("Month"); on: win.monthView; onClicked: win.monthView = true }
+            Pill { label: qsTr("Day"); on: !win.monthView && !win.weekView
+                   onClicked: { win.monthView = false; win.weekView = false } }
+            Pill { label: qsTr("Week"); on: win.weekView; onClicked: { win.monthView = false; win.weekView = true } }
+            Pill { label: qsTr("Month"); on: win.monthView; onClicked: { win.weekView = false; win.monthView = true } }
         }
     }
 
     // --- the week strip -------------------------------------------------------------------
     Row {
         id: strip
-        visible: !win.monthView
+        visible: !win.monthView && !win.weekView
         anchors { left: parent.left; right: parent.right; top: header.bottom; leftMargin: 10; rightMargin: 10 }
         height: 74
         Repeater {
@@ -170,7 +189,7 @@ Window {
     // --- the day: all-day events, then the timeline -------------------------------------------
     Item {
         id: dayView
-        visible: !win.monthView
+        visible: !win.monthView && !win.weekView
         anchors { left: parent.left; right: parent.right; top: strip.bottom; bottom: parent.bottom }
         readonly property var today: win.eventsOn(data.events, win.day)
         readonly property var allDay: today.filter(e => e.all_day)
@@ -253,20 +272,7 @@ Window {
 
             // the events: side by side where they overlap
             Repeater {
-                model: {
-                    const evs = dayView.timed.slice().sort((a, b) => a.start.localeCompare(b.start))
-                    const lanes = []    // each lane's end
-                    const placed = []
-                    const dayStart = win.dayOnly(win.day).getTime()
-                    for (const e of evs) {
-                        const s = Math.max(new Date(e.start).getTime(), dayStart)
-                        const en = Math.min(new Date(e.end).getTime(), dayStart + 86400000)
-                        let lane = lanes.findIndex(l => l <= s)
-                        if (lane < 0) { lane = lanes.length; lanes.push(en) } else lanes[lane] = en
-                        placed.push({ ev: e, top: (s - dayStart) / 3600000, hours: Math.max(0.4, (en - s) / 3600000), lane: lane })
-                    }
-                    return placed.map(p => Object.assign(p, { lanes: lanes.length }))
-                }
+                model: win.layout(dayView.timed, win.day)
                 delegate: Rectangle {
                     id: block
                     required property var modelData
@@ -326,6 +332,213 @@ Window {
             yAxis.enabled: false
             onActiveChanged: if (!active && Math.abs(translation.x) > 80)
                                  win.day = win.addDays(win.day, translation.x < 0 ? 1 : -1)
+        }
+    }
+
+    // --- the week: seven days side by side ------------------------------------------------------
+    Item {
+        id: weekView
+        visible: win.weekView
+        anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: parent.bottom }
+        readonly property date start: win.weekStart(win.day)
+        readonly property real gutter: 44
+        readonly property real col: (width - gutter - 8) / 7
+
+        // the days: name and date (a tap: that day, in Day)
+        Row {
+            id: weekHead
+            x: weekView.gutter
+            height: 52
+            Repeater {
+                model: 7
+                delegate: Item {
+                    id: wday
+                    required property int index
+                    readonly property date d: win.addDays(weekView.start, index)
+                    readonly property bool today: win.sameDay(d, new Date(win.now))
+                    width: weekView.col; height: weekHead.height
+                    Column {
+                        anchors.centerIn: parent
+                        spacing: 3
+                        Text {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            text: wday.d.toLocaleDateString(Qt.locale(), "ddd").slice(0, 2)
+                            color: Theme.muted
+                            font { family: Theme.font; pixelSize: 11; capitalization: Font.Capitalize }
+                        }
+                        Rectangle {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 28; height: 28; radius: 14
+                            color: wday.today ? Theme.red : "transparent"
+                            Text {
+                                anchors.centerIn: parent
+                                text: wday.d.getDate()
+                                color: wday.today ? Theme.bg : Theme.fg
+                                font { family: Theme.font; pixelSize: 14; bold: wday.today }
+                            }
+                        }
+                    }
+                    MouseArea { anchors.fill: parent; onClicked: { win.day = wday.d; win.weekView = false } }
+                }
+            }
+        }
+        // the all-day ones, a row under the days
+        Row {
+            id: weekAllDay
+            x: weekView.gutter
+            anchors.top: weekHead.bottom
+            Repeater {
+                model: 7
+                delegate: Column {
+                    id: adCol
+                    required property int index
+                    readonly property var evs: win.eventsOn(week.events, win.addDays(weekView.start, index)).filter(e => e.all_day)
+                    width: weekView.col
+                    spacing: 2
+                    bottomPadding: 4
+                    Repeater {
+                        model: adCol.evs
+                        delegate: Rectangle {
+                            id: adChip
+                            required property var modelData
+                            width: weekView.col - 3; height: 20; radius: 5
+                            color: Qt.alpha(modelData.color, 0.28)
+                            Text {
+                                anchors { fill: parent; leftMargin: 4; rightMargin: 2 }
+                                verticalAlignment: Text.AlignVCenter
+                                elide: Text.ElideRight
+                                text: adChip.modelData.title
+                                color: Theme.fg
+                                font { family: Theme.font; pixelSize: 10; bold: true }
+                            }
+                            MouseArea { anchors.fill: parent; onClicked: win.editing = adChip.modelData }
+                        }
+                    }
+                }
+            }
+        }
+        Rectangle {
+            id: weekRule
+            anchors { left: parent.left; right: parent.right; top: weekAllDay.bottom }
+            height: 1
+            color: Theme.line
+        }
+
+        Flickable {
+            id: weekTimeline
+            anchors { left: parent.left; right: parent.right; top: weekRule.bottom; bottom: parent.bottom }
+            clip: true
+            contentHeight: 24 * win.hourHeight + 40
+            boundsBehavior: Theme.boundsBehavior
+            maximumFlickVelocity: Theme.flickVelocity
+            flickDeceleration: Theme.flickDeceleration
+            Component.onCompleted: contentY = Math.max(0, (new Date().getHours() - 1.5) * win.hourHeight)
+
+            // the hours, and the days' lines
+            Repeater {
+                model: 24
+                delegate: Item {
+                    required property int index
+                    y: index * win.hourHeight + 12
+                    width: weekTimeline.width
+                    height: win.hourHeight
+                    Text {
+                        x: 4
+                        anchors.verticalCenter: parent.top
+                        visible: index > 0
+                        text: (index < 10 ? "0" : "") + index
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 10 }
+                    }
+                    Rectangle {
+                        x: weekView.gutter; width: parent.width - weekView.gutter - 8; height: 1
+                        visible: index > 0
+                        color: Qt.alpha(Theme.fg, 0.07)
+                    }
+                }
+            }
+            Repeater {
+                model: 8
+                delegate: Rectangle {
+                    required property int index
+                    x: weekView.gutter + index * weekView.col
+                    y: 12
+                    width: 1; height: 24 * win.hourHeight
+                    color: Qt.alpha(Theme.fg, 0.05)
+                }
+            }
+            // a tap on an empty hour of a day: a new event then
+            MouseArea {
+                x: weekView.gutter; y: 12
+                width: 7 * weekView.col; height: 24 * win.hourHeight
+                onClicked: (m) => {
+                    const d = win.addDays(weekView.start, Math.floor(m.x / weekView.col))
+                    const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(m.y / win.hourHeight))
+                    win.editing = { start: s.toISOString(), end: new Date(s.getTime() + 3600000).toISOString(),
+                                    all_day: false, isNew: true }
+                }
+            }
+            // each day's events, in its column
+            Repeater {
+                model: 7
+                delegate: Item {
+                    id: wcol
+                    required property int index
+                    readonly property date d: win.addDays(weekView.start, index)
+                    x: weekView.gutter + index * weekView.col
+                    y: 12
+                    width: weekView.col
+                    height: 24 * win.hourHeight
+                    Repeater {
+                        model: win.layout(win.eventsOn(week.events, wcol.d), wcol.d)
+                        delegate: Rectangle {
+                            id: wblock
+                            required property var modelData
+                            readonly property var ev: modelData.ev
+                            readonly property real w: (wcol.width - 2) / modelData.lanes
+                            x: 1 + modelData.lane * w
+                            y: modelData.top * win.hourHeight + 1
+                            width: w - 2
+                            height: Math.max(16, modelData.hours * win.hourHeight - 2)
+                            radius: 5
+                            color: Qt.alpha(ev.color, wTap.pressed ? 0.4 : 0.26)
+                            clip: true
+                            Rectangle { width: 3; height: parent.height; color: wblock.ev.color }
+                            Text {
+                                anchors { left: parent.left; right: parent.right; top: parent.top
+                                          leftMargin: 5; rightMargin: 2; topMargin: 2 }
+                                wrapMode: Text.Wrap
+                                maximumLineCount: Math.max(1, Math.floor((wblock.height - 4) / 13))
+                                elide: Text.ElideRight
+                                text: wblock.ev.title
+                                color: Theme.fg
+                                font { family: Theme.font; pixelSize: 10; bold: true }
+                            }
+                            MouseArea { id: wTap; anchors.fill: parent; onClicked: win.editing = wblock.ev }
+                        }
+                    }
+                }
+            }
+            // now
+            Item {
+                readonly property int dayIndex: Math.round((win.dayOnly(new Date(win.now)) - weekView.start) / 86400000)
+                visible: dayIndex >= 0 && dayIndex < 7
+                readonly property real at: (win.now - win.dayOnly(new Date(win.now)).getTime()) / 3600000
+                x: weekView.gutter + dayIndex * weekView.col
+                y: 12 + at * win.hourHeight
+                width: weekView.col
+                Rectangle { x: -4; y: -4; width: 8; height: 8; radius: 4; color: Theme.red }
+                Rectangle { width: parent.width; height: 2; y: -1; color: Theme.red }
+            }
+        }
+
+        // swiping the week: a week on or back
+        DragHandler {
+            target: null
+            xAxis.enabled: true
+            yAxis.enabled: false
+            onActiveChanged: if (!active && Math.abs(translation.x) > 80)
+                                 win.day = win.addDays(win.day, translation.x < 0 ? 7 : -7)
         }
     }
 

@@ -50,7 +50,7 @@ Sheet {
         target: drawer.keyboard
         // Return: the first match
         function onCaptureAccepted() {
-            const id = filtered.first()
+            const id = own.first() || others.first()
             if (id !== "")
                 drawer.open_(id)
         }
@@ -170,64 +170,83 @@ Sheet {
             color: Theme.muted
             font { family: Theme.font; pixelSize: 14 }
         }
-        GridView {
+        // Mobarchy's own apps first, a line, then the rest
+        component AppGrid: Grid {
+            id: appGrid
+            required property AppFilter apps
+            width: parent.width
+            columns: Math.max(4, Math.floor(width / 120))
+            readonly property real cell: width / columns
+            Repeater {
+                model: appGrid.apps
+                delegate: Item {
+                    id: tile
+                    required property string appId
+                    required property string name
+                    required property string icon
+                    width: appGrid.cell; height: 104
+
+                    // A tap goes to the app (its window, if it has one open); holding it offers a
+                    // new window.
+                    MouseArea {
+                        id: tap
+                        anchors.fill: parent
+                        onClicked: drawer.open_(tile.appId)
+                        onPressAndHold: drawer.offerNewWindow(tile.appId, tile.name, tile)
+                    }
+                    Column {
+                        anchors.centerIn: parent
+                        width: parent.width - 8
+                        spacing: 8
+                        scale: tap.pressed ? 0.9 : 1
+                        Behavior on scale { NumberAnimation { duration: 90 } }
+                        Image {
+                            anchors.horizontalCenter: parent.horizontalCenter
+                            width: 52; height: 52
+                            sourceSize: Qt.size(104, 104)
+                            asynchronous: true
+                            source: "image://icon/" + tile.icon
+                        }
+                        Text {
+                            width: parent.width
+                            horizontalAlignment: Text.AlignHCenter
+                            text: tile.name
+                            elide: Text.ElideRight
+                            color: Theme.fg
+                            font { family: Theme.font; pixelSize: 12 }
+                        }
+                    }
+                }
+            }
+        }
+        AppFilter { id: own; source: drawer.apps; query: drawer.keyboard.captured; group: "own" }
+        AppFilter { id: others; source: drawer.apps; query: drawer.keyboard.captured; group: "others" }
+        Flickable {
+            id: grid
             maximumFlickVelocity: Theme.flickVelocity
             boundsBehavior: Theme.boundsBehavior
             flickDeceleration: Theme.flickDeceleration
             rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
-            id: grid
             anchors {
                 left: parent.left; right: parent.right; bottom: parent.bottom
                 top: search.bottom
                 topMargin: 8; leftMargin: 8; rightMargin: 8
             }
             clip: true
-            readonly property int columns: Math.max(4, Math.floor(width / 120))
-            cellWidth: width / columns
-            cellHeight: 104
-            model: filtered
-            currentIndex: -1  // see Home.qml
-            highlightFollowsCurrentItem: false
+            contentHeight: sections.height + 24
             // Pulling down past the top closes the drawer.
             onDragEnded: if (verticalOvershoot < -72) drawer.close()
-
-            delegate: Item {
-                id: tile
-                required property string appId
-                required property string name
-                required property string icon
-                width: grid.cellWidth; height: grid.cellHeight
-
-                // A tap goes to the app (its window, if it has one open); holding it offers a
-                // new window.
-                MouseArea {
-                    id: tap
-                    anchors.fill: parent
-                    onClicked: drawer.open_(tile.appId)
-                    onPressAndHold: drawer.offerNewWindow(tile.appId, tile.name, tile)
+            Column {
+                id: sections
+                width: grid.width
+                spacing: 6
+                AppGrid { apps: own }
+                Rectangle {
+                    visible: own.count > 0 && others.count > 0
+                    x: 16; width: parent.width - 32; height: 1
+                    color: Theme.line
                 }
-                Column {
-                    anchors.centerIn: parent
-                    width: parent.width - 8
-                    spacing: 8
-                    scale: tap.pressed ? 0.9 : 1
-                    Behavior on scale { NumberAnimation { duration: 90 } }
-                    Image {
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        width: 52; height: 52
-                        sourceSize: Qt.size(104, 104)
-                        asynchronous: true
-                        source: "image://icon/" + tile.icon
-                    }
-                    Text {
-                        width: parent.width
-                        horizontalAlignment: Text.AlignHCenter
-                        text: tile.name
-                        elide: Text.ElideRight
-                        color: Theme.fg
-                        font { family: Theme.font; pixelSize: 12 }
-                    }
-                }
+                AppGrid { apps: others }
             }
         }
     
