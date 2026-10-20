@@ -274,7 +274,22 @@ QtObject {
         }
         // a call going out (from Contacts, or Frigg): the Phone app shows it, once a call
         property var shownCalls: []
+        // missed: a call that came in and went without being answered (from whom, by path)
+        property var unanswered: ({})
         onCallsChanged: {
+            const now = {}
+            for (const c of calls)
+                now[c.path] = c
+            for (const path in unanswered) {
+                if (!now[path])
+                    shell.missedCall(unanswered[path])
+            }
+            const next = {}
+            for (const c of calls) {
+                if (c.state === "incoming" || c.state === "waiting")
+                    next[c.path] = c.number
+            }
+            unanswered = next
             const out = calls.filter(c => (c.state === "dialing" || c.state === "alerting")
                                           && !shownCalls.includes(c.path))
             shownCalls = calls.map(c => c.path)
@@ -306,6 +321,26 @@ QtObject {
         interval: 1500; repeat: true; triggeredOnStart: true
         running: shell.ringing && !shell.ringerSilenced
         onTriggered: shell.haptics.buzz()
+    }
+
+    // A missed call: a notification (the caller by name, if a contact); a tap opens Phone.
+    property var missedNotes: ({})
+    function missedCall(number) {
+        const id = notifications.post(qsTr("Missed call"), contacts.nameFor(number) || number || qsTr("Unknown number"),
+                                      "org.mobarchy.Phone")
+        const notes = missedNotes
+        notes[id] = number
+        missedNotes = notes
+    }
+    readonly property Connections missedTapped: Connections {
+        target: shell.notifications
+        function onInvoked(id, action) {
+            if (shell.missedNotes[id] === undefined)
+                return
+            delete shell.missedNotes[id]
+            if (!shell.toplevels.activateApp(shell.apps.windowIds("org.mobarchy.Phone")))
+                shell.apps.launch("org.mobarchy.Phone")
+        }
     }
 
     // A text message: a notification with who and what (the sender by name, if a contact),
