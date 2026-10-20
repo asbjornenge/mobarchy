@@ -50,6 +50,7 @@ qt_add_qml_module(mobarchy-shell
         src/homeconfig.cpp src/homeconfig.h
         src/orientation.cpp src/orientation.h
         src/proximity.cpp src/proximity.h
+        src/hotspot.cpp src/hotspot.h
         src/torch.cpp src/torch.h
         src/fingerprint.cpp src/fingerprint.h
         src/iconprovider.h

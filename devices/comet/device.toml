@@ -130,3 +130,7 @@ trusty_persist = ["0660", "system", "system"]
 # give them for this phone (product CarrierSettings: gps.longterm_psds_server_1)
 [location]
 psds_url = "https://1.ssiloc.com/p4/42F3"
+
+[wifi]
+# a second interface on the Wi-Fi chip for the hotspot (beside wlan0, on its channel)
+ap_interface = "wlan1"

@@ -50,6 +50,9 @@ pipewire-audio
 # Wifi (mobarchy-wifi)
 wpa_supplicant
 iw
+# the hotspot (ADR 0039): the access point, and its QR code
+hostapd
+qrencode
 wireless-regdb
 # Web browsers besides Mobarchy's own (Bifrost, ADR 0023): Firefox (GPU page rendering
 # with WebRender and a separate scroll thread: much smoother scrolling on phones; its phone

@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""The phone's internet shared over Wi-Fi (ADR 0039): an access point beside the Wi-Fi it is
+on (hostapd), addresses for the devices that join (systemd-networkd's DHCP server, the
+uplink's name servers), and their traffic out through whatever the phone is on, mobile data
+or Wi-Fi (iptables NAT; the kernel has no nftables NAT).
+
+The access point's interface: the device's `[wifi] ap_interface` (device.toml; comet's chip
+has a second one, wlan1), else one added beside wlan0 (ap0). On the same channel as wlan0,
+when that is connected (one radio).
+
+Run as root (the owner's session through sudoers.d/zz-mobarchy-hotspot):
+
+    hotspot status              {on, name, password, clients}
+    hotspot on | off
+    hotspot set <name> <password>   (password: 8 to 63 characters)
+"""
+import json
+import os
+import re
+import secrets
+import subprocess
+import sys
+import tomllib
+from pathlib import Path
+
+STATE = Path("/var/lib/mobarchy/hotspot.json")
+RUN = Path("/run/mobarchy/hotspot")
+NETWORK = Path("/run/systemd/network/45-mobarchy-hotspot.network")
+UNIT = "mobarchy-hotspot-ap"
+SUBNET = "192.168.44"
+
+
+def sh(*cmd: str, check: bool = False) -> subprocess.CompletedProcess:
+    return subprocess.run(cmd, capture_output=True, text=True, check=check)
+
+
+def interface() -> str:
+    try:
+        dev = tomllib.load(open("/etc/mobarchy/device.toml", "rb"))
+        name = dev.get("wifi", {}).get("ap_interface")
+        if name:
+            return name
+    except (OSError, tomllib.TOMLDecodeError):
+        pass
+    if not Path("/sys/class/net/ap0").exists():
+        sh("iw", "dev", "wlan0", "interface", "add", "ap0", "type", "__ap")
+    return "ap0"
+
+
+def settings() -> dict:
+    try:
+        s = json.loads(STATE.read_text())
+    except (OSError, ValueError):
+        s = {}
+    if not s.get("name") or not s.get("password"):
+        s = {"name": "Mobarchy-" + secrets.token_hex(2).upper(),
+             "password": "-".join(secrets.token_hex(2) for _ in range(3))}
+        save(s)
+    return s
+
+
+def save(s: dict) -> None:
+    STATE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(s))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, STATE)
+
+
+def running() -> bool:
+    return sh("systemctl", "is-active", "--quiet", UNIT).returncode == 0
+
+
+def clients(iface: str) -> int:
+    return sh("iw", "dev", iface, "station", "dump").stdout.count("Station ")
+
+
+def status() -> dict:
+    s = settings()
+    on = running()
+    return {"on": on, "name": s["name"], "password": s["password"],
+            "clients": clients(interface()) if on else 0}
+
+
+def uplink_channel() -> tuple[int, str]:
+    """(channel, hostapd's hw_mode) of wlan0's connection, else 6 on 2.4 GHz."""
+    m = re.search(r"channel (\d+) \((\d+) MHz\)", sh("iw", "dev", "wlan0", "info").stdout)
+    if not m:
+        return 6, "g"
+    channel, mhz = int(m.group(1)), int(m.group(2))
+    return channel, "a" if mhz > 4000 else "g"
+
+
+def nat(on: bool) -> None:
+    rules = [("-t", "nat", "POSTROUTING", "-s", f"{SUBNET}.0/24", "!", "-d", f"{SUBNET}.0/24", "-j", "MASQUERADE"),
+             ("FORWARD", "-s", f"{SUBNET}.0/24", "-j", "ACCEPT"),
+             ("FORWARD", "-d", f"{SUBNET}.0/24", "-m", "state", "--state", "RELATED,ESTABLISHED", "-j", "ACCEPT")]
+    for r in rules:
+        table = list(r[:2]) if r[0] == "-t" else []
+        rest = list(r[2:]) if r[0] == "-t" else list(r)
+        chain, spec = rest[0], rest[1:]
+        present = sh("iptables", *table, "-C", chain, *spec).returncode == 0
+        if on and not present:
+            sh("iptables", *table, "-A", chain, *spec)
+        elif not on and present:
+            sh("iptables", *table, "-D", chain, *spec)
+    if on:
+        Path("/proc/sys/net/ipv4/ip_forward").write_text("1\n")
+
+
+def start() -> dict:
+    if running():
+        return status()
+    s, iface = settings(), interface()
+    channel, mode = uplink_channel()
+    RUN.mkdir(parents=True, exist_ok=True)
+    conf = RUN / "hostapd.conf"
+    conf.write_text("\n".join([
+        f"interface={iface}", "driver=nl80211", f"ssid={s['name']}", f"hw_mode={mode}",
+        f"channel={channel}", "ieee80211n=1", "wmm_enabled=1", "wpa=2", "wpa_key_mgmt=WPA-PSK",
+        "rsn_pairwise=CCMP", f"wpa_passphrase={s['password']}", ""]))
+    os.chmod(conf, 0o600)
+    # addresses for those who join: networkd (its DHCP server, the uplink's name servers)
+    NETWORK.parent.mkdir(parents=True, exist_ok=True)
+    NETWORK.write_text(f"""# Written by /usr/lib/mobarchy/hotspot while the hotspot is on (ADR 0039)
+[Match]
+Name={iface}
+
+[Network]
+Address={SUBNET}.1/24
+DHCPServer=yes
+IPv6AcceptRA=no
+
+[DHCPServer]
+PoolOffset=10
+PoolSize=100
+EmitDNS=yes
+""")
+    sh("networkctl", "reload")
+    nat(True)
+    r = sh("systemd-run", f"--unit={UNIT}", "--collect", "--quiet", "hostapd", str(conf))
+    if r.returncode != 0:
+        stop()
+        raise SystemExit(json.dumps({"error": r.stderr.strip() or "hostapd did not start"}))
+    sh("networkctl", "reconfigure", iface)
+    return status()
+
+
+def stop() -> dict:
+    sh("systemctl", "stop", UNIT)
+    nat(False)
+    if NETWORK.exists():
+        NETWORK.unlink()
+        sh("networkctl", "reload")
+    return status()
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    cmd = args[0] if args else "status"
+    if cmd == "status":
+        out = status()
+    elif cmd == "on":
+        out = start()
+    elif cmd == "off":
+        out = stop()
+    elif cmd == "set" and len(args) == 3:
+        name, password = args[1].strip(), args[2]
+        if not 1 <= len(name.encode()) <= 32 or not 8 <= len(password) <= 63 \
+                or any(ord(c) < 32 for c in name + password):
+            print(json.dumps({"error": "a name of 1-32 bytes and a password of 8-63 characters"}))
+            return 1
+        was = running()
+        if was:
+            stop()
+        save({"name": name, "password": password})
+        out = start() if was else status()
+    else:
+        print(__doc__, file=sys.stderr)
+        return 2
+    print(json.dumps(out))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

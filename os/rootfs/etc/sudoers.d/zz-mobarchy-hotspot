@@ -1,0 +1,4 @@
+# The hotspot (ADR 0039): the owner's session turns it on and off and names it through this
+# one helper, without asking for the PIN. (Named to come after the wheel rule: the last rule
+# that matches wins.)
+%wheel ALL=(root) NOPASSWD: /usr/lib/mobarchy/hotspot

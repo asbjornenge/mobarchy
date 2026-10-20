@@ -40,7 +40,10 @@ Sheet {
     LayerShell.Window.exclusionZone: 0
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
-    property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth, 3: screen lock (PIN, fingers)
+    property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth, 3: screen lock (PIN, fingers),
+                          // 4: notifications, 5: hotspot
+    // sharing the internet over Wi-Fi (ADR 0039): followed while the panel is open
+    readonly property Hotspot hotspot: Hotspot { watching: quick.shown }
     property string wifiError: ""
     property string bluetoothError: ""
 
@@ -348,7 +351,7 @@ Sheet {
         id: panel
         width: parent.width
         // as tall as the page, up to the screen (the pages scroll beyond that)
-        height: Math.min([overview, wifiPage, bluetoothPage, lockPage, notesPage][quick.page].implicitHeight + 28 + handle.height,
+        height: Math.min([overview, wifiPage, bluetoothPage, lockPage, notesPage, hotspotPage][quick.page].implicitHeight + 28 + handle.height,
                          quick.height)
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         y: -(1 - quick.openness) * height
@@ -549,6 +552,18 @@ Sheet {
                                 }
                             }
                             Tile {
+                                icon: "󰀃"
+                                label: qsTr("Hotspot")
+                                detail: !quick.hotspot.on ? qsTr("Off")
+                                      : quick.hotspot.clients === 1 ? qsTr("1 device")
+                                      : quick.hotspot.clients > 1 ? qsTr("%1 devices").arg(quick.hotspot.clients)
+                                      : qsTr("On")
+                                active: quick.hotspot.on
+                                chevron: true
+                                supported: quick.hotspot.available
+                                onClicked: quick.page = 5
+                            }
+                            Tile {
                                 icon: quick.pinLock.hasPin ? "󰌾" : "󰍁"
                                 label: qsTr("Screen lock")
                                 detail: quick.pinLock.hasPin ? qsTr("PIN") : qsTr("Swipe only")
@@ -639,6 +654,115 @@ Sheet {
                         ActionsRow {
                             width: parent.width
                             visible: !quick.twoColumns
+                        }
+                    }
+                }
+            }
+
+            // --- the hotspot ---------------------------------------------------------------
+            Flickable {
+                x: 5 * pages.width
+                width: pages.width
+                height: pages.height
+                contentHeight: hotspotPage.implicitHeight
+                clip: true
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
+
+                Column {
+                    id: hotspotPage
+                    x: 20
+                    width: pages.width - 40
+                    spacing: 14
+
+                    Item {
+                        width: parent.width
+                        height: 40
+                        MouseArea {
+                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                            width: hotspotBackRow.implicitWidth + 16
+                            onClicked: quick.page = 0
+                            Row {
+                                id: hotspotBackRow
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 10
+                                Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
+                                       font { family: Theme.font; pixelSize: 16 }
+                                       anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: qsTr("Hotspot"); color: Theme.fg
+                                       font { family: Theme.font; pixelSize: 18; bold: true } }
+                            }
+                        }
+                        Switch {
+                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                            checked: quick.hotspot.on
+                            enabled: !quick.hotspot.busy
+                            onToggled: quick.hotspot.setOn(!quick.hotspot.on)
+                        }
+                    }
+                    Text {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        text: quick.hotspot.busy ? qsTr("…")
+                            : quick.hotspot.error !== "" ? quick.hotspot.error
+                            : quick.hotspot.on ? qsTr("Sharing this phone's internet. Join with the name and password, or scan the code.")
+                            : qsTr("Off. Turn it on to share this phone's internet over Wi-Fi.")
+                        color: quick.hotspot.error !== "" ? Theme.red : Theme.muted
+                        font { family: Theme.font; pixelSize: 13 }
+                    }
+                    Rectangle {
+                        width: parent.width
+                        height: hotspotFacts.implicitHeight + 28
+                        radius: 14
+                        color: Theme.panel
+                        Column {
+                            id: hotspotFacts
+                            anchors { left: parent.left; right: parent.right; top: parent.top; margins: 14 }
+                            spacing: 10
+                            component Fact: Row {
+                                id: fact
+                                property string label
+                                property string value
+                                spacing: 12
+                                Text { width: 90; text: fact.label; color: Theme.muted
+                                       font { family: Theme.font; pixelSize: 13 } }
+                                Text { text: fact.value; color: Theme.fg
+                                       font { family: Theme.font; pixelSize: 15; bold: true } }
+                            }
+                            Fact { label: qsTr("Name"); value: quick.hotspot.name }
+                            Fact { label: qsTr("Password"); value: quick.hotspot.password }
+                            Fact { label: qsTr("Joined"); value: quick.hotspot.on ? quick.hotspot.clients : "–" }
+                        }
+                    }
+                    // the code: a camera joins with it
+                    Rectangle {
+                        visible: quick.hotspot.qr !== ""
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        width: 220; height: 220; radius: 16
+                        color: "white"
+                        Image {
+                            anchors { fill: parent; margins: 10 }
+                            source: quick.hotspot.qr ? "file://" + quick.hotspot.qr : ""
+                            smooth: false
+                            fillMode: Image.PreserveAspectFit
+                        }
+                    }
+                    // a new password (to stop those who had the old one)
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: qsTr("New password")
+                        color: Theme.accent
+                        font { family: Theme.font; pixelSize: 13 }
+                        bottomPadding: 10
+                        MouseArea {
+                            anchors { fill: parent; margins: -10 }
+                            enabled: !quick.hotspot.busy
+                            onClicked: {
+                                const part = () => Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0")
+                                quick.hotspot.configure(quick.hotspot.name, part() + "-" + part() + "-" + part())
+                            }
                         }
                     }
                 }
