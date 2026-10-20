@@ -619,10 +619,14 @@ def watch() -> int:
     """Follow every account's inbox (until stopped); every minute, bring back what is due."""
     stop = threading.Event()
     sync()
-    for a in mail_accounts():
-        threading.Thread(target=_follow, args=(a, stop), daemon=True).start()
+    followed: set[str] = set()
     try:
         while True:
+            # (an account signed in with mail since: followed from now)
+            for a in mail_accounts():
+                if a["id"] not in followed:
+                    followed.add(a["id"])
+                    threading.Thread(target=_follow, args=(a, stop), daemon=True).start()
             time.sleep(60)
             with contextlib.closing(db()) as c:
                 due = c.execute("SELECT DISTINCT account FROM snoozes WHERE until<=?", (int(time.time()),)).fetchall()
