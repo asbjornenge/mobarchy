@@ -49,6 +49,7 @@ qt_add_qml_module(mobarchy-shell
         src/locationagent.cpp src/locationagent.h
         src/homeconfig.cpp src/homeconfig.h
         src/orientation.cpp src/orientation.h
+        src/proximity.cpp src/proximity.h
         src/torch.cpp src/torch.h
         src/fingerprint.cpp src/fingerprint.h
         src/iconprovider.h
@@ -99,6 +100,7 @@ qt_add_qml_module(mobarchy-shell
         qml/WifiPassword.qml
         qml/AlarmScreen.qml
         qml/ScreenFlash.qml
+        qml/CallShade.qml
         qml/ApprovalSheet.qml
         qml/AuthSheet.qml
         qml/ThemesApp.qml

@@ -65,6 +65,14 @@ back after the call. It offers `org.mobarchy.CallAudio` on the session bus (`Spe
 `Muted`, `SetSpeaker`, `SetMuted`); the Phone app's Speaker and Mute buttons use it, and
 show only on a device that has it.
 
+## At the ear (2026-10-20)
+
+During a call on the earpiece the shell claims the proximity sensor (ADR 0020); near, a
+black layer covers the screen and takes the touches (`CallShade`), and the screen has no
+timeout during a call. The display is not turned off: off, comet's touchscreen stops
+reporting, and a cheek's touches were never released. The compositor then kept them down
+after the call, and nothing but the Phone app took a tap until another call came.
+
 ## Open
 
 - **The microphone in a call** is routed (EP4, the uplink) but not yet confirmed by someone

@@ -141,7 +141,7 @@ QtObject {
     // inhibitors count too: the compositor holds the notification back), or Frigg is in a
     // conversation.
     readonly property Idle idle: Idle {
-        timeout: shell.inhibitors.active || shell.talk.talking || shell.alarms.ringing || shell.ringing ? 0 : 60
+        timeout: shell.inhibitors.active || shell.talk.talking || shell.alarms.ringing || shell.ringing || shell.inCall ? 0 : 60
         onIdleChanged: if (idle && shell.screen.on) shell.screenOff()
     }
     // A woken but untouched lock screen goes dark again soon.
@@ -298,6 +298,13 @@ QtObject {
                 shell.apps.launch("org.mobarchy.Phone")
         }
     }
+
+    // A call at the ear: the proximity sensor, while a call is up on the earpiece; near, the
+    // screen goes black and takes no touches (CallShade). No screen timeout during a call.
+    readonly property bool inCall: telephony.calls.some(c => c.state === "active" || c.state === "dialing"
+                                                         || c.state === "alerting" || c.state === "held")
+    readonly property Proximity proximity: Proximity { active: shell.inCall && !shell.telephony.speaker }
+    readonly property CallShade callShade: CallShade { shown: shell.proximity.near }
 
     // A call coming in rings (the ringtone, over and over, and a buzz) until it is answered,
     // declined or gone; the power key silences it. Muted: only the buzz.
