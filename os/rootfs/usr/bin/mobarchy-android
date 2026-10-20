@@ -25,11 +25,18 @@ systemctl --user reset-failed mobarchy-android-location 2>/dev/null || true
 systemd-run --user --quiet --collect --unit=mobarchy-android-location /usr/lib/mobarchy/android-location || true
 
 # The UI window. `waydroid show-full-ui` only asks Android to show it and returns (it
-# waits for Android to be up, at a cold start); the window is Android's own surface
-# ("Waydroid"). So: wait for that window (up to three minutes: a cold start), then follow it
-# until the owner has closed it.
+# waits for Android to be up, at a cold start). So: wait for Android's window (up to three
+# minutes: a cold start), then follow Android's windows until the owner has closed them all.
 waydroid show-full-ui || true
-windows() { hyprctl -j clients 2>/dev/null | jq '[.[] | select(.class == "Waydroid" or .initialClass == "Waydroid")] | length'; }
+# Android's windows: the full UI ("Waydroid") and an app opened on its own (named after the
+# app): any window drawn from inside the container
+windows() {
+    n=0
+    for pid in $(hyprctl -j clients 2>/dev/null | jq -r '.[].pid'); do
+        grep -q "lxc.payload.waydroid" "/proc/$pid/cgroup" 2>/dev/null && n=$((n + 1))
+    done
+    echo "$n"
+}
 i=0
 while [ "$(windows)" = "0" ] && [ "$i" -lt 90 ] && [ "$(session)" = "RUNNING" ]; do
     sleep 2; i=$((i + 1))
