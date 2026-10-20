@@ -24,19 +24,18 @@ fi
 systemctl --user reset-failed mobarchy-android-location 2>/dev/null || true
 systemd-run --user --quiet --collect --unit=mobarchy-android-location /usr/lib/mobarchy/android-location || true
 
-# the UI window; blocks until the owner closes it. Right after a (cold) start Android may not
-# be up yet: show-full-ui then gives up within seconds ("Failed to get service
-# waydroidplatform"); it is tried again, for up to two minutes. A window that stayed up a
-# while was closed by the owner.
-tries=0
-while :; do
-    started=$(date +%s)
-    waydroid show-full-ui || true
-    [ $(( $(date +%s) - started )) -ge 20 ] && break
-    tries=$((tries + 1))
-    [ "$tries" -ge 24 ] && break
-    [ "$(session)" = "RUNNING" ] || break
-    sleep 5
+# The UI window. `waydroid show-full-ui` only asks Android to show it and returns (it
+# waits for Android to be up, at a cold start); the window is Android's own surface
+# ("Waydroid"). So: wait for that window (up to three minutes: a cold start), then follow it
+# until the owner has closed it.
+waydroid show-full-ui || true
+windows() { hyprctl -j clients 2>/dev/null | jq '[.[] | select(.class == "Waydroid" or .initialClass == "Waydroid")] | length'; }
+i=0
+while [ "$(windows)" = "0" ] && [ "$i" -lt 90 ] && [ "$(session)" = "RUNNING" ]; do
+    sleep 2; i=$((i + 1))
+done
+while [ "$(windows)" != "0" ] && [ "$(session)" = "RUNNING" ]; do
+    sleep 3
 done
 
 # closed: free the memory
