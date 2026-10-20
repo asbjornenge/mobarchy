@@ -68,7 +68,7 @@ LayerWindow {
     property bool cameraOpen: false
     onShownChanged: {
         cameraOpen = false
-        if (shown) { settle.stop(); lift = 0; askingPin = false; pad.clear(); pad.message = "" }
+        if (shown) { settle.stop(); lift = 0; askingPin = false; pad.clear(); pad.message = ""; opening = 0 }
     }
 
     function swiped() {
@@ -149,7 +149,9 @@ LayerWindow {
         opacity: 1 - lock.lift
 
         Column {
-            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: parent.height * 0.18 }
+            id: clock
+            anchors { horizontalCenter: parent.horizontalCenter; top: parent.top; topMargin: parent.height * 0.18
+                                                                                 * (lock.notifications.count ? 0.6 : 1) }
             spacing: 6
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -191,14 +193,6 @@ LayerWindow {
                     font { family: Theme.font; pixelSize: 15 }
                 }
             }
-            Text {
-                anchors.horizontalCenter: parent.horizontalCenter
-                visible: lock.notifications.count > 0
-                text: "󰂚 " + (lock.notifications.count === 1 ? qsTr("1 notification")
-                                                              : qsTr("%1 notifications").arg(lock.notifications.count))
-                color: Theme.accent
-                font { family: Theme.font; pixelSize: 14 }
-            }
         }
 
         Column {
@@ -234,8 +228,44 @@ LayerWindow {
         }
     }
 
+    // The notifications, under the clock (above what's playing). A tap opens one: once
+    // unlocked (with the PIN, if there is one), its app at what it is about.
+    property int opening: 0     // the notification to open once unlocked
+    signal openNotification(int id)
+    onUnlocked: if (opening) {
+        openNotification(opening)
+        opening = 0
+    }
+    ListView {
+        id: notes
+        anchors { left: parent.left; right: parent.right; top: parent.top
+                  topMargin: content.y + clock.y + clock.height + 24
+                  bottom: parent.bottom
+                  bottomMargin: 120 + lock.insetBottom + (nowPlaying.visible ? nowPlaying.height + 16 : 0)
+                  leftMargin: 20 + lock.insetLeft; rightMargin: 20 + lock.insetRight }
+        visible: !lock.askingPin && !lock.cameraOpen
+        opacity: 1 - lock.lift
+        z: 2
+        clip: true
+        spacing: 8
+        boundsBehavior: Theme.boundsBehavior
+        model: lock.notifications
+        delegate: NotificationCard {
+            width: ListView.view.width
+            showActions: false
+            ground: Qt.alpha(Theme.panel, 0.88)
+            onActivated: {
+                lock.touched()
+                lock.opening = notificationId
+                lock.swiped()
+            }
+            onDismissed: lock.notifications.dismiss(notificationId)
+        }
+    }
+
     // What's playing, above the swipe hint; it moves with the content when swiped.
     NowPlaying {
+        id: nowPlaying
         anchors { left: parent.left; right: parent.right; bottom: parent.bottom
                   leftMargin: 24 + lock.insetLeft; rightMargin: 24 + lock.insetRight
                   bottomMargin: 120 + lock.insetBottom }

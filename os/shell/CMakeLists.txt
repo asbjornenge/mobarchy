@@ -93,6 +93,7 @@ qt_add_qml_module(mobarchy-shell
         qml/Switch.qml
         qml/LevelSlider.qml
         qml/NowPlaying.qml
+        qml/NotificationCard.qml
         qml/PinPad.qml
         qml/VolumeOsd.qml
         qml/WifiPassword.qml

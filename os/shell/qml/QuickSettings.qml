@@ -348,7 +348,7 @@ Sheet {
         id: panel
         width: parent.width
         // as tall as the page, up to the screen (the pages scroll beyond that)
-        height: Math.min([overview, wifiPage, bluetoothPage, lockPage][quick.page].implicitHeight + 28 + handle.height,
+        height: Math.min([overview, wifiPage, bluetoothPage, lockPage, notesPage][quick.page].implicitHeight + 28 + handle.height,
                          quick.height)
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         y: -(1 - quick.openness) * height
@@ -613,146 +613,27 @@ Sheet {
                             }
                         }
 
-                        // Notifications
-                        Item {
+                        // Notifications: a box with how many; a tap shows them (a page of their own)
+                        Rectangle {
                             width: parent.width
-                            height: 24
+                            height: 56
                             visible: quick.notifications.count > 0
+                            radius: 14
+                            color: notesTap.pressed ? Theme.line : Theme.panel
                             Text {
-                                anchors { left: parent.left; verticalCenter: parent.verticalCenter }
-                                text: qsTr("Notifications")
+                                anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
+                                text: "󰂚  " + (quick.notifications.count === 1 ? qsTr("1 notification")
+                                                                                 : qsTr("%1 notifications").arg(quick.notifications.count))
+                                color: Theme.fg
+                                font { family: Theme.font; pixelSize: 15 }
+                            }
+                            Text {
+                                anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
+                                text: "\uf054"     // nf-fa-chevron_right
                                 color: Theme.muted
-                                font { family: Theme.font; pixelSize: 12 }
+                                font { family: Theme.font; pixelSize: 14 }
                             }
-                            Text {
-                                anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                                text: qsTr("Clear all")
-                                color: Theme.accent
-                                font { family: Theme.font; pixelSize: 12 }
-                                MouseArea {
-                                    anchors { fill: parent; margins: -10 }
-                                    onClicked: quick.notifications.clear()
-                                }
-                            }
-                        }
-                        ListView {
-                            maximumFlickVelocity: Theme.flickVelocity
-                            flickDeceleration: Theme.flickDeceleration
-                            rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
-                            id: notificationList
-                            width: parent.width
-                            visible: count > 0
-                            height: Math.min(contentHeight, 300)
-                            clip: true
-                            spacing: 8
-                            currentIndex: -1  // see Home.qml
-                            highlightFollowsCurrentItem: false
-                            boundsBehavior: Theme.boundsBehavior
-                            model: quick.notifications
-                            delegate: Rectangle {
-                                id: note
-                                required property int notificationId
-                                required property string app
-                                required property string icon
-                                required property string summary
-                                required property string body
-                                required property var actions
-                                required property int urgency
-                                required property date time
-                                width: ListView.view.width
-                                height: noteColumn.implicitHeight + 24
-                                radius: 14
-                                color: noteTap.pressed ? Theme.line : Theme.panel
-                                border.color: urgency >= 2 ? Theme.red : "transparent"
-
-                                MouseArea {
-                                    id: noteTap
-                                    anchors.fill: parent
-                                    onClicked: {
-                                        quick.notifications.invoke(note.notificationId, "default")
-                                        quick.close()
-                                    }
-                                }
-                                Image {
-                                    id: noteIcon
-                                    anchors { left: parent.left; leftMargin: 14; top: parent.top; topMargin: 14 }
-                                    width: 28; height: 28
-                                    sourceSize: Qt.size(56, 56)
-                                    asynchronous: true
-                                    source: note.icon ? "image://icon/" + note.icon : ""
-                                    visible: status === Image.Ready
-                                }
-                                Column {
-                                    id: noteColumn
-                                    anchors { left: noteIcon.visible ? noteIcon.right : parent.left; leftMargin: 14
-                                              right: closeNote.left; top: parent.top; topMargin: 12 }
-                                    spacing: 3
-                                    Text {
-                                        width: parent.width
-                                        text: note.app + "  ·  " + Qt.formatTime(note.time, "HH:mm")
-                                        elide: Text.ElideRight
-                                        color: Theme.muted
-                                        font { family: Theme.font; pixelSize: 11 }
-                                    }
-                                    Text {
-                                        width: parent.width
-                                        text: note.summary
-                                        wrapMode: Text.Wrap
-                                        maximumLineCount: 2
-                                        elide: Text.ElideRight
-                                        color: Theme.fg
-                                        font { family: Theme.font; pixelSize: 13; bold: true }
-                                    }
-                                    Text {
-                                        width: parent.width
-                                        visible: text.length > 0
-                                        text: note.body
-                                        wrapMode: Text.Wrap
-                                        maximumLineCount: 3
-                                        elide: Text.ElideRight
-                                        color: Theme.fg
-                                        font { family: Theme.font; pixelSize: 12 }
-                                    }
-                                    Row {
-                                        visible: note.actions.length > 0
-                                        spacing: 8
-                                        topPadding: 4
-                                        Repeater {
-                                            model: note.actions
-                                            delegate: Rectangle {
-                                                id: actionButton
-                                                required property var modelData
-                                                width: actionText.implicitWidth + 24; height: 30; radius: 15
-                                                color: "transparent"
-                                                border.color: Theme.accent
-                                                Text {
-                                                    id: actionText
-                                                    anchors.centerIn: parent
-                                                    text: actionButton.modelData.label
-                                                    color: Theme.accent
-                                                    font { family: Theme.font; pixelSize: 11 }
-                                                }
-                                                MouseArea {
-                                                    anchors { fill: parent; margins: -4 }
-                                                    onClicked: quick.notifications.invoke(note.notificationId, actionButton.modelData.key)
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                MouseArea {
-                                    id: closeNote
-                                    anchors { right: parent.right; top: parent.top }
-                                    width: 44; height: 44
-                                    onClicked: quick.notifications.dismiss(note.notificationId)
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: "󰅖"
-                                        color: Theme.muted
-                                        font { family: Theme.font; pixelSize: 14 }
-                                    }
-                                }
-                            }
+                            MouseArea { id: notesTap; anchors.fill: parent; onClicked: quick.page = 4 }
                         }
 
                         ActionsRow {
@@ -761,6 +642,83 @@ Sheet {
                         }
                     }
                 }
+            }
+
+            // --- notifications --------------------------------------------------------------
+            Flickable {
+                x: 4 * pages.width
+                width: pages.width
+                height: pages.height
+                contentHeight: notesPage.implicitHeight
+                clip: true
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
+
+                Column {
+                    id: notesPage
+                    x: 20
+                    width: pages.width - 40
+                    spacing: 10
+
+                    Item {
+                        width: parent.width
+                        height: 40
+                        MouseArea {
+                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                            width: notesBackRow.implicitWidth + 16
+                            onClicked: quick.page = 0
+                            Row {
+                                id: notesBackRow
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 10
+                                Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
+                                       font { family: Theme.font; pixelSize: 16 }
+                                       anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: qsTr("Notifications"); color: Theme.fg
+                                       font { family: Theme.font; pixelSize: 18; bold: true } }
+                            }
+                        }
+                        Text {
+                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
+                            visible: quick.notifications.count > 0
+                            text: qsTr("Clear all")
+                            color: Theme.accent
+                            font { family: Theme.font; pixelSize: 13 }
+                            MouseArea {
+                                anchors { fill: parent; margins: -10 }
+                                onClicked: {
+                                    quick.notifications.clear()
+                                    quick.page = 0
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        visible: quick.notifications.count === 0
+                        text: qsTr("No notifications")
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 14 }
+                    }
+                    Repeater {
+                        model: quick.notifications
+                        delegate: NotificationCard {
+                            width: notesPage.width
+                            onActivated: {
+                                quick.notifications.invoke(notificationId, "default")
+                                quick.close()
+                            }
+                            onDismissed: quick.notifications.dismiss(notificationId)
+                            onAction: (key) => quick.notifications.invoke(notificationId, key)
+                        }
+                    }
+                }
+            }
+            // (none left: back to the overview)
+            Connections {
+                target: quick.notifications
+                function onCountChanged() { if (quick.notifications.count === 0 && quick.page === 4) quick.page = 0 }
             }
 
             // --- Wi-Fi ------------------------------------------------------------------

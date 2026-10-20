@@ -226,6 +226,8 @@ QtObject {
             shell.keyboard.visible = false
         }
         onTouched: shell.lockTimeout.restart()
+        // a notification tapped on the lock screen: opened once unlocked
+        onOpenNotification: (id) => shell.notifications.invoke(id, "default")
         // a finger unlocks a dark screen too: it comes on
         onFingerUnlocked: shell.screen.on = true
     }
