@@ -555,21 +555,31 @@ def send(account_id: str, to: str, subject: str, body: str, cc: str = "", reply_
 
 # --- following -------------------------------------------------------------------------------
 
-def notify(summary: str, body: str) -> None:
-    """A notification (the shell's server); a tap opens Mail (the desktop entry)."""
+def notify(summary: str, body: str, target: str = "") -> None:
+    """A notification (the shell's server); a tap opens Mail (the desktop entry), at the
+    message (the target)."""
+    def gv(s: str) -> str:      # (a GVariant string)
+        return "'" + s.replace("\\", "\\\\").replace("'", "\\'") + "'"
     subprocess.run(["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications",
                     "--object-path", "/org/freedesktop/Notifications",
-                    "--method", "org.freedesktop.Notifications.Notify", "Mail", "0", "org.mobarchy.Mail",
-                    summary, body, "[]", "{'desktop-entry': <'org.mobarchy.Mail'>}", "-1"],
+                    "--method", "org.freedesktop.Notifications.Notify", "Mail", "uint32 0", "org.mobarchy.Mail",
+                    summary, body, "['default', 'Open']",
+                    "{'desktop-entry': <'org.mobarchy.Mail'>, 'x-mobarchy-target': <" + gv(target) + ">}",
+                    "int32 -1"],     # (as a GVariant: "-1" alone reads as an option)
                    capture_output=True, timeout=10)
 
 
 def _announce(account_id: str, since: int) -> None:
     with contextlib.closing(db()) as c:
-        rows = c.execute("SELECT from_name, subject, category FROM messages WHERE account=? AND folder='INBOX' "
+        rows = c.execute("SELECT * FROM messages WHERE account=? AND folder='INBOX' "
                          "AND seen=0 AND date>=? AND category='people' ORDER BY date", (account_id, since)).fetchall()
     for r in rows[-3:]:
-        notify(r["from_name"], r["subject"])
+        if _id(r) not in _announced:    # (once a message, however often the inbox changes)
+            _announced.add(_id(r))
+            notify(r["from_name"], r["subject"], _id(r))
+
+
+_announced: set[str] = set()
 
 
 def _idle(m: imaplib.IMAP4_SSL, seconds: int) -> bool:

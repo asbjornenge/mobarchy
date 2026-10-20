@@ -19,7 +19,7 @@ class Notifications : public QAbstractListModel
 
 public:
     enum Role { IdRole = Qt::UserRole + 1, AppRole, IconRole, SummaryRole, BodyRole, ActionsRole,
-                UrgencyRole, TimeRole };
+                UrgencyRole, TimeRole, DesktopEntryRole, TargetRole };
     enum CloseReason { Expired = 1, Dismissed = 2, Closed = 3 };
 
     explicit Notifications(QObject *parent = nullptr);
@@ -50,11 +50,14 @@ signals:
     void posted(uint id);
     // A notification's action was invoked (tapped: "default").
     void invoked(uint id, const QString &action);
+    // An app's notification tapped: open the app (its desktop entry), at the target if it
+    // gave one (the hint "x-mobarchy-target": a conversation, a message)
+    void opened(const QString &desktopEntry, const QString &target);
 
 private:
     struct Item {
         uint id = 0;
-        QString app, icon, summary, body;
+        QString app, icon, summary, body, desktopEntry, target;
         QStringList actions;  // key, label, key, label, ...
         int urgency = 1;      // 0 low, 1 normal, 2 critical
         bool resident = false;

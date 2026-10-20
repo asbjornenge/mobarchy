@@ -22,7 +22,8 @@ Window {
 
     Contacts { id: contacts }
     // a conversation asked for (a notification tapped): at the start, or while open
-    MessagesThread {
+    AppLink {
+        name: "org.mobarchy.Messages"
         service: true
         onShowRequested: (number) => win.show(number)
     }
@@ -130,7 +131,9 @@ Window {
                     }
                     Text {
                         width: parent.width
-                        text: (row.last && row.last.incoming ? "" : "→ ") + (row.last ? row.last.text : "")
+                        // (one line: a long message's lines run into the next row otherwise)
+                        text: (row.last && row.last.incoming ? "" : "→ ") + (row.last ? row.last.text.replace(/\s+/g, " ") : "")
+                        maximumLineCount: 1
                         color: row.unread ? Theme.fg : Theme.muted
                         font { family: Theme.font; pixelSize: 13 }
                         elide: Text.ElideRight
@@ -210,6 +213,7 @@ Window {
             delegate: Row {
                 required property var modelData
                 width: thread.width
+                height: childrenRect.height
                 layoutDirection: modelData.incoming ? Qt.LeftToRight : Qt.RightToLeft
                 Rectangle {
                     width: Math.min(bubble.implicitWidth + 24, thread.width * 0.8)

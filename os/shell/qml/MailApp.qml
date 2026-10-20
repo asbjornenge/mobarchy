@@ -30,7 +30,35 @@ Window {
         }
         onSaved: (path) => win.toast(qsTr("Saved to %1").arg(path.replace(/^.*\/(Downloads\/)/, "$1")))
     }
-    Component.onCompleted: mail.sync()
+    // a message asked for (a notification tapped): at the start, or while open
+    AppLink {
+        name: "org.mobarchy.Mail"
+        service: true
+        onShowRequested: (id) => win.show(id)
+    }
+    function show(id) {
+        if (!id)
+            return
+        const row = mail.messages.find(m => m.id === id)
+        win.read(row ?? { id: id, subject: "", from: "", date: 0, account: id.split("|")[0] })
+        win.requestActivate()
+    }
+    // (opened before the list had come: its row, once it has)
+    Connections {
+        target: mail
+        function onMessagesChanged() {
+            if (win.item && !win.item.subject)
+                win.item = mail.messages.find(m => m.id === win.item.id) ?? win.item
+        }
+    }
+    // mobarchy-shell --mail [message id]
+    Component.onCompleted: {
+        mail.sync()
+        const args = Qt.application.arguments
+        const i = args.indexOf("--mail")
+        if (i >= 0 && i + 1 < args.length)
+            Qt.callLater(() => win.show(args[i + 1]))
+    }
 
     property string view: "list"        // "list", "read", "compose"
     property var message: null           // the one being read, in full
@@ -311,7 +339,7 @@ Window {
                 Text {
                     width: parent.width
                     wrapMode: Text.Wrap
-                    text: win.item ? win.item.subject : ""
+                    text: win.message ? win.message.subject : win.item ? win.item.subject : ""
                     color: Theme.fg
                     font { family: Theme.font; pixelSize: 21; bold: true }
                 }
@@ -327,7 +355,8 @@ Window {
                     wrapMode: Text.Wrap
                     visible: !!win.message
                     text: win.message ? qsTr("To %1").arg(win.message.to) + (win.message.cc ? "\n" + qsTr("Cc %1").arg(win.message.cc) : "")
-                                        + "\n" + (win.item ? new Date(win.item.date * 1000).toLocaleString(Qt.locale(), "d MMMM yyyy HH:mm") : "")
+                                        + "\n" + (win.item && win.item.date ? new Date(win.item.date * 1000).toLocaleString(Qt.locale(), "d MMMM yyyy HH:mm")
+                                                   : win.message.date)
                                       : ""
                     color: Theme.muted
                     font { family: Theme.font; pixelSize: 12 }

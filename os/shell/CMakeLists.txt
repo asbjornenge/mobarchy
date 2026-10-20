@@ -65,7 +65,7 @@ qt_add_qml_module(mobarchy-shell
         src/screenpower.cpp src/screenpower.h
         src/screenshot.cpp src/screenshot.h
         src/photolibrary.cpp src/photolibrary.h
-        src/messagesthread.cpp src/messagesthread.h
+        src/applink.cpp src/applink.h
         src/telephony.cpp src/telephony.h
         src/wifi.cpp src/wifi.h
         src/systemstatus.cpp src/systemstatus.h

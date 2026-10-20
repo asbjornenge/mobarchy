@@ -84,6 +84,8 @@ uint Notifications::notify(const QString &app, uint replacesId, const QString &i
     item.urgency = hints.value(QStringLiteral("urgency"), 1).toInt();
     item.resident = hints.value(QStringLiteral("resident")).toBool();
     item.time = QDateTime::currentDateTime();
+    item.desktopEntry = hints.value(QStringLiteral("desktop-entry")).toString();
+    item.target = hints.value(QStringLiteral("x-mobarchy-target")).toString();
     // An icon: the app's own, a file path hint, or the icon of its desktop entry.
     item.icon = icon;
     if (item.icon.isEmpty())
@@ -136,6 +138,9 @@ void Notifications::invoke(uint id, const QString &action)
         return;
     emit m_adaptor->ActionInvoked(id, action);
     emit invoked(id, action);
+    const Item &item = m_items.at(row);
+    if (action == QLatin1String("default") && !item.desktopEntry.isEmpty())
+        emit opened(item.desktopEntry, item.target);
     if (!m_items.at(row).resident)
         remove(id, Dismissed);
 }
@@ -216,6 +221,8 @@ QVariant Notifications::data(const QModelIndex &index, int role) const
     }
     case UrgencyRole: return i.urgency;
     case TimeRole: return i.time;
+    case DesktopEntryRole: return i.desktopEntry;
+    case TargetRole: return i.target;
     default: return {};
     }
 }
@@ -223,7 +230,8 @@ QVariant Notifications::data(const QModelIndex &index, int role) const
 QHash<int, QByteArray> Notifications::roleNames() const
 {
     return {{IdRole, "notificationId"}, {AppRole, "app"}, {IconRole, "icon"}, {SummaryRole, "summary"},
-            {BodyRole, "body"}, {ActionsRole, "actions"}, {UrgencyRole, "urgency"}, {TimeRole, "time"}};
+            {BodyRole, "body"}, {ActionsRole, "actions"}, {UrgencyRole, "urgency"}, {TimeRole, "time"},
+            {DesktopEntryRole, "desktopEntry"}, {TargetRole, "target"}};
 }
 
 #include "notifications.moc"

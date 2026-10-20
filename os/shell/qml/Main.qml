@@ -311,6 +311,19 @@ QtObject {
             Messaging.open(number)
         }
     }
+    // An app's notification tapped: the app, at what the notification was about (the shell's
+    // own apps: Mail at the message), else the app's window or the app started.
+    readonly property Connections notificationOpened: Connections {
+        target: shell.notifications
+        function onOpened(entry, target) {
+            const id = entry.replace(/\.desktop$/, "")
+            const own = ({ "org.mobarchy.Mail": "--mail", "org.mobarchy.Messages": "--messages" })[id]
+            if (own)
+                AppLinks.open(id, own, target)
+            else if (!shell.toplevels.activateApp(shell.apps.windowIds(id)))
+                shell.apps.launch(id)
+        }
+    }
     readonly property MediaPlayer messageTone: MediaPlayer {
         source: "qrc:/qt/qml/Mobarchy/Shell/data/sounds/message.wav"
         audioOutput: AudioOutput { volume: 0.8 }
