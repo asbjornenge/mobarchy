@@ -1,7 +1,17 @@
 # 0029: Android apps through Waydroid (experiment)
 
-- Status: experimental (branch `feature/android-apps`)
+- Status: parked (2026-10-21); experimental before (branch `feature/android-apps`)
 - Date: 2026-10-12
+
+**Parked, 2026-10-21.** The apps the owner needs (BankID, Vipps, Førerkort, Ryde) refuse a
+device that isn't certified, and we don't fake that (below). The rest ran, but only middling:
+a ~15 s cold start, no camera, not Mobarchy's keyboard. The owner chose web apps for what has
+a good web version, and the iPhone for the rest for now. Android's entry and its apps are
+hidden in the drawer (`/usr/share/mobarchy/apps-hidden`: `org.mobarchy.Android`,
+`waydroid.*`). Waydroid, the overlay Mesa and the helpers stay in the image and cost nothing
+until started (`mobarchy-android`); remove them for good if nothing changes. Ideas left on
+the table: freezing Android between apps (instant reopening, ~2.6 GB held) with a loader
+for the cold start, and a keyboard bridge (an IME). Neither was built.
 
 ## Context
 

@@ -81,8 +81,10 @@ void AppModel::reload()
 
     // Apps not to list, by desktop ID: Mobarchy's (/usr/share/mobarchy/apps-hidden: Android's
     // own Phone, Messages and Contacts beside the shell's) and the owner's
-    // (~/.config/mobarchy/apps-hidden). A line each; # begins a comment.
+    // (~/.config/mobarchy/apps-hidden). A line each; # begins a comment; a trailing * hides
+    // every ID that begins so (waydroid.*: all of Android's apps).
     QSet<QString> hidden;
+    QStringList hiddenPrefixes;
     for (const QString &file : {QStringLiteral("/usr/share/mobarchy/apps-hidden"),
                                 QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
                                     + QStringLiteral("/mobarchy/apps-hidden")}) {
@@ -92,13 +94,19 @@ void AppModel::reload()
         for (const QByteArray &line : f.readAll().split('\n')) {
             const qsizetype hash = line.indexOf('#');
             const QString id = QString::fromUtf8(hash < 0 ? line : line.left(hash)).trimmed();
-            if (!id.isEmpty())
+            if (id.endsWith(u'*'))
+                hiddenPrefixes << id.chopped(1);
+            else if (!id.isEmpty())
                 hidden.insert(id.endsWith(QLatin1String(".desktop")) ? id : id + QStringLiteral(".desktop"));
         }
     }
     QList<DesktopEntry> visible;
     std::copy_if(all.cbegin(), all.cend(), std::back_inserter(visible),
-                 [&](const DesktopEntry &e) { return e.visible && !hidden.contains(e.id); });
+                 [&](const DesktopEntry &e) {
+                     return e.visible && !hidden.contains(e.id)
+                            && std::none_of(hiddenPrefixes.cbegin(), hiddenPrefixes.cend(),
+                                            [&](const QString &p) { return e.id.startsWith(p); });
+                 });
     std::sort(visible.begin(), visible.end(), [](const DesktopEntry &a, const DesktopEntry &b) {
         return QString::localeAwareCompare(a.name, b.name) < 0;
     });
