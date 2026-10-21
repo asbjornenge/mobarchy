@@ -14,6 +14,9 @@
     its OMX codec HAL has no service, and Android waits for a declared HAL for ever, so
     the media server hung, and with it the shared storage (/storage/emulated) and whatever
     waits on that
+  - then the codecs Android has, its own Codec2 software ones (debug.stagefright.ccodec=4):
+    Waydroid sets 0, OMX only, for the OMX (ffmpeg) codecs the image lacks; without codecs no
+    video played and no sound (apps decode it)
   - the lxc-net script for a kernel without nftables NAT and the CHECKSUM target: Waydroid's
     default uses nftables masquerade (CONFIG_NFT_NAT/NFT_MASQ) and the xt CHECKSUM target,
     neither of which the comet kernel has yet (they are in mobarchy_defconfig, pending a
@@ -79,7 +82,7 @@ def gpu_render_node() -> str | None:
     return None
 
 
-def configure() -> bool:
+def configure(missing: list[str]) -> bool:
     """Waydroid's config to match; True if it changed."""
     if not CFG.exists():
         return False     # not initialised yet (waydroid init): nothing to match
@@ -90,25 +93,40 @@ def configure() -> bool:
     if node := gpu_render_node():
         want["drm_device"] = node
     changed = {k: v for k, v in want.items() if w.get(k) != v}
+    # without the OMX codecs: Android's own Codec2 ones (Waydroid's default is OMX only)
+    props = cfg["properties"] if cfg.has_section("properties") else None
+    if props is None:
+        cfg.add_section("properties")
+        props = cfg["properties"]
+    ccodec = "4" if "android.hardware.media.omx" in missing else None
+    if props.get("debug.stagefright.ccodec") != ccodec:
+        changed["debug.stagefright.ccodec"] = ccodec
     if not changed:
         return False
     for k, v in changed.items():
-        w[k] = v
+        if k == "debug.stagefright.ccodec":
+            if v is None:
+                props.pop(k, None)
+            else:
+                props[k] = v
+        else:
+            w[k] = v
     with CFG.open("w") as f:
         cfg.write(f)
     print(f"waydroid-prepare: {changed}")
     return True
 
 
-def vendor_manifest() -> None:
-    """The vendor image's manifest, less the HALs it lacks, in the overlay (or none)."""
+def vendor_manifest() -> list[str]:
+    """The vendor image's manifest, less the HALs it lacks, in the overlay (or none). The
+    HALs it lacks."""
     if not CFG.exists():
-        return
+        return []
     cfg = configparser.ConfigParser()
     cfg.read(CFG)
     image = Path(cfg["waydroid"].get("images_path", "/var/lib/waydroid/images")) / "vendor.img"
     if not image.exists():
-        return
+        return []
     with tempfile.TemporaryDirectory() as mnt:
         subprocess.run(["mount", "-o", "ro,loop", str(image), mnt], check=True)
         try:
@@ -127,6 +145,7 @@ def vendor_manifest() -> None:
             print(f"waydroid-prepare: vendor manifest without {missing}")
     elif target.exists():
         target.unlink()
+    return missing
 
 
 def net_script() -> None:
@@ -145,9 +164,9 @@ def net_script() -> None:
 
 def main() -> int:
     binders()
-    vendor_manifest()
+    missing = vendor_manifest()
     net_script()
-    if configure():
+    if configure(missing):
         # the Android properties (gralloc's device among them) and the LXC config from it
         subprocess.run(["waydroid", "upgrade", "--offline"], check=True)
     return 0
