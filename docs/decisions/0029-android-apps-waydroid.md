@@ -36,11 +36,21 @@ drawing its windows as Wayland clients of Hyprland.
   `waydroid-prepare` points Waydroid's gralloc at the GPU's render node (the one whose
   driver renders; on comet renderD129, Panthor; renderD128 is the display controller).
   SurfaceFlinger and apps then render with "Mali-G715 MC7 (Panfrost)", and boot is ~15 s.
+  Our Mesa is also loaded by the software codecs' process (media.swcodec), whose seccomp
+  filter killed it the moment Mesa's threads set their scheduling (`sched_setscheduler`):
+  no video played and no sound. The package therefore carries that process's vendor
+  policy (`etc/seccomp_policy/mediaswcodec.policy`): the image's, plus Mesa's scheduling
+  calls.
 - **The vendor image's broken promise.** Its HAL manifest declares the OMX codec HAL, but
   no service provides it. Android waits for a declared HAL for ever, so the media server
   hung on its codec list. MediaProvider hung on the media server, and the shared storage
   (`/storage/emulated`) never mounted: apps and the Google sign-in waited on it.
   `waydroid-prepare` overlays the image's manifest without the HALs it lacks.
+- **Codecs and sound (2026-10-21).** Without OMX codecs Android uses its own Codec2 software
+  ones (`debug.stagefright.ccodec=4`, set by `waydroid-prepare`). Android's audio HAL asks
+  PipeWire for 256-frame (5 ms) buffers, and at that rate the speaker underran: the sound
+  crackled. `pipewire-pulse.conf.d/50-mobarchy-waydroid.conf` gives the Waydroid stream at
+  least 1024 frames (21 ms).
 - **Networking.** Waydroid's lxc-net script uses nftables NAT if nftables works, and
   iptables' CHECKSUM target. The comet kernel has neither (`NFT_NAT`, `NFT_MASQ`,
   `NETFILTER_XT_TARGET_CHECKSUM`); they are now in `mobarchy_defconfig`. Until a kernel

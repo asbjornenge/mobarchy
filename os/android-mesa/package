@@ -5,7 +5,9 @@
 #                            container's /odm/lib64 (/usr/lib/mobarchy/android/odm/lib64)
 #   mobarchy-waydroid-mesa   the GPU's Mesa for Waydroid (the Android apps, ADR 0029),
 #                            overlaid on its vendor image (/var/lib/waydroid/overlay/vendor);
-#                            only if the waydroid stage was built
+#                            only if the waydroid stage was built; with the seccomp policies
+#                            of Android's processes that load it, widened for its syscalls
+#                            (os/android-mesa/waydroid/etc: the vendor image's, plus Mesa's)
 #
 #   os/android-mesa/package --out <dir>      (after os/android-mesa/build [waydroid])
 #   tools/repo-build --repo <dir> --add <dir>/mobarchy-android-mesa-*.pkg.tar.zst
@@ -57,6 +59,7 @@ EOP
 package mobarchy-android-mesa "$work/odm" /usr/lib/mobarchy/android/odm \
     "Mesa for the Mobarchy Android container: EGL/GLES and OpenCL (rusticl) on llvmpipe, for the vendor HALs (ADR 0017)"
 if [ -f "$work/waydroid/vendor/lib64/libgallium_dri.so" ]; then
+    rm -rf "$work/waydroid/vendor/etc" && cp -a "$(dirname "$0")/waydroid/etc" "$work/waydroid/vendor/"
     package mobarchy-waydroid-mesa "$work/waydroid/vendor" /var/lib/waydroid/overlay/vendor \
         "Mesa for Android in Waydroid: the GPU (panfrost) for the Android apps, over the Mesa of its vendor image (ADR 0029)"
 fi

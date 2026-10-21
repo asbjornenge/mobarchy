@@ -1,0 +1,13 @@
+# Required by mesa3d
+kcmp: 1
+sched_getaffinity: 1
+sysinfo: 1
+mkdirat: 1
+# Our Mesa (panfrost) in the software codecs' process (media.swcodec, through its graphic
+# buffers): its threads set their scheduling (pthread_setschedparam, affinity). Without these
+# the process's seccomp filter kills it on the first video or audio decoded.
+sched_setscheduler: 1
+sched_getscheduler: 1
+sched_setparam: 1
+sched_getparam: 1
+sched_setaffinity: 1
