@@ -82,6 +82,13 @@ its attestation check (see ADR 0030), so Android is an occasional tool, not some
   starts the Waydroid session on demand, shows its full UI in a window, and stops the session
   when that window is closed — zero memory when unused. Waydroid's own three launcher icons
   are hidden (NoDisplay overrides).
+- Android's apps in the drawer (Waydroid's `waydroid app launch <package>` entries) are
+  opened the same way (2026-10-21): the shell runs them as `mobarchy-android <package>`, so
+  an app opened directly also gets the location and the setup, and Android stops once its
+  last window is closed (`waydroid app launch` alone left the session running for good).
+  At each session `android-setup` (root, sudoers) switches Android to gesture navigation
+  without the handle: no black bar with a back arrow under every app; back is a swipe in
+  from the left or right edge.
 - An always-on model (a user service keeping the session alive, with Android apps listed
   individually in the drawer) is held in reserve if several people want it; not built.
 

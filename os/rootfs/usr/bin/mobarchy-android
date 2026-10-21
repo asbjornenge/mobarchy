@@ -2,8 +2,13 @@
 # Android, on demand (ADR 0029): starts the Waydroid session if it isn't running, shows its
 # full UI in a window, and stops the session again when that window is closed. Off by
 # default, so Android costs nothing (it holds ~2.5 GB while running) until the owner opens
-# it from the app drawer (org.mobarchy.Android.desktop).
+# it from the app drawer (org.mobarchy.Android.desktop), or opens one of its apps (the shell
+# runs Waydroid's `waydroid app launch <package>` entries as `mobarchy-android <package>`).
+#
+#   mobarchy-android              Android's full UI
+#   mobarchy-android <package>    one of its apps
 set -eu
+package="${1:-}"
 
 export WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-1}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
@@ -23,11 +28,19 @@ fi
 # where the phone is, for Android's apps (while the session is up)
 systemctl --user reset-failed mobarchy-android-location 2>/dev/null || true
 systemd-run --user --quiet --collect --unit=mobarchy-android-location /usr/lib/mobarchy/android-location || true
+# its setup, once it has booted (navigation by gesture)
+systemd-run --user --quiet --collect sudo -n /usr/lib/mobarchy/android-setup || true
 
-# The UI window. `waydroid show-full-ui` only asks Android to show it and returns (it
-# waits for Android to be up, at a cold start). So: wait for Android's window (up to three
-# minutes: a cold start), then follow Android's windows until the owner has closed them all.
-waydroid show-full-ui || true
+# The UI window, or the app's. `waydroid show-full-ui` and `app launch` only ask Android to
+# show it and return (they wait for Android to be up, at a cold start). So: wait for
+# Android's window (up to three minutes: a cold start), then follow Android's windows until
+# the owner has closed them all. (Another app opened meanwhile runs this too: each stops the
+# session only once no Android window is left.)
+if [ -n "$package" ]; then
+    waydroid app launch "$package" || true
+else
+    waydroid show-full-ui || true
+fi
 # Android's windows: the full UI ("Waydroid") and an app opened on its own (named after the
 # app): any window drawn from inside the container
 windows() {
@@ -41,7 +54,11 @@ i=0
 while [ "$(windows)" = "0" ] && [ "$i" -lt 90 ] && [ "$(session)" = "RUNNING" ]; do
     sleep 2; i=$((i + 1))
 done
-while [ "$(windows)" != "0" ] && [ "$(session)" = "RUNNING" ]; do
+# (gone for 15 s: an app swaps its window between activities, e.g. from its splash screen,
+# and has none for a moment)
+gone=0
+while [ "$gone" -lt 5 ] && [ "$(session)" = "RUNNING" ]; do
+    if [ "$(windows)" = "0" ]; then gone=$((gone + 1)); else gone=0; fi
     sleep 3
 done
 

@@ -150,6 +150,11 @@ bool AppModel::launch(const QString &appId)
         qWarning() << "cannot parse Exec of" << id << ":" << it->exec;
         return false;
     }
+    // An Android app (Waydroid's entries): through mobarchy-android, which starts Android,
+    // sets it up and stops it again once its last window is closed (ADR 0029)
+    if (args.size() == 4 && args[0] == u"waydroid" && args[1] == u"app" && args[2] == u"launch"
+        && !QStandardPaths::findExecutable(QStringLiteral("mobarchy-android")).isEmpty())
+        args = QStringList{QStringLiteral("mobarchy-android"), args[3]};
     if (it->terminal)
         args.prepend(qEnvironmentVariable("MOBARCHY_TERMINAL", QStringLiteral("foot")));
 

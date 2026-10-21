@@ -1,0 +1,17 @@
+#!/bin/sh
+# Root's setup of Android in Waydroid (ADR 0029), once it has booted; run by mobarchy-android
+# at each session (idempotent; the owner's session may run it: sudoers.d/zz-mobarchy-android).
+#
+#   - navigation by gesture, without the handle: Waydroid's default is a black bar with a
+#     back arrow under every app; with gestures, back is a swipe in from the left or right
+#     edge (the shell's gestures are at the bottom edge only)
+set -eu
+android() { waydroid shell -- "$@"; }
+# (Android is still booting, at a cold start: up to three minutes)
+i=0
+until [ "$(android getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
+    i=$((i + 1)); [ "$i" -le 90 ] || { echo "android-setup: Android did not boot" >&2; exit 1; }
+    sleep 2
+done
+android cmd overlay enable-exclusive --category com.android.internal.systemui.navbar.gestural
+android cmd overlay enable org.lineageos.overlay.customization.navbar.nohint
