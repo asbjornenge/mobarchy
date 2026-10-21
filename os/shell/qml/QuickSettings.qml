@@ -381,7 +381,10 @@ Sheet {
                          quick.height)
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         y: -(1 - quick.openness) * height
+        // (rounded at the bottom only: it comes down from under the status bar)
         radius: 18
+        topLeftRadius: 0
+        topRightRadius: 0
         color: Theme.bg
         border.color: Theme.line
         clip: true
@@ -578,31 +581,12 @@ Sheet {
                                 }
                             }
                             Tile {
-                                icon: "󰀃"
-                                label: qsTr("Hotspot")
-                                detail: !quick.hotspot.on ? qsTr("Off")
-                                      : quick.hotspot.clients === 1 ? qsTr("1 device")
-                                      : quick.hotspot.clients > 1 ? qsTr("%1 devices").arg(quick.hotspot.clients)
-                                      : qsTr("On")
-                                active: quick.hotspot.on
-                                chevron: true
-                                supported: quick.hotspot.available
-                                onClicked: quick.page = 5
-                            }
-                            Tile {
                                 icon: quick.pinLock.hasPin ? "󰌾" : "󰍁"
                                 label: qsTr("Screen lock")
                                 detail: quick.pinLock.hasPin ? qsTr("PIN") : qsTr("Swipe only")
                                 active: quick.pinLock.hasPin
                                 chevron: true
                                 onClicked: quick.showLock()
-                            }
-                            Tile {
-                                icon: "󰌌"
-                                label: qsTr("Keyboard")
-                                detail: quick.keyboard.visible ? qsTr("Shown") : qsTr("Hidden")
-                                active: quick.keyboard.visible
-                                onClicked: quick.keyboard.toggle()
                             }
                             Tile {
                                 visible: quick.rotation.supported
@@ -631,16 +615,6 @@ Sheet {
                                 supported: t.available
                                 onClicked: if (!quick.radioSettings.flight)
                                                quick.radioSettings.mobile = !quick.radioSettings.mobile
-                            }
-                            Tile {
-                                icon: quick.volume.muted ? "󰖁" : "󰕾"
-                                label: qsTr("Sound")
-                                detail: !quick.volume.available ? qsTr("No audio output")
-                                      : quick.volume.muted ? qsTr("Muted")
-                                      : Math.round(quick.volume.volume * 100) + " %"
-                                active: quick.volume.available && !quick.volume.muted
-                                supported: quick.volume.available
-                                onClicked: quick.volume.muted = !quick.volume.muted
                             }
                             Tile {
                                 icon: !quick.rfkill.bluetoothEnabled ? "󰂲" : quick.bluetooth.connectedNames.length > 0 ? "󰂱" : "󰂯"
@@ -709,7 +683,7 @@ Sheet {
                         MouseArea {
                             anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
                             width: hotspotBackRow.implicitWidth + 16
-                            onClicked: quick.page = 0
+                            onClicked: quick.page = 1
                             Row {
                                 id: hotspotBackRow
                                 anchors.verticalCenter: parent.verticalCenter
@@ -1062,6 +1036,46 @@ Sheet {
                         text: quick.wifi.scanning ? qsTr("Looking for networks …") : qsTr("No networks found.")
                         color: Theme.muted
                         font { family: Theme.font; pixelSize: 13 }
+                    }
+
+                    // the hotspot: the phone's internet shared over Wi-Fi (its own page)
+                    Rectangle {
+                        width: parent.width
+                        height: 56
+                        visible: quick.hotspot.available
+                        radius: 14
+                        color: hotspotTap.pressed ? Theme.line : Theme.panel
+                        border.color: quick.hotspot.on ? Theme.accent : "transparent"
+                        Text {
+                            id: hotspotIcon
+                            anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
+                            text: "󰀃"
+                            color: quick.hotspot.on ? Theme.accent : Theme.fg
+                            font { family: Theme.font; pixelSize: 20 }
+                        }
+                        Column {
+                            anchors { left: hotspotIcon.right; leftMargin: 14; verticalCenter: parent.verticalCenter }
+                            Text {
+                                text: qsTr("Hotspot")
+                                color: Theme.fg
+                                font { family: Theme.font; pixelSize: 14 }
+                            }
+                            Text {
+                                text: !quick.hotspot.on ? qsTr("Off")
+                                    : quick.hotspot.clients === 1 ? qsTr("1 device")
+                                    : quick.hotspot.clients > 1 ? qsTr("%1 devices").arg(quick.hotspot.clients)
+                                    : qsTr("On")
+                                color: quick.hotspot.on ? Theme.accent : Theme.muted
+                                font { family: Theme.font; pixelSize: 11 }
+                            }
+                        }
+                        Text {
+                            anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
+                            text: "\uf054"     // nf-fa-chevron_right
+                            color: Theme.muted
+                            font { family: Theme.font; pixelSize: 14 }
+                        }
+                        MouseArea { id: hotspotTap; anchors.fill: parent; onClicked: quick.page = 5 }
                     }
                 }
             }
