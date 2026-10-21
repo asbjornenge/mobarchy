@@ -82,7 +82,10 @@ Sheet {
         width: parent.width
         height: parent.height
         y: (1 - drawer.openness) * height
+        // (rounded at the top only: it comes up from the bottom edge)
         radius: 18
+        bottomLeftRadius: 0
+        bottomRightRadius: 0
         color: Theme.bg
         border.color: Theme.line
 
