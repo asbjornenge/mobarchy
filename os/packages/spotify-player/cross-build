@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-# Cross-compile spotify-player for aarch64 on an x86_64 PC (tools/cross-cargo), and package it
-# for Mobarchy's repository. (Being here, it also keeps tools/repo-build's default run from
-# building it under qemu-user.)
-#
-#   cross-build --work <dir> [--repo <dir>] [--fresh]
-here="$(cd "$(dirname "$0")" && pwd)"
-exec "$here/../../../tools/cross-cargo" "$here" "$@"

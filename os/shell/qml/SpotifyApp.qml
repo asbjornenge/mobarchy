@@ -271,7 +271,6 @@ Window {
                     on: win.pb.repeat === "track" || win.pb.repeat === "context"
                     onTapped: spotify.cycleRepeat()
                 }
-                Toggle { icon: "󰋑"; on: false; onTapped: { spotify.like(true); win.toast(qsTr("Added to Liked Songs")) } }
             }
             Text {
                 anchors.horizontalCenter: parent.horizontalCenter

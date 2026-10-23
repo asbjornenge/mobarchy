@@ -1,0 +1,27 @@
+[package]
+name = "mobarchy-spotify"
+version = "0.1.0"
+edition = "2024"
+description = "Mobarchy's Spotify service: a Spotify Connect device on librespot, with D-Bus and MPRIS"
+publish = false
+
+[dependencies]
+librespot-core = { version = "0.8", default-features = false, features = ["native-tls"] }
+librespot-connect = { version = "0.8", default-features = false, features = ["native-tls"] }
+librespot-playback = { version = "0.8", default-features = false, features = ["native-tls", "pulseaudio-backend"] }
+librespot-metadata = { version = "0.8", default-features = false, features = ["native-tls"] }
+librespot-protocol = "0.8"
+zbus = { version = "5", default-features = false, features = ["tokio"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "signal", "fs"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls", "http2"] }
+futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.9"
+url = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+log = "0.4"

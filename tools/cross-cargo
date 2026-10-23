@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Cross-compile a Rust package (an Arch PKGBUILD that builds with cargo, e.g.
-# os/packages/spotify-player) for aarch64 on this PC, and package it. Minutes, where
+# Cross-compile a Rust package (an Arch PKGBUILD that builds with cargo: one from a release
+# tarball, e.g. os/packages/spotify-player, or Mobarchy's own from its directory, e.g.
+# os/spotify) for aarch64 on this PC, and package it. Minutes, where
 # tools/pkg-build's container under qemu-user takes an hour or more for a big Rust program.
 #
 #   tools/cross-cargo <package dir> --work <dir> [--repo <dir>] [--fresh]
@@ -110,8 +111,9 @@ chmod +x "$work/bin/cargo"
 # are for the aarch64 container's makepkg -R.
 { cat "$sysroot/etc/makepkg.conf" "$sysroot"/etc/makepkg.conf.d/*.conf 2>/dev/null
   echo 'OPTIONS+=(!strip !debug)'; } > "$work/makepkg.conf"
-# The package's directory, writable (makepkg writes next to the PKGBUILD).
-rm -rf "$pkg" && cp -r "$pkgsrc" "$pkg"
+# The package's directory, writable (makepkg writes next to the PKGBUILD); without a cargo
+# target/ of a build there (a source tree's own).
+rm -rf "$pkg" && mkdir -p "$pkg" && tar -C "$pkgsrc" --exclude=./target -c . | tar -C "$pkg" -x
 
 # The crates' C for the target gets Arch Linux ARM's CFLAGS (makepkg exports them); the
 # build scripts' C, for this PC, flags of its own.

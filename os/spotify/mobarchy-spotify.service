@@ -1,0 +1,18 @@
+[Unit]
+Description=Spotify on the phone (mobarchy-spotify: a Spotify Connect device, D-Bus and MPRIS)
+# Started by the Spotify app; it stays up, so that Spotify plays on with the app closed and
+# the phone is a device in Spotify's other apps. Signing in is the app's to start (SignIn):
+# the pages go to the app (SignInUrl), the answers come to 127.0.0.1:8989.
+After=pipewire-pulse.service
+
+[Service]
+# ready once it is on the bus as org.mobarchy.Spotify
+Type=dbus
+BusName=org.mobarchy.Spotify
+ExecStart=/usr/bin/mobarchy-spotify
+Restart=on-failure
+RestartSec=5
+Slice=app.slice
+
+[Install]
+WantedBy=default.target
