@@ -5,8 +5,8 @@ import Mobarchy.Shell
 
 // The bottom edge: swipe up for the app drawer, swipe up and hold for the open apps (the
 // switcher), tap for home, and a keyboard toggle. While
-// the on-screen keyboard is up, a tap is taken for a space bar that was missed: it doesn't
-// go home, two taps do (a swipe up still opens the drawer).
+// the on-screen keyboard is up (always, in laptop mode), a tap is taken for a space bar that
+// was missed: it doesn't go home, two taps do (a swipe up still opens the drawer).
 LayerWindow {
     id: edge
 
@@ -88,7 +88,7 @@ LayerWindow {
         }
         onTapped: {
             const now = Date.now()
-            if (!edge.keyboard.visible || now - edge.lastTap < 400)
+            if (!edge.keyboard.visible && !edge.laptop || now - edge.lastTap < 400)
                 edge.home()
             edge.lastTap = now
         }
