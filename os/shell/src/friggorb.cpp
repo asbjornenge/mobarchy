@@ -150,6 +150,12 @@ void FriggOrb::tick()
     m_tiltSpeed *= friction;
     if (std::abs(m_tiltSpeed) < 0.05)
         m_tilt *= std::exp(-dt * 0.5);
+    // at rest (no conversation, not flung): half the frames; the slow turn looks the same,
+    // and the home screen costs half the battery
+    const bool atRest = m.spin < 0.2 && std::abs(m_spinSpeed) < 0.05 && std::abs(m_tiltSpeed) < 0.05;
+    const int interval = atRest ? 33 : 16;
+    if (m_frames.interval() != interval)
+        m_frames.setInterval(interval);
     update();
 }
 

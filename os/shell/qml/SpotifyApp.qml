@@ -30,6 +30,11 @@ Window {
         }
     }
 
+    // in front: only then do the reels turn and the counter run (behind another app, the
+    // battery's)
+    readonly property bool inSight: win.active && win.visible
+    onInSightChanged: if (inSight) { win.position = spotify.playback.progressMs || 0; win.reportedAt = Date.now() }
+
     // what plays, with its progress moving on between the daemon's reports
     readonly property var pb: spotify.playback
     readonly property bool hasTrack: pb.title !== undefined
@@ -47,7 +52,7 @@ Window {
     }
     Timer {
         interval: 100; repeat: true
-        running: win.pb.playing === true && !scrub.pressed
+        running: win.pb.playing === true && !scrub.pressed && win.inSight
         onTriggered: {
             const now = Date.now()
             win.position = Math.min(win.duration, win.position + (now - win.reportedAt))
@@ -168,7 +173,7 @@ Window {
                     anchors.centerIn: parent
                     width: parent.width - 36
                     progress: win.duration > 0 ? win.position / win.duration : 0
-                    playing: win.pb.playing === true
+                    playing: win.pb.playing === true && win.inSight
                     title: win.pb.title || ""
                     artists: win.pb.artists || ""
                     image: win.pb.image || ""

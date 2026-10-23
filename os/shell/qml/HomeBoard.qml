@@ -18,6 +18,8 @@ Flickable {
     required property Alarms alarms
     required property Telephony telephony
     required property SystemStatus system
+    // the screen is on: cards move only then (Home.screenOn)
+    property bool screenOn: true
     required property AppModel apps
     required property ToplevelModel toplevels
     required property Talk talk
@@ -268,7 +270,7 @@ Flickable {
                         board.apps.launch(id)
                 }
                 card.editing = Qt.binding(() => board.editing)
-                card.live = Qt.binding(() => board.visible && board.Window.active && !board.editing)
+                card.live = Qt.binding(() => board.visible && board.Window.active && board.screenOn && !board.editing)
                 card.wantedChanged.connect(() => Qt.callLater(grid.layout))
                 card.held.connect(() => board.editing = true)
                 card.removeAsked.connect(() => board.remove(card.kind))

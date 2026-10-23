@@ -485,6 +485,7 @@ QtObject {
         system: shell.system
         apps: shell.apps
         toplevels: shell.toplevels
+        screenOn: shell.screen.on
         onFriggAsked: shell.talkOverlay.openFrigg("live")
     }
     readonly property Drawer drawer: Drawer {

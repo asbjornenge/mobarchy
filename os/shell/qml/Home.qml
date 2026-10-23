@@ -16,6 +16,8 @@ Window {
     required property SystemStatus system
     required property AppModel apps
     required property ToplevelModel toplevels
+    // (dark: nothing on it moves, the orb and the weather stand still)
+    property bool screenOn: true
     // the Frigg card tapped
     signal friggAsked()
 
@@ -44,6 +46,7 @@ Window {
     HomeBoard {
         id: board
         anchors.fill: parent
+        screenOn: home.screenOn
         config: homeConfig
         media: home.media
         alarms: home.alarms
