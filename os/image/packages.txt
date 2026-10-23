@@ -52,6 +52,8 @@ wpa_supplicant
 iw
 # the hotspot (ADR 0039): the access point, and its QR code
 hostapd
+# Spotify (the cassette app; mobarchy-spotify.service): a Connect device with MPRIS
+spotify-player
 qrencode
 wireless-regdb
 # Web browsers besides Mobarchy's own (Bifrost, ADR 0023): Firefox (GPU page rendering

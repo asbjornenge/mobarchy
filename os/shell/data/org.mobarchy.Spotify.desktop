@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Spotify
+Comment=Spotify on a cassette deck
+Exec=mobarchy-shell --spotify
+Icon=org.mobarchy.Spotify
+Categories=Audio;Music;Player;AudioVideo;

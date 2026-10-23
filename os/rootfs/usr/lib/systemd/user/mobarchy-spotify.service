@@ -1,0 +1,17 @@
+[Unit]
+Description=Spotify on the phone (spotify-player: a Spotify Connect device, with MPRIS)
+# Started by the Spotify app once signed in; it stays up so that Spotify plays on with the
+# app closed and the phone shows as a device in Spotify's other apps.
+ConditionPathExists=%h/.cache/spotify-player/credentials.json
+After=pipewire-pulse.service
+
+[Service]
+# (-d: it forks, the parent goes; the child is the service)
+Type=forking
+ExecStart=/usr/bin/spotify_player -c /usr/share/mobarchy/spotify-player -d
+Restart=on-failure
+RestartSec=5
+Slice=app.slice
+
+[Install]
+WantedBy=default.target

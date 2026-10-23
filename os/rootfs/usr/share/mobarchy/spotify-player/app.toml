@@ -1,0 +1,18 @@
+# spotify-player as Mobarchy runs it (mobarchy-spotify.service, and the Spotify app's
+# commands: spotify_player -c /usr/share/mobarchy/spotify-player). Its sign-in and cache stay
+# in ~/.cache/spotify-player.
+client_port = 8080
+login_redirect_uri = "http://127.0.0.1:8989/login"
+enable_streaming = "Always"
+enable_media_control = true      # MPRIS: the lock screen's player, Frigg, headset buttons
+enable_notify = false            # (the app shows what plays)
+enable_cover_image_cache = true
+
+[device]
+name = "Mobarchy"
+device_type = "smartphone"
+volume = 100
+bitrate = 320
+audio_cache = false
+normalization = true
+autoplay = false
