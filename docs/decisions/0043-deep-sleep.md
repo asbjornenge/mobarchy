@@ -86,3 +86,9 @@ Android's way, in userspace:
 - With APF: **90 mA** (5 min). What still woke it (~130 times in 5 min) was almost all
   ZeroTier (UDP 9993 and 59956: the development PC on the same network and ZeroTier's
   roots, every few seconds): a developer's cost, measured next without it.
+- Without ZeroTier (stopped for the measurement): 125 mA, still 109 Wi-Fi wakes in 5 min.
+  Its peers keep sending to its port, so stopping it changes nothing while they do; and
+  the charge counter is coarse (steps of ~0.8 mAh: about ±10 mA over 5 minutes), so these
+  numbers are rough. Where it stands: 175 mA awake, ~90–110 mA asleep when it can. What is
+  left: unicast traffic from open connections (ZeroTier, apps' keepalives); next, longer
+  keepalives while asleep and background apps frozen, as Android does.
