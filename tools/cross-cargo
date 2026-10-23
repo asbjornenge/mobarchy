@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# Cross-compile a Rust package (an Arch PKGBUILD that builds with cargo, e.g.
+# os/packages/spotify-player) for aarch64 on this PC, and package it. Minutes, where
+# tools/pkg-build's container under qemu-user takes an hour or more for a big Rust program.
+#
+#   tools/cross-cargo <package dir> --work <dir> [--repo <dir>] [--fresh]
+#
+#   --work   where the sysroot, the sources and the build tree go (a few GB)
+#   --repo   Mobarchy's repository: the package is added to it (tools/repo-build --add)
+#   --fresh  make the sysroot again (it is kept, and made again when the package's
+#            dependencies change)
+#
+# As tools/cross-cmake does it: an Arch Linux ARM sysroot with the package's dependencies
+# (the mobarchy-alarm-base container, exported); an Arch Linux x86_64 container with rust,
+# the standard library for aarch64 (rust-aarch64-gnu) and clang/lld. There the PKGBUILD's
+# prepare() and build() run under makepkg with Arch Linux ARM's makepkg.conf (its CFLAGS
+# and RUSTFLAGS), cargo told to build for aarch64-unknown-linux-gnu: clang against the
+# sysroot links, and compiles the crates' C; pkg-config looks in the sysroot. Then the
+# PKGBUILD's package() in the aarch64 container (makepkg -R), which strips with aarch64's
+# binutils. The PKGBUILD stays a native one: cargo leaves the binaries in
+# target/aarch64-unknown-linux-gnu/release, and a cargo wrapper links them into
+# target/release, where package() looks for them.
+set -euo pipefail
+repo_root="$(cd "$(dirname "$0")/.." && pwd)"
+pkgsrc="" work="" repo="" fresh=0
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --work) work="$(realpath -m "$2")"; shift 2 ;;
+        --repo) repo="$(realpath -m "$2")"; shift 2 ;;
+        --fresh) fresh=1; shift ;;
+        -*) echo "unknown argument: $1" >&2; exit 2 ;;
+        *) pkgsrc="$(realpath "$1")"; shift ;;
+    esac
+done
+[ -n "$pkgsrc" ] && [ -n "$work" ] && [ -f "$pkgsrc/PKGBUILD" ] || {
+    echo "usage: $0 <package dir> --work <dir> [--repo <dir>] [--fresh]" >&2; exit 2; }
+pkgvar() { bash -c "source '$pkgsrc/PKGBUILD'; $1"; }
+name=$(pkgvar 'echo $pkgname') version=$(pkgvar 'echo ${epoch:+$epoch:}$pkgver-$pkgrel')
+# (the build's tools come from the host container, not the sysroot)
+deps=$(pkgvar 'printf "%s\n" "${depends[@]}" "${makedepends[@]}"' | grep -vxE 'cargo|rust|rustup|clang|lld|git' \
+    | sort | tr '\n' ' ')
+target=aarch64-unknown-linux-gnu
+work=$work/$name
+sysroot=$work/sysroot out=$work/out pkg=$work/pkg
+mkdir -p "$work"
+alarm_image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-alarm-base:') || {
+    echo "no mobarchy-alarm-base image: run os/image/build once" >&2; exit 1; }
+t0=$(date +%s)
+say() { echo "== $* ($(( $(date +%s) - t0 )) s)"; }
+
+# --- the target's root: the package's dependencies for aarch64 ---------------------------
+if [ $fresh = 1 ] || [ "$(cat "$work/sysroot.deps" 2>/dev/null)" != "$deps" ] || [ ! -d "$sysroot/usr" ]; then
+    say "sysroot: $deps"
+    docker rm -f "$name-sysroot" >/dev/null 2>&1 || true
+    docker run --name "$name-sysroot" --platform linux/arm64 "$alarm_image" bash -c "
+        pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+        for i in 1 2 3; do
+            pacman -Sy --noconfirm --needed --disable-sandbox gcc pkgconf linux-api-headers $deps >/tmp/p.log 2>&1 && exit 0
+            sleep 30
+        done
+        tail -20 /tmp/p.log; exit 1"
+    # (as root: the container's tree has a few directories only root may enter)
+    [ ! -d "$sysroot" ] || docker run --rm -v "$work:/w" "$alarm_image" rm -rf /w/sysroot
+    mkdir -p "$sysroot"
+    # (anchored: usr/include/sys is not sys)
+    docker export "$name-sysroot" | tar -x -C "$sysroot" --anchored --exclude='dev/*' --exclude='proc/*' \
+        --exclude='sys/*' --exclude='var/cache/pacman/pkg/*' 2>/dev/null || true
+    docker rm "$name-sysroot" >/dev/null
+    echo "$deps" > "$work/sysroot.deps"
+fi
+
+# --- the host: rust with aarch64's standard library, and clang ---------------------------
+host_image=mobarchy-cross-cargo:latest
+if [ $fresh = 1 ] || ! docker image inspect "$host_image" >/dev/null 2>&1; then
+    say "host image"
+    docker build -q -t "$host_image" - <<'DOCKERFILE' >/dev/null
+FROM archlinux:latest
+RUN pacman -Syu --noconfirm --needed base-devel rust rust-aarch64-gnu clang lld llvm pkgconf git \
+    && pacman -Scc --noconfirm
+DOCKERFILE
+fi
+
+# The compiler and linker for the target: clang against the sysroot (its gcc's crt files
+# and libraries), lld.
+mkdir -p "$work/bin" "$work/home"
+for cc in clang clang++; do
+    cat > "$work/bin/$target-$cc" <<EOF
+#!/bin/sh
+exec $cc --target=$target --sysroot=$sysroot -fuse-ld=lld "\$@"
+EOF
+    chmod +x "$work/bin/$target-$cc"
+done
+# cargo, and after a build the binaries linked from target/<target>/<profile> into
+# target/<profile>, where a native build leaves them (and the PKGBUILD's package() looks).
+cat > "$work/bin/cargo" <<EOF
+#!/bin/bash
+/usr/bin/cargo "\$@" || exit
+[ "\$1" = build ] || exit 0
+profile=debug
+for a in "\$@"; do [ "\$a" = --release ] && profile=release; done
+dir=\$(/usr/bin/cargo metadata --format-version 1 --no-deps --offline | grep -o '"target_directory":"[^"]*"' | cut -d'"' -f4)
+mkdir -p "\$dir/\$profile"
+for bin in "\$dir/$target/\$profile"/*; do
+    [ -f "\$bin" ] && [ -x "\$bin" ] && ln -sfn "../$target/\$profile/\${bin##*/}" "\$dir/\$profile/"
+done
+exit 0
+EOF
+chmod +x "$work/bin/cargo"
+# Arch Linux ARM's makepkg.conf (CARCH, CFLAGS, RUSTFLAGS), without strip and debug: those
+# are for the aarch64 container's makepkg -R.
+{ cat "$sysroot/etc/makepkg.conf" "$sysroot"/etc/makepkg.conf.d/*.conf 2>/dev/null
+  echo 'OPTIONS+=(!strip !debug)'; } > "$work/makepkg.conf"
+# The package's directory, writable (makepkg writes next to the PKGBUILD).
+rm -rf "$pkg" && cp -r "$pkgsrc" "$pkg"
+
+# The crates' C for the target gets Arch Linux ARM's CFLAGS (makepkg exports them); the
+# build scripts' C, for this PC, flags of its own.
+t=${target//-/_}
+in_host() {
+    docker run --rm -u "$(id -u):$(id -g)" -v "$work:$work" -w "$pkg" -e HOME="$work/home" -e PATH="$work/bin:/usr/local/bin:/usr/bin" \
+        -e CARGO_HOME="$work/cargo" -e BUILDDIR="$work/makepkg" -e SRCDEST="$work/sources" \
+        -e CARGO_BUILD_TARGET=$target \
+        -e CARGO_TARGET_${t^^}_LINKER="$work/bin/$target-clang" \
+        -e CC_$t="$work/bin/$target-clang" -e CXX_$t="$work/bin/$target-clang++" -e AR_$t=llvm-ar \
+        -e CFLAGS_x86_64_unknown_linux_gnu="-O2 -pipe" -e CXXFLAGS_x86_64_unknown_linux_gnu="-O2 -pipe" \
+        -e BINDGEN_EXTRA_CLANG_ARGS_$t="--target=$target --sysroot=$sysroot" \
+        -e PKG_CONFIG_ALLOW_CROSS=1 -e PKG_CONFIG_SYSROOT_DIR_$t="$sysroot" \
+        -e PKG_CONFIG_LIBDIR_$t="$sysroot/usr/lib/pkgconfig:$sysroot/usr/share/pkgconfig" \
+        "$host_image" bash -euo pipefail -c "$1"
+}
+
+# --- prepare and build ------------------------------------------------------------------
+say "prepare and build $name $version"
+mkdir -p "$work/sources" "$work/makepkg"
+in_host "
+    makepkg --config '$work/makepkg.conf' -o -C -d --noconfirm >'$work/prepare.log' 2>&1 \
+        || { tail -30 '$work/prepare.log'; exit 1; }
+    # (prepare() fetches the crates for this PC's target; the aarch64-only ones too)
+    for lock in \$(find '$work/makepkg/$name/src' -maxdepth 3 -name Cargo.lock); do
+        (cd \"\${lock%/*}\" && cargo fetch --locked --target $target >>'$work/prepare.log' 2>&1)
+    done
+    nice -n 10 makepkg --config '$work/makepkg.conf' -e -d --nocheck --noarchive --noconfirm \
+        >'$work/build.log' 2>&1 || { grep -E '^error|error:' -m 20 -A5 '$work/build.log' || tail -30 '$work/build.log'; exit 1; }"
+
+# --- package: the PKGBUILD's package() on that tree, in the aarch64 container ------------
+say "package"
+mkdir -p "$out"
+docker run --rm --platform linux/arm64 -v "$work:$work" "$alarm_image" bash -euo pipefail -c "
+    pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
+    pacman -Sy --noconfirm --needed --disable-sandbox fakeroot binutils >/dev/null
+    useradd -m -o -u $(id -u) builder && chown -R builder $out $work/makepkg $pkg
+    su builder -c 'cd $pkg && BUILDDIR=$work/makepkg SRCDEST=$work/sources PKGDEST=$out PKGEXT=.pkg.tar.zst \
+        makepkg -R -d -f --noconfirm' >$work/package.log 2>&1 \
+        || { tail -20 $work/package.log; exit 1; }"
+file=$out/$name-$version-aarch64.pkg.tar.zst
+ls -la "$file"
+[ -z "$repo" ] || "$repo_root/tools/repo-build" --repo "$repo" --add "$file"
+say "done"

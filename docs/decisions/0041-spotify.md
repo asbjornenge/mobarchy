@@ -34,8 +34,10 @@ keeps the tokens in its cache.
   drag along. Eject opens the shelf: the playlists, the liked songs, the saved albums and a
   search, each a tape's spine with its label; a tape picked goes into the deck.
 - **Signing in** is the daemon's: without credentials it asks for Spotify's approvals (its
-  Web API client's, the ncspot fallback's that spotify-player always makes beside an own
-  client ID, then the streaming's), takes each answer on its own callback
+  Web API client's, then the streaming's; Mobarchy's spotify-player 0.25.1-1.1,
+  `os/packages/spotify-player`, makes no ncspot fallback client when
+  `ncspot_only_get_endpoints` is empty, which upstream always made beside an own client ID:
+  one more approval, under ncspot's name, and its shared rate limit), takes each answer on its own callback
   (127.0.0.1:8989), and keeps the credentials once connected. Its pages it opens with
   xdg-open, which didn't always reach the browser from the service; the service's PATH has
   an xdg-open of Mobarchy's first (`/usr/lib/mobarchy/spotify-signin`) that hands them to

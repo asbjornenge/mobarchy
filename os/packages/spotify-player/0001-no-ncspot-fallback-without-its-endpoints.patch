@@ -1,0 +1,25 @@
+From: Mobarchy
+Subject: [PATCH] A custom client ID without ncspot's endpoints: no ncspot fallback
+
+With a custom client_id, spotify-player always made a second Web API client with
+ncspot's client ID as a fallback, and with it a second OAuth approval (shown as
+"ncspot"). When ncspot_only_get_endpoints is empty, nothing needs ncspot's client:
+the custom one is used alone (as ncspot's own is, with the rate-limit middleware).
+
+--- a/spotify_player/src/client/mod.rs
++++ b/spotify_player/src/client/mod.rs
+@@ -115,7 +115,13 @@
+     };
+     let primary_cache_file = format!("{id}_token.json");
+ 
+-    if id == auth::NCSPOT_CLIENT_ID {
++    // A custom client ID with no endpoints kept for ncspot's: that client alone, no ncspot
++    // fallback (it would be one more sign-in, shown as "ncspot").
++    let fallback_wanted = id != auth::NCSPOT_CLIENT_ID && !ncspot_only_get_endpoints.is_empty();
++    if !fallback_wanted {
++        if id != auth::NCSPOT_CLIENT_ID {
++            tracing::info!(%id, "Using custom Spotify Web API client without fallback");
++        }
+         let config = build_config(&primary_cache_file);
+         let middleware = SpotifyApiMiddleware::new(
+             &config.api_base_url,
