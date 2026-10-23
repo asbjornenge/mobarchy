@@ -238,7 +238,11 @@ switch_to_root() {
     log "switching root to $dev ($part)"
     # Hand over: stop our services, keep the gadget bound (the rootfs takes it over).
     killall telnetd udhcpd 2>/dev/null
-    [ -n "$SCREENLOG_PID" ] && kill "$SCREENLOG_PID" 2>/dev/null
+    if [ -n "$SPLASHING" ]; then
+        echo "$SCREENLOG_PID" > /run/mobarchy-splash.pid
+    elif [ -n "$SCREENLOG_PID" ]; then
+        kill "$SCREENLOG_PID" 2>/dev/null
+    fi
     [ -n "${SERIAL_LOOP:-}" ] && kill "$SERIAL_LOOP" 2>/dev/null && pkill -f 'exec sh </dev/ttyGS0'
     for m in dev proc sys run; do mkdir -p /newroot/$m; mount --move /$m /newroot/$m; done
     exec switch_root /newroot /sbin/init
@@ -281,9 +285,18 @@ if [ "$WATCHDOG" = 1 ]; then
     ) &
 fi
 
-SCREENLOG_PID=""
+# The splash (Mobarchy's logo, breathing) instead of the log, unless mobarchy.debug is set: it
+# turns into the log if the boot goes wrong here, and is left running across switch_root
+# for the session to end (mobarchy-session's splash-stop), so the screen stays lit.
+SCREENLOG_PID="" SPLASHING=""
 if [ "$SCREENLOG" = 1 ]; then
-    mobarchy-screenlog /run/mobarchy.log ${SCREENLOG_SCALE:-2} 2>>/run/mobarchy.log &
+    if [ "${SPLASH:-0}" = 1 ] && [ -f /usr/share/mobarchy/splash.mspl ] && ! grep -qw mobarchy.debug /proc/cmdline; then
+        SPLASH_TRANSFORM="$SPLASH_TRANSFORM" mobarchy-screenlog --splash /usr/share/mobarchy/splash.mspl \
+            /run/mobarchy.log ${SCREENLOG_SCALE:-2} 2>>/run/mobarchy.log &
+        SPLASHING=1
+    else
+        mobarchy-screenlog /run/mobarchy.log ${SCREENLOG_SCALE:-2} 2>>/run/mobarchy.log &
+    fi
     SCREENLOG_PID=$!
 fi
 early=$(early_modules_end)
@@ -323,6 +336,8 @@ diagnose_usb() {  # log USB state; with DIAG_TIMEOUT, reboot to bootloader if no
 }
 
 switch_to_root
+# (still here: the boot went wrong, or a debug boot; the splash shows the log instead)
+[ -n "$SPLASHING" ] && kill -USR1 "$SCREENLOG_PID" 2>/dev/null
 diagnose_usb
 
 # Leave a trace of how far we got for the next boot (pstore) and for the host.

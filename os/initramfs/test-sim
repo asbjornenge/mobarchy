@@ -23,7 +23,10 @@ done
 # Load order deliberately "wrong" (dependents first): the init must resolve modules.dep.
 printf '%s.ko\n' dummy_hcd usb_f_acm usb_f_ncm u_serial u_ether libcomposite udc-core \
     > "$work/overlay/lib/modules/modules.load"
-"$repo/os/initramfs/build" --arch x86_64 --overlay "$work/overlay" --out "$work/initramfs.cpio.gz" >/dev/null
+# (the splash on: there is no display here, so it waits for one; what is checked is that it
+# turns into the log in a debug boot and is handed over across switch_root)
+"$repo/os/initramfs/build" --arch x86_64 --overlay "$work/overlay" --set SCREENLOG=1 --set SPLASH=1 \
+    --out "$work/initramfs.cpio.gz" >/dev/null
 
 boot() {  # boot <log> <extra cmdline> [qemu args...]; waits for "$want_last" in the log
     local log=$1 append=$2; shift 2
@@ -53,7 +56,13 @@ echo "== switch_root boot"
 # A tiny root filesystem whose /sbin/init just reports success.
 mkdir -p "$work/root/sbin" "$work/root/bin"
 zcat "$work/initramfs.cpio.gz" | (cd "$work/root" && cpio -id --quiet bin/busybox 2>/dev/null)
-printf '#!/bin/busybox sh\n/bin/busybox echo MOBARCHY-ROOT-OK pid=$$ > /dev/console\n/bin/busybox sleep 30\n' > "$work/root/sbin/init"
+cat > "$work/root/sbin/init" <<'EOF'
+#!/bin/busybox sh
+s=$(/bin/busybox cat /run/mobarchy-splash.pid 2>/dev/null)
+[ -n "$s" ] && [ -d /proc/$s ] && /bin/busybox echo "MOBARCHY-SPLASH-HANDED-OVER $s" > /dev/console
+/bin/busybox echo MOBARCHY-ROOT-OK pid=$$ > /dev/console
+/bin/busybox sleep 30
+EOF
 chmod +x "$work/root/sbin/init"
 docker run --rm -v "$work:/w" mobarchy-androidtools bash -euo pipefail -c '
     mkfs.ext4 -q -d /w/root /w/part.img 32M
@@ -64,7 +73,7 @@ start=2048, size=65536, name=userdata" | sfdisk -q /w/disk.img
     chmod 666 /w/disk.img'
 want_last="MOBARCHY-ROOT-OK"
 boot "$work/root.log" "mobarchy.root=userdata" -drive "file=$work/disk.img,format=raw,if=virtio"
-check "$work/root.log" "switching root to" "MOBARCHY-ROOT-OK pid=1"
+check "$work/root.log" "switching root to" "MOBARCHY-SPLASH-HANDED-OVER" "MOBARCHY-ROOT-OK pid=1"
 r2=$?
 
 [ $r1 = 0 ] && [ $r2 = 0 ] && echo PASS || { echo FAIL; exit 1; }

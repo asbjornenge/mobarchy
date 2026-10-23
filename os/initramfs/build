@@ -45,6 +45,15 @@ docker run --rm --platform "linux/$debarch" -v "$repo/os/initramfs/src:/src:ro" 
     (cd /tmp && xxd -i font_psf > font.c)
     gcc -static -O2 -s -o /w/mobarchy-screenlog /src/screenlog.c /tmp/font.c" >/dev/null
 
+# The splash (Mobarchy's logo, breathing; os/initramfs/splash/make-splash), for mobarchy-screenlog
+# --splash; drawn natively (the same file for every arch).
+mkdir -p "$work/root/usr/share/mobarchy"
+docker run --rm -v "$repo/os/initramfs/splash:/splash:ro" -v "$work/root/usr/share/mobarchy:/w" debian:trixie bash -euo pipefail -c "
+    apt-get update -qq >/dev/null
+    apt-get install -y -qq python3 python3-pil librsvg2-bin >/dev/null 2>&1
+    python3 /splash/make-splash --splash /w/splash.mspl
+    chown $(id -u):$(id -g) /w/splash.mspl" >/dev/null
+
 docker image inspect mobarchy-androidtools >/dev/null 2>&1 \
     || docker build -q -t mobarchy-androidtools "$repo/tools/android-images" >/dev/null
 docker run --rm -v "$work:/w" mobarchy-androidtools bash -euo pipefail -c "

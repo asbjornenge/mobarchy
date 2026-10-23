@@ -3,14 +3,23 @@
  * using only DRM/KMS dumb buffers (no libdrm, no GPU, no compositor).
  *
  *   mobarchy-screenlog <logfile> [scale]
+ *   mobarchy-screenlog --splash <splashfile> <logfile> [scale]
  *
  * An early-boot console for bring-up: the debug init starts it once the
  * display modules are loaded, and the log becomes readable on the phone's
  * screen, even with a webcam, when nothing else (USB, serial) works yet.
  * The font is a PSF console font compiled in as font_psf[] (see build).
+ *
+ * With --splash it shows Mobarchy's logo instead, its orb breathing (frames
+ * from os/initramfs/splash/make-splash), until SIGUSR1 turns it into the log
+ * (the boot went wrong) or SIGTERM ends it (the session takes the display).
+ * SPLASH_TRANSFORM="<w>x<h>:<t> ..." turns the logo on a panel that scans out
+ * w x h and is mounted turned (t: Wayland's transform, quarter turns).
  */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <signal.h>
+#include <time.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -206,6 +215,108 @@ static void render(struct out *o, char lines[][LINE_LEN], int n) {
 
 static char lines[MAX_LINES][LINE_LEN];
 
+/* --- the splash ---------------------------------------------------------- */
+struct splash {
+    uint16_t w, h, frames, ms, rx, ry, rw, rh;
+    uint32_t pal[256];
+    const uint8_t *base, *rects;
+};
+static struct splash sp;
+static volatile sig_atomic_t to_log;
+static void on_usr1(int sig) { (void)sig; to_log = 1; }
+
+static int load_splash(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    uint8_t hdr[20], pal[768];
+    if (fread(hdr, 1, 20, f) != 20 || memcmp(hdr, "MSPL", 4) || fread(pal, 1, 768, f) != 768) { fclose(f); return -1; }
+    uint16_t v[8];
+    memcpy(v, hdr + 4, 16);
+    sp.w = v[0]; sp.h = v[1]; sp.frames = v[2]; sp.ms = v[3]; sp.rx = v[4]; sp.ry = v[5]; sp.rw = v[6]; sp.rh = v[7];
+    for (int i = 0; i < 256; i++) sp.pal[i] = pack((uint32_t)pal[i * 3] << 16 | pal[i * 3 + 1] << 8 | pal[i * 3 + 2]);
+    size_t n = (size_t)sp.w * sp.h + (size_t)sp.frames * sp.rw * sp.rh;
+    uint8_t *data = malloc(n);
+    if (!data || fread(data, 1, n, f) != n || !sp.frames || sp.rx + sp.rw > sp.w || sp.ry + sp.rh > sp.h) {
+        fclose(f); free(data); return -1;
+    }
+    fclose(f);
+    sp.base = data; sp.rects = data + (size_t)sp.w * sp.h;
+    return 0;
+}
+
+/* How an output is mounted (SPLASH_TRANSFORM), and where the logo goes on it. */
+struct place { int t, s; uint32_t uw, uh, ox, oy; };
+static struct place placement(struct out *o) {
+    struct place p = { 0 };
+    const char *spec = getenv("SPLASH_TRANSFORM");
+    char key[32];
+    snprintf(key, sizeof key, "%ux%u:", o->w, o->h);
+    const char *m = spec ? strstr(spec, key) : NULL;
+    if (m) p.t = atoi(m + strlen(key)) & 3;
+    p.uw = p.t & 1 ? o->h : o->w;  /* the panel upright */
+    p.uh = p.t & 1 ? o->w : o->h;
+    uint32_t side = p.uw < p.uh ? p.uw : p.uh;
+    p.s = side * 55 / 100 / sp.w;   /* about half the narrow side, in whole steps */
+    if (p.s < 1) p.s = 1;
+    p.ox = (p.uw - sp.w * p.s) / 2;
+    p.oy = (p.uh - sp.h * p.s) * 45 / 100;  /* a little above the middle */
+    return p;
+}
+
+/* Draw palette pixels src (sw x sh, at x,y of the logo) onto buffer b, upright on the panel. */
+static void blit(struct out *o, struct buf *b, struct place *p, const uint8_t *src,
+                 uint32_t x, uint32_t y, uint32_t sw, uint32_t sh) {
+    for (uint32_t j = 0; j < sh * p->s; j++)
+        for (uint32_t i = 0; i < sw * p->s; i++) {
+            uint32_t ux = p->ox + (x * p->s) + i, uy = p->oy + (y * p->s) + j, bx, by;
+            switch (p->t) {  /* upright -> scan-out: the panel's transform undone */
+            case 1: bx = uy; by = p->uw - 1 - ux; break;
+            case 2: bx = p->uw - 1 - ux; by = p->uh - 1 - uy; break;
+            case 3: bx = p->uh - 1 - uy; by = ux; break;
+            default: bx = ux; by = uy;
+            }
+            if (bx >= o->w || by >= o->h) continue;
+            ((uint32_t *)(b->map + by * b->pitch))[bx] = sp.pal[src[(j / p->s) * sw + i / p->s]];
+        }
+}
+
+static void show(struct out *o, struct buf *b) {
+    struct drm_mode_crtc_page_flip pf = { .crtc_id = o->crtc, .fb_id = b->fb };
+    if (ioctl(fd, DRM_IOCTL_MODE_PAGE_FLIP, &pf)) {
+        struct drm_mode_crtc sc = { .crtc_id = o->crtc, .fb_id = b->fb, .set_connectors_ptr = (uintptr_t)&o->conn,
+                                    .count_connectors = 1, .mode = o->mode, .mode_valid = 1 };
+        xioctl(DRM_IOCTL_MODE_SETCRTC, &sc);
+    }
+    struct drm_mode_fb_dirty_cmd d = { .fb_id = b->fb };
+    ioctl(fd, DRM_IOCTL_MODE_DIRTYFB, &d);
+}
+
+static void run_splash(void) {
+    struct place pl[MAX_OUT];
+    for (int i = 0; i < nouts; i++) {  /* the background and the whole logo, in both buffers */
+        pl[i] = placement(&outs[i]);
+        for (int k = 0; k < 2; k++) {
+            struct buf *b = &outs[i].b[k];
+            for (uint32_t y = 0; y < outs[i].h; y++) {
+                uint32_t *row = (uint32_t *)(b->map + y * b->pitch);
+                for (uint32_t x = 0; x < outs[i].w; x++) row[x] = sp.pal[sp.base[0]];
+            }
+            blit(&outs[i], b, &pl[i], sp.base, 0, 0, sp.w, sp.h);
+        }
+    }
+    for (unsigned k = 0; !to_log; k = (k + 1) % sp.frames) {
+        const uint8_t *r = sp.rects + (size_t)k * sp.rw * sp.rh;
+        for (int i = 0; i < nouts; i++) {
+            struct buf *b = &outs[i].b[!outs[i].front];
+            blit(&outs[i], b, &pl[i], r, sp.rx, sp.ry, sp.rw, sp.rh);
+            show(&outs[i], b);
+            outs[i].front = !outs[i].front;
+        }
+        struct timespec ts = { 0, sp.ms * 1000000L };
+        nanosleep(&ts, NULL);
+    }
+}
+
 /* --- bring-up experiments -------------------------------------------------
  * SCREENLOG_TEST=1   draw a test pattern (gray ramp, primaries) instead of the log
  * SCREENLOG_PROPS    "crtc:dqe_enabled=0 plane:transfer=3 ..." set KMS properties on every
@@ -297,13 +408,17 @@ static void test_pattern(struct out *o) {
 }
 
 int main(int argc, char **argv) {
-    if (argc < 2) { fprintf(stderr, "usage: %s <logfile> [scale]\n", argv[0]); return 2; }
+    const char *splash = NULL;
+    if (argc > 3 && !strcmp(argv[1], "--splash")) { splash = argv[2]; argv += 2; argc -= 2; }
+    if (argc < 2) { fprintf(stderr, "usage: %s [--splash <file>] <logfile> [scale]\n", argv[0]); return 2; }
+    signal(SIGUSR1, on_usr1);
     if (argc > 2) scale = atoi(argv[2]) > 0 ? atoi(argv[2]) : 2;
     reimport = getenv("SCREENLOG_REIMPORT") != NULL;
     if (getenv("SCREENLOG_FORMAT") && strlen(getenv("SCREENLOG_FORMAT")) == 4) {
         const char *f = getenv("SCREENLOG_FORMAT");
         fourcc = (uint32_t)f[0] | (uint32_t)f[1] << 8 | (uint32_t)f[2] << 16 | (uint32_t)f[3] << 24;
     }
+    if (splash && load_splash(splash)) { fprintf(stderr, "screenlog: bad splash %s\n", splash); splash = NULL; }
     if (load_font()) { fprintf(stderr, "screenlog: bad font\n"); return 1; }
     for (int i = 0; i < 900; i++) {  /* the display driver may still be probing (up to 3 min) */
         fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
@@ -316,6 +431,7 @@ int main(int argc, char **argv) {
     if (getenv("SCREENLOG_TEST")) for (int i = 0; i < nouts; i++) test_pattern(&outs[i]);
     if (getenv("SCREENLOG_PROPS")) apply_props(getenv("SCREENLOG_PROPS"));
     if (getenv("SCREENLOG_TEST")) for (;;) pause();
+    if (splash && !to_log) run_splash();
 
     off_t last_size = -1;
     for (;;) {

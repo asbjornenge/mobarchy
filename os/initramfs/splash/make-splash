@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Mobarchy's logo (a circled M breaking out of its ring, Frigg's orb inside, the wordmark
+under it) and the boot splash made from it: frames of the orb breathing, for
+mobarchy-screenlog --splash (src/screenlog.c).
+
+    make-splash --svg <file>       the logo, as one SVG (the orb at rest)
+    make-splash --splash <file>    the splash: rendered with rsvg-convert, one palette
+
+The splash file ("MSPL", little-endian): magic, u16 width, height, frames, frame ms, then
+the rectangle that changes between frames (u16 x, y, w, h), a 256-colour palette (RGB),
+the first frame whole (w*h bytes, palette indices), then each frame's rectangle.
+Only the orb and its glow move; the rest is drawn once.
+"""
+import io
+import math
+import struct
+import subprocess
+import sys
+
+SIZE = 560                 # px, square; the splash scales it by whole numbers
+FRAMES = 32
+FRAME_MS = 90              # ~2.9 s a breath
+BG = "#000000"             # the panels are OLED; the bootloader's screen is black too
+CX, CY, R = 256, 210, 112  # (the drawing's own 512 units)
+WORDMARK = "m 118.03993,430 v -24.2 h 3.432 v 3.212 h 0.088 q 0.22,-1.628 1.276,-2.64 1.1,-1.012 2.772,-1.012 1.584,0 2.684,0.924 1.1,0.924 1.584,2.508 h 0.044 q 0.308,-1.584 1.364,-2.508 1.1,-0.924 2.772,-0.924 2.332,0 3.696,1.76 1.408,1.716 1.408,4.488 V 430 h -3.696 v -18.436 q 0,-1.452 -0.704,-2.288 -0.704,-0.88 -1.936,-0.88 -1.188,0 -1.892,0.836 -0.704,0.836 -0.704,2.288 V 430 h -3.256 v -18.436 q 0,-1.452 -0.704,-2.288 -0.704,-0.88 -1.892,-0.88 -1.232,0 -1.936,0.836 -0.704,0.836 -0.704,2.288 V 430 Z m 46.96002,0.352 q -4.356,0 -6.952,-2.552 -2.552,-2.552 -2.552,-7.128 v -5.544 q 0,-4.62 2.552,-7.128 2.552,-2.552 6.952,-2.552 4.4,0 6.952,2.552 2.552,2.508 2.552,7.128 v 5.544 q 0,4.576 -2.596,7.128 -2.552,2.552 -6.908,2.552 z m 0,-3.52 q 2.596,0 4.048,-1.452 1.496,-1.452 1.496,-4.268 v -6.424 q 0,-2.816 -1.496,-4.268 -1.452,-1.452 -4.048,-1.452 -2.552,0 -4.048,1.452 -1.496,1.452 -1.496,4.268 v 6.424 q 0,2.816 1.496,4.268 1.496,1.452 4.048,1.452 z m 37.80802,3.608 q -2.728,0 -4.488,-1.32 -1.76,-1.364 -2.068,-3.74 h -0.044 V 430 h -3.96 v -32.12 h 3.96 v 7.04 l -0.088,5.5 h 0.044 q 0.352,-2.332 2.112,-3.696 1.804,-1.364 4.532,-1.364 3.652,0 5.808,2.42 2.156,2.42 2.156,6.6 v 7.084 q 0,4.136 -2.156,6.556 -2.156,2.42 -5.808,2.42 z m -1.32,-3.432 q 2.508,0 3.916,-1.32 1.408,-1.32 1.408,-4.268 v -7.04 q 0,-2.992 -1.408,-4.268 -1.408,-1.32 -3.916,-1.32 -2.42,0 -3.872,1.54 -1.408,1.54 -1.408,4.268 v 6.6 q 0,2.728 1.408,4.268 1.452,1.54 3.872,1.54 z m 34.20001,3.432 q -3.74,0 -5.94,-2.068 -2.2,-2.112 -2.2,-5.5 0,-2.244 1.012,-3.916 1.012,-1.672 2.816,-2.596 1.804,-0.968 4.136,-0.968 h 7.48 V 413.5 q 0,-4.708 -5.148,-4.708 -2.288,0 -3.696,0.836 -1.408,0.836 -1.496,2.332 h -3.96 q 0.22,-2.86 2.64,-4.708 2.464,-1.892 6.512,-1.892 4.4,0 6.732,2.112 2.376,2.112 2.376,5.896 V 430 h -3.916 v -4.4 h -0.088 q -0.352,2.244 -2.244,3.564 -1.892,1.276 -5.016,1.276 z m 0.968,-3.344 q 2.904,0 4.62,-1.408 1.716,-1.408 1.716,-3.828 v -3.388 h -7.04 q -1.936,0 -3.168,1.188 -1.188,1.144 -1.188,3.08 0,2.024 1.32,3.212 1.364,1.144 3.74,1.144 z M 265.928,430 v -24.2 h 3.96 v 4.62 h 0.088 q 0.308,-2.332 1.98,-3.696 1.672,-1.364 4.488,-1.364 3.784,0 5.808,2.288 2.068,2.244 2.068,6.424 v 2.068 h -3.96 v -2.068 q 0,-5.28 -5.148,-5.28 -2.596,0 -3.96,1.496 -1.364,1.496 -1.364,4.312 V 430 Z m 45.02402,0.44 q -4.4,0 -7.04,-2.464 -2.64,-2.464 -2.64,-6.776 v -6.6 q 0,-4.312 2.64,-6.776 2.64,-2.464 7.04,-2.464 4.18,0 6.732,2.244 2.596,2.244 2.728,6.116 h -3.96 q -0.132,-2.332 -1.584,-3.564 -1.452,-1.276 -3.916,-1.276 -2.596,0 -4.18,1.496 -1.54,1.452 -1.54,4.18 v 6.644 q 0,2.728 1.54,4.224 1.584,1.496 4.18,1.496 2.464,0 3.916,-1.276 1.452,-1.276 1.584,-3.564 h 3.96 q -0.132,3.872 -2.728,6.116 -2.552,2.244 -6.732,2.244 z M 337.84803,430 v -32.12 h 3.96 v 12.54 h 0.044 q 0.308,-2.42 1.98,-3.74 1.672,-1.32 4.444,-1.32 3.652,0 5.808,2.244 2.156,2.244 2.156,6.116 V 430 h -3.96 v -15.62 q 0,-2.728 -1.408,-4.18 -1.364,-1.496 -3.74,-1.496 -2.464,0 -3.916,1.54 -1.408,1.54 -1.408,4.356 V 430 Z m 40.18401,7.92 3.564,-9.416 -9.02,-22.704 h 4.268 l 5.72,14.96 q 0.352,0.88 0.66,1.848 0.308,0.968 0.44,1.672 0.132,-0.704 0.44,-1.672 0.308,-0.968 0.616,-1.848 l 5.324,-14.96 h 4.18 l -12.056,32.12 z"
+
+
+def orb_points():
+    """A sphere of points (Fibonacci), seen from the front: (x, y, depth 0..1)."""
+    pts = []
+    for i in range(26):
+        y = 1 - (i / 25) * 2
+        r = math.sqrt(1 - y * y)
+        th = i * 2.39996
+        pts.append((CX + math.cos(th) * r * R * 0.86, CY + y * R * 0.86, (math.sin(th) * r + 1) / 2))
+    lines = []
+    for i, a in enumerate(pts):
+        near = sorted((math.dist(a[:2], b[:2]), j) for j, b in enumerate(pts) if j != i)[:3]
+        for _, j in near:
+            if (j, i) not in lines:
+                lines.append((i, j))
+    return pts, lines
+
+
+def svg(pulse: float, background: bool = True) -> str:
+    """The logo with the orb at pulse 0..1 (0: at rest, 1: the breath's top)."""
+    pts, lines = orb_points()
+    glow = 0.18 + 0.22 * pulse
+    lo = 0.18 + 0.25 * pulse
+    out = [f'''<svg xmlns="http://www.w3.org/2000/svg" width="{SIZE}" height="{SIZE}" viewBox="0 30 512 452">
+<defs>
+  <linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7aa2f7"/><stop offset="1" stop-color="#bb9af7"/></linearGradient>
+  <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#bb9af7" stop-opacity="{glow:.3f}"/><stop offset="1" stop-color="#bb9af7" stop-opacity="0"/></radialGradient>
+  <clipPath id="orb"><circle cx="{CX}" cy="{CY}" r="{R - 10}"/></clipPath>
+</defs>''']
+    if background:
+        out.append(f'<rect x="0" y="0" width="512" height="512" fill="{BG}"/>')
+    out.append(f'<circle cx="{CX}" cy="{CY}" r="{R * 1.5}" fill="url(#glow)"/>')
+    out.append('<g clip-path="url(#orb)">')
+    for i, j in lines:
+        a, b = pts[i], pts[j]
+        out.append(f'<line x1="{a[0]:.1f}" y1="{a[1]:.1f}" x2="{b[0]:.1f}" y2="{b[1]:.1f}" stroke="url(#g)" '
+                   f'stroke-width="2" opacity="{lo * (0.6 + 0.4 * a[2]):.2f}"/>')
+    for x, y, z in pts:
+        out.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="{2.5 + 2 * z + 1.5 * pulse:.1f}" fill="#c0caf5" '
+                   f'opacity="{(0.3 + 0.5 * z) * (0.6 + 0.4 * pulse):.2f}"/>')
+    out.append('</g>')
+    out.append(f'''<g fill="none" stroke="url(#g)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+  <circle cx="{CX}" cy="{CY}" r="{R}"/>
+  <path d="M168 352 L196 92 L256 230 L316 92 L344 352"/>
+</g>
+<path fill="#c0caf5" d="{WORDMARK}"/>
+</svg>''')
+    return "\n".join(out)
+
+
+def render(pulse: float):
+    from PIL import Image
+    png = subprocess.run(["rsvg-convert", "-w", str(SIZE), "-h", str(SIZE)], input=svg(pulse).encode(),
+                         capture_output=True, check=True).stdout
+    return Image.open(io.BytesIO(png)).convert("RGB")
+
+
+def splash(path: str) -> None:
+    from PIL import Image, ImageChops
+    frames = [render((1 - math.cos(2 * math.pi * k / FRAMES)) / 2) for k in range(FRAMES)]
+    # one palette for all: quantize them side by side
+    strip = Image.new("RGB", (SIZE * FRAMES, SIZE))
+    for k, f in enumerate(frames):
+        strip.paste(f, (k * SIZE, 0))
+    q = strip.quantize(256, dither=Image.Dither.NONE)
+    palette = (q.getpalette() + [0] * 768)[:768]
+    idx = [q.crop((k * SIZE, 0, (k + 1) * SIZE, SIZE)) for k in range(FRAMES)]
+    # the rectangle that changes
+    box = None
+    for f in idx[1:]:
+        b = ImageChops.difference(f.convert("L"), idx[0].convert("L")).getbbox()
+        if b:
+            box = b if box is None else (min(box[0], b[0]), min(box[1], b[1]), max(box[2], b[2]), max(box[3], b[3]))
+    box = box or (0, 0, 1, 1)
+    x, y, w, h = box[0], box[1], box[2] - box[0], box[3] - box[1]
+    with open(path, "wb") as out:
+        out.write(b"MSPL" + struct.pack("<8H", SIZE, SIZE, FRAMES, FRAME_MS, x, y, w, h))
+        out.write(bytes(palette))
+        out.write(idx[0].tobytes())
+        for f in idx:
+            out.write(f.crop(box).tobytes())
+    print(f"make-splash: {path}: {FRAMES} frames, {w}x{h} at {x},{y} change")
+
+
+def main() -> int:
+    if len(sys.argv) == 3 and sys.argv[1] == "--svg":
+        open(sys.argv[2], "w").write(svg(0.5, background=False) + "\n")
+    elif len(sys.argv) == 3 and sys.argv[1] == "--splash":
+        splash(sys.argv[2])
+    else:
+        print(__doc__, file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
