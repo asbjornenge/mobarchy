@@ -4,7 +4,7 @@ import QtQuick
 import Mobarchy.Shell
 
 // A number pad for a PIN (ADR 0013): dots for what is typed, 1–9 and 0, delete and enter.
-// Touch only: the layer surfaces it lives on take no keyboard.
+// Touch, or (compact: dots only) laptop mode's keyboard, through the lock screen.
 Item {
     id: pad
 
@@ -12,6 +12,7 @@ Item {
     property string message           // under the dots: an error, a wait
     property bool messageIsError: false
     property bool enabled_: true      // false while checking or waiting
+    property bool compact: false      // no number pad: typed on a keyboard
     property string pin: ""
     signal entered(string pin)
 
@@ -69,6 +70,7 @@ Item {
             font { family: Theme.font; pixelSize: 12 }
         }
         Grid {
+            visible: !pad.compact
             anchors.horizontalCenter: parent.horizontalCenter
             columns: 3
             columnSpacing: 22

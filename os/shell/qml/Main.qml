@@ -42,6 +42,50 @@ QtObject {
         keyboard: shell.keyboard
         clipboard: shell.clipboard
         sideInsets: shell.leftInset.inset + shell.rightInset.inset
+        laptop: shell.laptop
+    }
+
+    // --- laptop mode -----------------------------------------------------------------------
+    // A foldable half open and turned so that its fold lies across (device.toml fold_axis):
+    // the lower half is a keyboard (LaptopKeyboard, always up), the upper half the screen,
+    // the lock screen too. From the hinge's angle (with some slack, so that it doesn't
+    // flicker at the edges) and how the screen is turned.
+    readonly property Hinge hinge: Hinge {
+        active: shell.screen.on && shell.device.foldAxis(shell.inUse) !== ""
+    }
+    property bool laptop: false
+    function updatePosture() {
+        const axis = device.foldAxis(inUse)
+        const across = axis === "vertical" ? rotation.turns % 2 === 1
+                     : axis === "horizontal" ? rotation.turns % 2 === 0 : false
+        const a = hinge.angle
+        const open = laptop ? a >= 40 && a <= 165 : a >= 60 && a <= 150
+        const want = across && a >= 0 && open
+        if (want !== laptop)
+            posture.restart()
+        else
+            posture.stop()
+    }
+    readonly property Timer posture: Timer {
+        interval: 350       // (settled: not each step of a hinge on its way)
+        onTriggered: shell.laptop = !shell.laptop
+    }
+    readonly property Connections postureFollows: Connections {
+        target: shell.hinge
+        function onAngleChanged() { shell.updatePosture() }
+    }
+    onInUseChanged: updatePosture()
+    readonly property Connections postureTurns: Connections {
+        target: shell.rotation
+        function onTurnsChanged() { shell.updatePosture() }
+    }
+    // the lower half of the screen in use (logical px), the keyboard's with the edge under it
+    readonly property real laptopBottom: statusBar.screen ? statusBar.screen.height / 2 : 0
+    readonly property LaptopKeyboard laptopKeyboard: LaptopKeyboard {
+        keyboard: shell.keyboard
+        wanted: shell.laptop
+        wantedHeight: Math.max(200, shell.laptopBottom - shell.edge.height)
+        sideInsets: shell.leftInset.inset + shell.rightInset.inset
     }
     readonly property SystemStatus system: SystemStatus {}
     readonly property Brightness brightness: Brightness {}
@@ -137,11 +181,16 @@ QtObject {
     }
     // Apps that keep the screen on (a playing video) through org.freedesktop.ScreenSaver.
     readonly property Inhibitors inhibitors: Inhibitors {}
-    // Screen off after a minute without input, unless an app keeps it on (Wayland idle
-    // inhibitors count too: the compositor holds the notification back), or Frigg is in a
-    // conversation.
+    // Screen off after a while without input (the owner's choice in quick settings; a minute
+    // by default, never if they say so), unless an app keeps it on (Wayland idle inhibitors
+    // count too: the compositor holds the notification back), or Frigg is in a conversation.
+    readonly property Settings screenSettings: Settings {
+        location: StandardPaths.writableLocation(StandardPaths.GenericStateLocation) + "/mobarchy/screen.ini"
+        property int timeout: 60
+    }
     readonly property Idle idle: Idle {
-        timeout: shell.inhibitors.active || shell.talk.talking || shell.alarms.ringing || shell.ringing || shell.inCall ? 0 : 60
+        timeout: shell.inhibitors.active || shell.talk.talking || shell.alarms.ringing || shell.ringing || shell.inCall
+                 ? 0 : shell.screenSettings.timeout
         onIdleChanged: if (idle && shell.screen.on) shell.screenOff()
     }
     // A woken but untouched lock screen goes dark again soon.
@@ -221,6 +270,9 @@ QtObject {
         insetRight: shell.rightInset.inset
         insetBottom: shell.edge.inset
         nextAlarm: shell.alarms.nextAlarm
+        keyboard: shell.keyboard
+        laptop: shell.laptop
+        laptopBottom: shell.laptopBottom
         onUnlocked: {
             shown = false
             // Focus goes back to the app behind; the keyboard should not come up with it.
@@ -439,6 +491,7 @@ QtObject {
         rfkill: shell.rfkill
         telephony: shell.telephony
         radioSettings: shell.radioSettings
+        screenSettings: shell.screenSettings
         bluetooth: shell.bluetooth
         media: shell.media
         pinLock: shell.pinLock
@@ -499,6 +552,7 @@ QtObject {
         drawer: shell.drawer
         switcher: shell.switcher
         keyboard: shell.keyboard
+        laptop: shell.laptop
         inset: shell.device.inset(shell.inUse, "bottom", shell.rotation.turns)
         onHome: shell.goHome()
     }

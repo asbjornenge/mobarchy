@@ -273,6 +273,31 @@ void Keyboard::key(const QString &name)
         pressKeysym(sym);
 }
 
+void Keyboard::press(const QString &key, int mods)
+{
+    if (m_capturing) {
+        if (key == QLatin1String("Return"))
+            emit captureAccepted();
+        return;
+    }
+    emit edited();
+    if (!ensureVirtualKeyboard())
+        return;
+    const QList<uint> chars = key.toUcs4();
+    const uint32_t sym = chars.size() == 1 ? xkb_utf32_to_keysym(QChar::toLower(char32_t(chars.first())))
+                                           : xkb_keysym_from_name(key.toUtf8().constData(), XKB_KEYSYM_CASE_INSENSITIVE);
+    const auto it = m_keys.constFind(sym);
+    if (sym == XKB_KEY_NoSymbol || it == m_keys.constEnd())
+        return;
+    uint32_t mask = it->second ? m_shiftMask : 0;
+    if (mods & 1) mask |= m_ctrlMask;
+    if (mods & 2) mask |= m_altMask;
+    if (mods & 4) mask |= m_superMask;
+    if (mods & 8) mask |= m_shiftMask;
+    if (mods & 16) mask |= m_altGrMask;
+    sendKeycode(it->first, mask);
+}
+
 QVariantList Keyboard::emojiGroups() const
 {
     QFile file(QStringLiteral(":/qt/qml/Mobarchy/Shell/data/emoji.json"));
@@ -336,6 +361,10 @@ bool Keyboard::ensureVirtualKeyboard()
     if (!m_keymap)
         return false;
     m_shiftMask = 1u << xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_SHIFT);
+    m_ctrlMask = 1u << xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_CTRL);
+    m_altMask = 1u << xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_ALT);
+    m_superMask = 1u << xkb_keymap_mod_get_index(m_keymap, XKB_MOD_NAME_LOGO);
+    m_altGrMask = 1u << xkb_keymap_mod_get_index(m_keymap, "Mod5");
     // keysym -> the key and level that type it (levels 0 and 1: plain and shifted)
     xkb_keymap_key_for_each(m_keymap, [](xkb_keymap *map, xkb_keycode_t code, void *data) {
         auto *keys = static_cast<QHash<uint32_t, QPair<uint32_t, bool>> *>(data);

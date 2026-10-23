@@ -31,12 +31,14 @@
 #define TYPE_LIGHT 5
 #define TYPE_PROXIMITY 8
 #define TYPE_DEVICE_ORIENTATION 27          /* (a system sensor: not in the NDK's list) */
+#define TYPE_HINGE_ANGLE 36
 
 static const int android_type[SENSOR_KINDS] = {
     [SENSOR_ORIENTATION] = TYPE_DEVICE_ORIENTATION,
     [SENSOR_LIGHT] = TYPE_LIGHT,
     [SENSOR_PROXIMITY] = TYPE_PROXIMITY,
     [SENSOR_ACCELEROMETER] = TYPE_ACCELEROMETER,
+    [SENSOR_HINGE] = TYPE_HINGE_ANGLE,
 };
 #define ACCELEROMETER_PERIOD_US 100000      /* 10 Hz: enough to tell how it is held */
 

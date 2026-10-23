@@ -18,6 +18,8 @@ LayerWindow {
     // The strip below it that the panel's bezel hides (device.toml bottom_inset): the edge
     // reaches over it, so a swipe can start there, but shows its bar above it.
     property int inset: 0
+    // laptop mode: its keyboard is always up; no toggle
+    property bool laptop: false
     signal home()
 
     height: 32 + inset
@@ -93,6 +95,7 @@ LayerWindow {
     }
 
     MouseArea {
+        visible: !edge.laptop
         anchors { right: parent.right; top: parent.top }
         height: 32
         width: 72

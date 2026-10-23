@@ -4,7 +4,9 @@ import Mobarchy.Shell
 
 // The lock screen: shown when the screen goes off, swiped up to unlock, then the PIN if
 // there is one (ADR 0013). It covers the whole screen (overlay layer, ignoring other
-// surfaces' exclusive zones). It does not take the keyboard; the PIN has its own pad.
+// surfaces' exclusive zones). It does not take the keyboard; the PIN has its own pad. In
+// laptop mode it covers the upper half: the PIN is typed on laptop mode's keyboard, which
+// the lock screen then has to itself (Keyboard's capture: nothing reaches the apps).
 LayerWindow {
     id: lock
 
@@ -22,6 +24,10 @@ LayerWindow {
     property int insetBottom: 0
     // The next alarm (Alarms.nextAlarm), shown under the date; invalid: none
     property date nextAlarm
+    // laptop mode: the lower half is the keyboard (this much from the bottom)
+    required property Keyboard keyboard
+    property bool laptop: false
+    property real laptopBottom: 0
     signal unlocked()
     signal fingerUnlocked()     // (then unlocked())
     signal touched()  // any interaction: keeps the screen on a little longer
@@ -33,6 +39,7 @@ LayerWindow {
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom
                                | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
     LayerShell.Window.exclusionZone: -1
+    LayerShell.Window.margins.bottom: laptop ? laptopBottom : 0
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     // The theme's wallpaper (ADR 0025), dimmed so that the clock and notifications stays readable.
@@ -66,6 +73,27 @@ LayerWindow {
     property bool askingPin: false
     // The camera, opened from the lock screen without unlocking (ADR 0018).
     property bool cameraOpen: false
+    // laptop mode: the keyboard types here, not into the app behind
+    readonly property bool typing: shown && laptop
+    onTypingChanged: typing ? keyboard.startCapture() : keyboard.stopCapture()
+    Connections {
+        target: lock.keyboard
+        enabled: lock.typing
+        function onCaptureChanged() {
+            const digits = lock.keyboard.captured.replace(/[^0-9]/g, "").slice(0, 16)
+            if (digits.length > 0 && lock.pinLock.hasPin && !lock.askingPin)
+                lock.askingPin = true
+            if (lock.askingPin)
+                pad.pin = digits
+            lock.touched()
+        }
+        function onCaptureAccepted() {
+            if (!lock.askingPin)
+                lock.swiped()
+            else if (pad.pin.length > 0 && pad.enabled_)
+                lock.pinLock.verify(pad.pin)
+        }
+    }
     onShownChanged: {
         cameraOpen = false
         if (shown) { settle.stop(); lift = 0; askingPin = false; pad.clear(); pad.message = ""; opening = 0 }
@@ -341,9 +369,16 @@ LayerWindow {
         id: pad
         visible: lock.askingPin
         anchors.centerIn: parent
-        title: qsTr("Enter PIN")
+        compact: lock.laptop
+        title: lock.laptop ? qsTr("Type your PIN") : qsTr("Enter PIN")
+        // cleared (a wrong PIN, cancelled): what was typed goes too
         enabled_: !lock.pinLock.busy && lock.pinLock.wait === 0
-        onPinChanged: lock.touched()
+        onPinChanged: {
+            lock.touched()
+            // cleared (a wrong PIN, cancelled): what was typed goes too
+            if (pin === "" && lock.typing && lock.keyboard.captured !== "")
+                lock.keyboard.startCapture()
+        }
         onEntered: (pin) => lock.pinLock.verify(pin)
     }
     Text {

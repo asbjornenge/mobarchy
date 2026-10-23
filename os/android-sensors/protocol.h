@@ -31,6 +31,7 @@ enum sensor_kind {
     SENSOR_PROXIMITY,       /* values[0]: cm; binary sensors (most phones'): 0 near, their
                              * range (e.g. 5) far */
     SENSOR_ACCELEROMETER,   /* values[0..2]: m/s², x y z (Android's axes) */
+    SENSOR_HINGE,           /* values[0]: a foldable's hinge angle, degrees (0 closed, 180 flat) */
     SENSOR_KINDS
 };
 

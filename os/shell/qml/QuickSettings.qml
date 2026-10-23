@@ -18,6 +18,8 @@ Sheet {
     required property Telephony telephony
     // flight (bool) and mobile (bool), kept across restarts (Main)
     required property var radioSettings
+    // the screen's settings (Main: timeout, seconds without a touch before it goes dark; 0 never)
+    required property var screenSettings
     required property Bluetooth bluetooth
     required property MediaPlayers media
     required property PinLock pinLock
@@ -41,7 +43,7 @@ Sheet {
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth, 3: screen lock (PIN, fingers),
-                          // 4: notifications, 5: hotspot
+                          // 4: notifications, 5: hotspot, 6: settings
     // sharing the internet over Wi-Fi (ADR 0039): followed while the panel is open
     readonly property Hotspot hotspot: Hotspot { watching: quick.shown }
     property bool renamingHotspot: false
@@ -313,6 +315,11 @@ Sheet {
                 lit: quick.torch.on
                 onClicked: { quick.haptics.click(); quick.torch.toggle() }
             }
+            RoundButton {
+                icon: "󰒓"
+                label: qsTr("Settings")
+                onClicked: quick.page = 6
+            }
         }
         Row {
             anchors.right: parent.right
@@ -377,7 +384,7 @@ Sheet {
         id: panel
         width: parent.width
         // as tall as the page, up to the screen (the pages scroll beyond that)
-        height: Math.min([overview, wifiPage, bluetoothPage, lockPage, notesPage, hotspotPage][quick.page].implicitHeight + 28 + handle.height,
+        height: Math.min([overview, wifiPage, bluetoothPage, lockPage, notesPage, hotspotPage, settingsPage][quick.page].implicitHeight + 28 + handle.height,
                          quick.height)
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         y: -(1 - quick.openness) * height
@@ -655,6 +662,95 @@ Sheet {
                             width: parent.width
                             visible: !quick.twoColumns
                         }
+                    }
+                }
+            }
+
+            // --- settings: the smaller ones ----------------------------------------------
+            Flickable {
+                x: 6 * pages.width
+                width: pages.width
+                height: pages.height
+                contentHeight: settingsPage.implicitHeight
+                clip: true
+                interactive: contentHeight > height
+                boundsBehavior: Flickable.StopAtBounds
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
+
+                Column {
+                    id: settingsPage
+                    x: 20
+                    width: pages.width - 40
+                    spacing: 10
+
+                    Item {
+                        width: parent.width
+                        height: 40
+                        MouseArea {
+                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+                            width: settingsBackRow.implicitWidth + 16
+                            onClicked: quick.page = 0
+                            Row {
+                                id: settingsBackRow
+                                anchors.verticalCenter: parent.verticalCenter
+                                spacing: 10
+                                Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
+                                       font { family: Theme.font; pixelSize: 16 }
+                                       anchors.verticalCenter: parent.verticalCenter }
+                                Text { text: qsTr("Settings"); color: Theme.fg
+                                       font { family: Theme.font; pixelSize: 18; bold: true } }
+                            }
+                        }
+                    }
+
+                    // the screen: how long without a touch before it goes dark
+                    Text {
+                        text: qsTr("Screen off after")
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 13 }
+                    }
+                    Flow {
+                        width: parent.width
+                        spacing: 8
+                        Repeater {
+                            model: [{s: 30, t: qsTr("30 s")}, {s: 60, t: qsTr("1 min")}, {s: 120, t: qsTr("2 min")},
+                                    {s: 300, t: qsTr("5 min")}, {s: 600, t: qsTr("10 min")}, {s: 0, t: qsTr("Never")}]
+                            delegate: Rectangle {
+                                id: choice
+                                required property var modelData
+                                readonly property bool chosen: quick.screenSettings.timeout === modelData.s
+                                width: choiceText.implicitWidth + 32
+                                height: 40
+                                radius: 20
+                                color: chosen ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.16)
+                                     : choiceTap.pressed ? Theme.line : Theme.panel
+                                border.color: chosen ? Theme.accent : Theme.line
+                                Text {
+                                    id: choiceText
+                                    anchors.centerIn: parent
+                                    text: choice.modelData.t
+                                    color: choice.chosen ? Theme.accent : Theme.fg
+                                    font { family: Theme.font; pixelSize: 14 }
+                                }
+                                MouseArea {
+                                    id: choiceTap
+                                    anchors.fill: parent
+                                    onClicked: {
+                                        quick.haptics.click()
+                                        quick.screenSettings.timeout = choice.modelData.s
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Text {
+                        width: parent.width
+                        visible: quick.screenSettings.timeout === 0
+                        text: qsTr("The screen stays on until you turn it off with the power key.")
+                        wrapMode: Text.Wrap
+                        color: Theme.muted
+                        font { family: Theme.font; pixelSize: 12 }
                     }
                 }
             }

@@ -38,6 +38,9 @@ top_inset = 24        # optional: logical px at the top that content keeps clear
                       # (camera cutout, rounded corners); the status bar covers it
 side_inset = 0        # optional: the same at the left and right edges (panel under the bezel)
 bottom_inset = 0      # optional: the same at the bottom edge
+fold_axis = "vertical"  # optional, a foldable's folding panel: where the fold runs on it
+                      # upright (vertical: a book, horizontal: a flip phone); turned so the
+                      # fold lies across, and half open, the shell goes into laptop mode
 
 [input]
 touch = "..."

@@ -28,6 +28,7 @@ height = 2076
 top_inset = 24      # camera cutout
 side_inset = 20     # trial value: the clock was cut off at the left edge
 bottom_inset = 32   # the panel runs under the bezel at the bottom too (confirmed on the device)
+fold_axis = "vertical"  # it folds like a book; turned and half open, it is a laptop
 
 [input]
 touch = "vendor"

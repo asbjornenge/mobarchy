@@ -34,6 +34,11 @@ bool Device::rotationLockedByDefault(const QString &connector) const
     return deviceinfo::display(m_device, connector).value(QStringLiteral("rotation_locked")).toBool();
 }
 
+QString Device::foldAxis(const QString &connector) const
+{
+    return deviceinfo::display(m_device, connector).value(QStringLiteral("fold_axis")).toString();
+}
+
 void Device::rotate(const QString &orientation) const
 {
     QStringList args = QProcess::splitCommand(

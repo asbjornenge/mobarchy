@@ -7,7 +7,9 @@
  *     bottom-up), from Android's device orientation sensor, which Android rotates the
  *     screen by;
  *   - the ambient light, in lux;
- *   - proximity (near or not).
+ *   - proximity (near or not);
+ *   - and, beside iio-sensor-proxy's interface (it has none), a foldable's hinge angle
+ *     (org.mobarchy.SensorProxy.Hinge: ClaimHinge, HingeAngle in degrees, 0 closed, 180 flat).
  * A sensor runs only while some client has claimed it (ClaimAccelerometer, ...), as with
  * iio-sensor-proxy; a client that leaves the bus releases its claims.
  */
@@ -26,6 +28,7 @@
 #define BUS_NAME "net.hadess.SensorProxy"
 #define BUS_PATH "/net/hadess/SensorProxy"
 #define BUS_IFACE "net.hadess.SensorProxy"
+#define HINGE_IFACE "org.mobarchy.SensorProxy.Hinge"
 #define PROXIMITY_NEAR_CM 1.0       /* binary sensors report 0 (near) or their range (far) */
 
 static const char introspection[] =
@@ -45,13 +48,21 @@ static const char introspection[] =
     "    <property name='HasProximity' type='b' access='read'/>"
     "    <property name='ProximityNear' type='b' access='read'/>"
     "  </interface>"
+    "  <interface name='org.mobarchy.SensorProxy.Hinge'>"
+    "    <method name='ClaimHinge'/>"
+    "    <method name='ReleaseHinge'/>"
+    "    <property name='HasHinge' type='b' access='read'/>"
+    "    <property name='HingeAngle' type='d' access='read'/>"
+    "  </interface>"
     "</node>";
 
 /* what iio-sensor-proxy calls them, and which bridge sensor each one is */
-enum claim { ACCEL, LIGHT, PROXIMITY, CLAIMS };
-static const char *const claim_name[CLAIMS] = { "Accelerometer", "Light", "Proximity" };
+enum claim { ACCEL, LIGHT, PROXIMITY, HINGE, CLAIMS };
+static const char *const claim_name[CLAIMS] = { "Accelerometer", "Light", "Proximity", "Hinge" };
+static const char *const has_name[CLAIMS] = { "HasAccelerometer", "HasAmbientLight", "HasProximity",
+                                              "HasHinge" };
 static const enum sensor_kind claim_sensor[CLAIMS] = {
-    SENSOR_ORIENTATION, SENSOR_LIGHT, SENSOR_PROXIMITY,
+    SENSOR_ORIENTATION, SENSOR_LIGHT, SENSOR_PROXIMITY, SENSOR_HINGE,
 };
 
 static struct {
@@ -64,7 +75,8 @@ static struct {
     const char *orientation;
     double light;
     gboolean near;
-} app = { .bridge = -1, .orientation = "undefined", .has = { TRUE, TRUE, TRUE } };
+    double hinge;
+} app = { .bridge = -1, .orientation = "undefined", .has = { TRUE, TRUE, TRUE, TRUE }, .hinge = -1 };
 
 static void
 bridge_send(uint32_t type, uint32_t sensor)
@@ -78,6 +90,8 @@ bridge_send(uint32_t type, uint32_t sensor)
 static void
 changed(const char *name, GVariant *value)
 {
+    const char *iface = g_str_has_suffix(name, "Hinge") || !strcmp(name, "HingeAngle")
+                      ? HINGE_IFACE : BUS_IFACE;
     GVariantBuilder b;
 
     if (!app.bus) {
@@ -88,7 +102,7 @@ changed(const char *name, GVariant *value)
     g_variant_builder_add(&b, "{sv}", name, value);
     g_dbus_connection_emit_signal(app.bus, NULL, BUS_PATH, "org.freedesktop.DBus.Properties",
                                   "PropertiesChanged",
-                                  g_variant_new("(sa{sv}as)", BUS_IFACE, &b, NULL), NULL);
+                                  g_variant_new("(sa{sv}as)", iface, &b, NULL), NULL);
 }
 
 /* Android's device orientation (0 upright, 1 turned counter-clockwise, 2 upside down,
@@ -131,6 +145,12 @@ on_event(const struct sensor_message *m)
         }
         break;
     }
+    case SENSOR_HINGE:
+        if (m->values[0] != app.hinge) {
+            app.hinge = m->values[0];
+            changed("HingeAngle", g_variant_new_double(app.hinge));
+        }
+        break;
     }
 }
 
@@ -140,8 +160,7 @@ on_unavailable(uint32_t sensor)
     for (int c = 0; c < CLAIMS; c++)
         if (claim_sensor[c] == sensor && app.has[c]) {
             app.has[c] = FALSE;
-            changed(c == ACCEL ? "HasAccelerometer" : c == LIGHT ? "HasAmbientLight" : "HasProximity",
-                    g_variant_new_boolean(FALSE));
+            changed(has_name[c], g_variant_new_boolean(FALSE));
         }
 }
 
@@ -276,6 +295,10 @@ on_get_property(GDBusConnection *bus, const char *sender, const char *path, cons
         return g_variant_new_boolean(app.has[PROXIMITY]);
     if (!strcmp(name, "ProximityNear"))
         return g_variant_new_boolean(app.near);
+    if (!strcmp(name, "HasHinge"))
+        return g_variant_new_boolean(app.has[HINGE]);
+    if (!strcmp(name, "HingeAngle"))
+        return g_variant_new_double(app.hinge);
     return NULL;
 }
 
@@ -287,7 +310,8 @@ on_bus(GDBusConnection *bus, const char *name, gpointer unused)
 {
     g_autoptr(GDBusNodeInfo) node = g_dbus_node_info_new_for_xml(introspection, NULL);
     app.bus = bus;
-    g_dbus_connection_register_object(bus, BUS_PATH, node->interfaces[0], &vtable, NULL, NULL, NULL);
+    for (int i = 0; node->interfaces[i]; i++)
+        g_dbus_connection_register_object(bus, BUS_PATH, node->interfaces[i], &vtable, NULL, NULL, NULL);
 }
 
 static void

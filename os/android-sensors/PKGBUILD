@@ -4,7 +4,7 @@
 #   tools/repo-build --repo <dir> os/android-sensors
 pkgname=mobarchy-android-sensors
 pkgver=0.2
-pkgrel=1
+pkgrel=2
 pkgdesc="The sensors of Mobarchy's Android container: for its HALs, and for Linux as iio-sensor-proxy offers them"
 arch=(aarch64)
 depends=(glib2 dbus)

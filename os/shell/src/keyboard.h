@@ -88,6 +88,10 @@ public:
     Q_INVOKABLE void backspace();
     // An action key: "Return", "Tab", "Left", "Right", "Up", "Down", "Escape".
     Q_INVOKABLE void key(const QString &name);
+    // A key with modifiers, as a hardware keyboard presses it (laptop mode's Ctrl+C, F5,
+    // Home): key is a character ("c") or an xkb keysym name ("F5", "Home", "Prior",
+    // "Delete"); mods: Ctrl 1, Alt 2, Super 4, Shift 8, AltGr 16.
+    Q_INVOKABLE void press(const QString &key, int mods);
     // The emoji panel's groups: [{name, emoji: [...]}] (data/emoji.json, tools/emoji-gen)
     Q_INVOKABLE QVariantList emojiGroups() const;
     // Emoji whose names or keywords (CLDR's, Norwegian and English) start with every word of
@@ -145,6 +149,7 @@ private:
     xkb_keymap *m_keymap = nullptr;
     QHash<uint32_t, QPair<uint32_t, bool>> m_keys;
     uint32_t m_shiftMask = 0;
+    uint32_t m_ctrlMask = 0, m_altMask = 0, m_superMask = 0, m_altGrMask = 0;
 };
 
 class InputMethod : public QtWayland::zwp_input_method_v2

@@ -29,6 +29,9 @@ public:
     // Turns the screen in use for the device held as orientation (iio-sensor-proxy's
     // names: normal, left-up, bottom-up, right-up), through the device's hook.
     Q_INVOKABLE void rotate(const QString &orientation) const;
+    // A foldable's folding panel: where its fold runs on the panel upright ("vertical": a
+    // book; "horizontal": a flip phone), from the display's fold_axis; "" for a flat one.
+    Q_INVOKABLE QString foldAxis(const QString &connector) const;
 
 private:
     deviceinfo::Device m_device;

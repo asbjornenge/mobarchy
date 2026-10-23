@@ -49,6 +49,7 @@ qt_add_qml_module(mobarchy-shell
         src/locationagent.cpp src/locationagent.h
         src/homeconfig.cpp src/homeconfig.h
         src/orientation.cpp src/orientation.h
+        src/hinge.cpp src/hinge.h
         src/proximity.cpp src/proximity.h
         src/hotspot.cpp src/hotspot.h
         src/torch.cpp src/torch.h
@@ -139,6 +140,7 @@ qt_add_qml_module(mobarchy-shell
         qml/RecentAppsCard.qml
         qml/Store.qml
         qml/KeyboardPanel.qml
+        qml/LaptopKeyboard.qml
         qml/CopyBar.qml
         qml/CameraApp.qml
         qml/CameraView.qml

@@ -13,8 +13,10 @@ LayerWindow {
 
     required property Keyboard keyboard
     required property Clipboard clipboard
+    // laptop mode: its keyboard (LaptopKeyboard) instead
+    property bool laptop: false
 
-    shown: keyboard.visible
+    shown: keyboard.visible && !laptop
     color: Theme.bgDark
     LayerShell.Window.scope: "mobarchy-keyboard"
     LayerShell.Window.layer: LayerShell.Window.LayerTop
