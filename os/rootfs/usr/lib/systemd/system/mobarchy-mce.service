@@ -1,0 +1,11 @@
+[Unit]
+Description=MCE's display, charger and battery state for oFono (ADR 0043)
+Before=ofono.service
+
+[Service]
+ExecStart=/usr/lib/mobarchy/mce
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

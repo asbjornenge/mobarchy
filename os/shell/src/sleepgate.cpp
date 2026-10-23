@@ -11,6 +11,7 @@ SleepGate::SleepGate(QObject *parent)
     QDir().mkpath(m_dir);
     // (a shell starting: awake until it says otherwise)
     QFile::remove(m_dir + QStringLiteral("/sleep-ok"));
+    writeDisplay();
 }
 
 SleepGate::~SleepGate()
@@ -31,6 +32,22 @@ void SleepGate::setAllowed(bool allowed)
         QFile::remove(path);
     }
     emit allowedChanged();
+}
+
+void SleepGate::setDisplayOn(bool on)
+{
+    if (on == m_displayOn)
+        return;
+    m_displayOn = on;
+    writeDisplay();
+    emit displayOnChanged();
+}
+
+void SleepGate::writeDisplay()
+{
+    QFile f(m_dir + QStringLiteral("/display"));
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(m_displayOn ? "on\n" : "off\n");
 }
 
 void SleepGate::setNextWake(const QDateTime &at)

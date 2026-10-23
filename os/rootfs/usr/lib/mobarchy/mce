@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""MCE's D-Bus face (Sailfish's mode control entity), as much of it as oFono uses (ADR 0043):
+the display's state, the charger's and the battery's. oFono's binder plugin (libmce-glib)
+tells the modem from it that the screen is off (RIL device state and indication filter): it
+stops reporting signal strength and the like, and lets the phone sleep.
+
+    com.nokia.mce  /com/nokia/mce/request  com.nokia.mce.request
+        get_display_status -> "on" | "off"
+        get_charger_state  -> "on" | "off"
+        get_battery_status -> "ok" | "low" | "empty" | "full"
+        get_battery_level  -> 0..100
+    /com/nokia/mce/signal  com.nokia.mce.signal: display_status_ind, charger_state_ind,
+        battery_status_ind, battery_level_ind
+
+The display's state is the shell's (it writes "on" or "off" to
+/run/user/<uid>/mobarchy/display); the rest is the kernel's power supply class.
+Run as root (mobarchy-mce.service).
+"""
+import sys
+from pathlib import Path
+
+from gi.repository import Gio, GLib
+
+NAME = "com.nokia.mce"
+REQUEST = "/com/nokia/mce/request"
+SIGNAL = "/com/nokia/mce/signal"
+XML = """
+<node>
+  <interface name="com.nokia.mce.request">
+    <method name="get_display_status"><arg type="s" direction="out"/></method>
+    <method name="get_charger_state"><arg type="s" direction="out"/></method>
+    <method name="get_battery_status"><arg type="s" direction="out"/></method>
+    <method name="get_battery_level"><arg type="i" direction="out"/></method>
+  </interface>
+</node>"""
+POWER = Path("/sys/class/power_supply")
+
+
+def display_file() -> Path | None:
+    for d in sorted(Path("/run/user").glob("[0-9]*")):
+        if int(d.name) >= 1000:
+            return d / "mobarchy" / "display"
+    return None
+
+
+def display() -> str:
+    f = display_file()
+    try:
+        return "off" if f and f.read_text().strip() == "off" else "on"
+    except OSError:
+        return "on"
+
+
+def charger() -> str:
+    for s in POWER.glob("*"):
+        try:
+            if (s / "type").read_text().strip() in ("USB", "Mains", "Wireless") and (s / "online").read_text().strip() == "1":
+                return "on"
+        except OSError:
+            pass
+    return "off"
+
+
+def battery() -> tuple[str, int]:
+    try:
+        level = int((POWER / "battery" / "capacity").read_text())
+        status = (POWER / "battery" / "status").read_text().strip()
+    except (OSError, ValueError):
+        return "ok", 50
+    return ("full" if status == "Full" else "empty" if level <= 2 else "low" if level <= 15 else "ok"), level
+
+
+class Mce:
+    def __init__(self, bus: Gio.DBusConnection):
+        self.bus = bus
+        self.state = self.read()
+        node = Gio.DBusNodeInfo.new_for_xml(XML)
+        bus.register_object(REQUEST, node.interfaces[0], self.on_call, None, None)
+        GLib.timeout_add_seconds(1, self.poll)
+
+    def read(self) -> dict:
+        status, level = battery()
+        return {"display": display(), "charger": charger(), "battery": status, "level": level}
+
+    def on_call(self, bus, sender, path, iface, method, params, inv):
+        s = self.state
+        values = {"get_display_status": ("(s)", s["display"]), "get_charger_state": ("(s)", s["charger"]),
+                  "get_battery_status": ("(s)", s["battery"]), "get_battery_level": ("(i)", s["level"])}
+        if method in values:
+            sig, v = values[method]
+            inv.return_value(GLib.Variant(sig, (v,)))
+        else:
+            inv.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
+
+    def poll(self) -> bool:
+        new = self.read()
+        signals = {"display": ("display_status_ind", "s"), "charger": ("charger_state_ind", "s"),
+                   "battery": ("battery_status_ind", "s"), "level": ("battery_level_ind", "i")}
+        for key, (signal, sig) in signals.items():
+            if new[key] != self.state[key]:
+                self.bus.emit_signal(None, SIGNAL, "com.nokia.mce.signal", signal, GLib.Variant(f"({sig})", (new[key],)))
+                if key != "level":
+                    print(f"mce: {key} {new[key]}", flush=True)
+        self.state = new
+        return True
+
+
+def main() -> int:
+    loop = GLib.MainLoop()
+    holder = {}
+
+    def acquired(bus, name):
+        holder["mce"] = Mce(bus)
+
+    Gio.bus_own_name(Gio.BusType.SYSTEM, NAME, Gio.BusNameOwnerFlags.NONE, None, acquired,
+                     lambda *_: loop.quit())
+    loop.run()
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

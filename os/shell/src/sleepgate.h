@@ -13,6 +13,9 @@ class SleepGate : public QObject
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(bool allowed READ allowed WRITE setAllowed NOTIFY allowedChanged)
+    // the screen is on ($XDG_RUNTIME_DIR/mobarchy/display: "on" or "off"; MCE's for oFono,
+    // which then quiets the modem)
+    Q_PROPERTY(bool displayOn READ displayOn WRITE setDisplayOn NOTIFY displayOnChanged)
     // the next alarm or timer (invalid: none)
     Q_PROPERTY(QDateTime nextWake READ nextWake WRITE setNextWake NOTIFY nextWakeChanged)
 
@@ -24,13 +27,18 @@ public:
     void setAllowed(bool allowed);
     QDateTime nextWake() const { return m_nextWake; }
     void setNextWake(const QDateTime &at);
+    bool displayOn() const { return m_displayOn; }
+    void setDisplayOn(bool on);
 
 signals:
     void allowedChanged();
     void nextWakeChanged();
+    void displayOnChanged();
 
 private:
     QString m_dir;
     bool m_allowed = false;
     QDateTime m_nextWake;
+    bool m_displayOn = true;
+    void writeDisplay();
 };

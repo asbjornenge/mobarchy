@@ -196,6 +196,7 @@ QtObject {
     // awake (a call, ringing, an alarm, something playing, Frigg in a conversation or
     // listening for "Hei Frigg", an app keeping the screen on); the next alarm or timer wakes it
     readonly property SleepGate sleepGate: SleepGate {
+        displayOn: shell.screen.on
         allowed: !shell.screen.on && !shell.inCall && !shell.ringing && !shell.alarms.ringing
                  && !shell.media.playing && !shell.talk.talking && !shell.talk.wake
                  && !shell.inhibitors.active

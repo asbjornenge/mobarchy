@@ -33,7 +33,8 @@ import time
 import tomllib
 from pathlib import Path
 
-GRACE_AFTER_WAKE = 5.0      # s: the event that woke it reaches the shell
+GRACE_AFTER_WAKE = 5.0      # s: the event that woke it reaches the shell (a call, a key)
+GRACE_AFTER_PACKET = 1.0    # s: a packet for us (Wi-Fi) has been taken in
 GRACE_AFTER_OK = 3.0        # s: the screen just went off
 EARLY = 30                  # s: the RTC wakes this much before an alarm
 STAY_AWAKE = Path("/run/mobarchy/stay-awake")
@@ -139,8 +140,20 @@ def suspend_once(runtime: Path) -> bool:
         STATE.write_text("mem\n")
     except OSError:
         return False                                  # (a device busy: again in a moment)
-    log(f"slept {time.time() - start:.0f} s")
+    log(f"slept {time.time() - start:.0f} s, woken by {wake_irq() or 'something'}")
     return True
+
+
+def wake_irq() -> str:
+    """What woke it: the interrupt's name (/sys/power/pm_wakeup_irq, /proc/interrupts)."""
+    try:
+        irq = Path("/sys/power/pm_wakeup_irq").read_text().strip()
+        for line in open("/proc/interrupts"):
+            if line.split(":")[0].strip() == irq:
+                return line.split()[-1]
+    except OSError:
+        pass
+    return ""
 
 
 def main() -> int:
@@ -159,7 +172,7 @@ def main() -> int:
             time.sleep(0.5)
             continue
         if suspend_once(runtime):
-            time.sleep(GRACE_AFTER_WAKE)
+            time.sleep(GRACE_AFTER_PACKET if "dhdpcie" in wake_irq() else GRACE_AFTER_WAKE)
         else:
             time.sleep(1)
 

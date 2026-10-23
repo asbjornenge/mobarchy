@@ -32,6 +32,13 @@ Android's way, in userspace:
 - **Wi-Fi while asleep may be:** the chip filters what it wakes the phone for (Android's
   private driver command `SETSUSPENDMODE`; device.toml `[power] wifi_suspend_mode =
   "android"`), off again with the screen on.
+- **The modem told the screen is off:** oFono's binder plugin sets the RIL's device state
+  and indication filter (no signal strength reports and the like) from MCE's display
+  state; Mobarchy has no MCE, so `mobarchy-mce` (root) offers that much of its D-Bus face
+  (com.nokia.mce: display from the shell's `$XDG_RUNTIME_DIR/mobarchy/display`, charger
+  and battery from the power supply class). Without it the modem woke the phone every few
+  seconds (17 of 38 wakes in the first test, the rest Wi-Fi).
+- **Short wakes for packets:** after a Wi-Fi wake the grace is 1 s, not 5.
 - **Never asleep:** with the hotspot on, or `/run/mobarchy/stay-awake` (development).
 
 ## Consequences
@@ -40,6 +47,7 @@ Android's way, in userspace:
   choice in Frigg's settings (always, or while charging) is also a battery choice.
 - Background work (mail sync, calendars) runs while the phone is awake anyway; nothing
   wakes it on a schedule yet.
-- Over ssh (ZeroTier on Wi-Fi) a sleeping phone answers late or not at all: stay-awake.
+- Asleep, the phone doesn't answer on the network at all (the chip drops the broadcasts,
+  ARP among them): to reach it over ssh, wake it, and `touch /run/mobarchy/stay-awake`.
 - To watch: calls and messages arriving while asleep (the modem's wakeup source must hold
   until ofono and the shell have them), Bluetooth audio, and how often Wi-Fi still wakes it.
