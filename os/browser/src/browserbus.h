@@ -34,9 +34,12 @@ public slots:
     // The open tabs: (title, URL), and the current one's index.
     Q_SCRIPTABLE QStringList Tabs() const;
     Q_SCRIPTABLE int Current() const { return m_current; }
+    // Closes the tab at index (as Tabs lists them), e.g. a sign-in page an app is done with.
+    Q_SCRIPTABLE void Close(int index) { emit closeRequested(index); }
 
 signals:
     void openRequested(const QString &url);
+    void closeRequested(int index);
     void showRequested();
     void webAppAdded(bool ok, const QString &message);
 

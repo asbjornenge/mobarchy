@@ -247,6 +247,7 @@ Window {
             win.raise()
             win.requestActivate()
         }
+        function onCloseRequested(i) { win.closeTab(i) }
     }
 
     Component.onCompleted: {

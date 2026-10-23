@@ -1,5 +1,8 @@
 #include "spotify.h"
 
+#include <QDBusConnection>
+#include <QDBusMessage>
+#include <QDBusReply>
 #include <QDir>
 #include <QFile>
 #include <QProcessEnvironment>
@@ -11,6 +14,24 @@
 #include <QStandardPaths>
 
 namespace {
+// the browser's sign-in pages, once done: closed (Mobarchy's browser, org.mobarchy.Browser)
+void closeSignInTabs()
+{
+    const QString service = QStringLiteral("org.mobarchy.Browser"), path = QStringLiteral("/org/mobarchy/Browser");
+    QDBusReply<QStringList> tabs = QDBusConnection::sessionBus().call(
+        QDBusMessage::createMethodCall(service, path, service, QStringLiteral("Tabs")));
+    if (!tabs.isValid())
+        return;
+    for (int i = int(tabs.value().size()) - 1; i >= 0; --i) {
+        const QString url = tabs.value().at(i).section(u'\t', 1);
+        if (url.startsWith(QLatin1String("https://accounts.spotify.com/")) || url.startsWith(QLatin1String("http://127.0.0.1:8989/"))) {
+            QDBusMessage close = QDBusMessage::createMethodCall(service, path, service, QStringLiteral("Close"));
+            close << i;
+            QDBusConnection::sessionBus().call(close);
+        }
+    }
+}
+
 const QString Program = QStringLiteral("spotify_player");
 const QString Config = QStringLiteral("/usr/share/mobarchy/spotify-player");
 const QString Service = QStringLiteral("mobarchy-spotify.service");
@@ -288,6 +309,7 @@ void Spotify::signIn()
         m_noBrowser = nullptr;
         if (code != 0)
             setError(tr("Signing in didn't work"));
+        closeSignInTabs();
         checkSignedIn();
     });
     m_signIn->start(Program, {QStringLiteral("-c"), Config, QStringLiteral("authenticate")});
