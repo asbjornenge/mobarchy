@@ -1,6 +1,9 @@
 #include "spotify.h"
 
 #include <QDir>
+#include <QFile>
+#include <QProcessEnvironment>
+#include <QTcpSocket>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -249,23 +252,84 @@ void Spotify::signIn()
     if (m_signIn)
         return;
     setState(QStringLiteral("signingIn"));
+    m_urls = 0;
     m_signIn = new QProcess(this);
     m_signIn->setProcessChannelMode(QProcess::MergedChannels);
+    // spotify_player opens the pages itself, through xdg-open: not that (the app opens
+    // each once), a do-nothing xdg-open first on its PATH
+    m_noBrowser = new QTemporaryDir;
+    QFile fake(m_noBrowser->filePath(QStringLiteral("xdg-open")));
+    if (fake.open(QIODevice::WriteOnly)) {
+        fake.write("#!/bin/sh\nexit 0\n");
+        fake.close();
+        fake.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
+    }
+    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+    env.insert(QStringLiteral("PATH"), m_noBrowser->path() + u':' + env.value(QStringLiteral("PATH")));
+    m_signIn->setProcessEnvironment(env);
     connect(m_signIn, &QProcess::readyRead, this, [this] {
         static const QRegularExpression url(QStringLiteral("(https://accounts\\.spotify\\.com/\\S+)"));
         const QString text = QString::fromUtf8(m_signIn->readAll());
         auto it = url.globalMatch(text);
-        while (it.hasNext())
-            emit signInUrl(it.next().captured(1));
+        while (it.hasNext()) {
+            const QString u = it.next().captured(1);
+            // the second: librespot's, whose answer comes to us
+            if (++m_urls == 2)
+                listenForCallback();
+            emit signInUrl(u);
+        }
     });
     connect(m_signIn, &QProcess::finished, this, [this](int code) {
         m_signIn->deleteLater();
         m_signIn = nullptr;
+        delete m_callback;
+        m_callback = nullptr;
+        delete m_noBrowser;
+        m_noBrowser = nullptr;
         if (code != 0)
             setError(tr("Signing in didn't work"));
         checkSignedIn();
     });
     m_signIn->start(Program, {QStringLiteral("-c"), Config, QStringLiteral("authenticate")});
+}
+
+void Spotify::listenForCallback()
+{
+    // (spotify_player's own server for the first answer may still hold the port a moment)
+    if (!m_signIn)
+        return;
+    if (!m_callback) {
+        m_callback = new QTcpServer(this);
+        connect(m_callback, &QTcpServer::newConnection, this, [this] {
+            while (QTcpSocket *c = m_callback->nextPendingConnection()) {
+                connect(c, &QTcpSocket::disconnected, c, &QObject::deleteLater);
+                connect(c, &QTcpSocket::readyRead, this, [this, c] {
+                    const QByteArray line = c->readLine();     // GET /login?code=... HTTP/1.1
+                    const QList<QByteArray> parts = line.split(' ');
+                    const QByteArray path = parts.size() > 1 ? parts.at(1) : QByteArray();
+                    if (!path.contains("code=")) {
+                        c->write("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                        c->disconnectFromHost();
+                        return;
+                    }
+                    const QByteArray page =
+                        "<!doctype html><meta name=viewport content='width=device-width'>"
+                        "<body style='background:#16161e;color:#c0caf5;font-family:sans-serif;text-align:center;padding-top:30vh'>"
+                        "<h2>Signed in to Spotify</h2><p>Back to Mobarchy\u2026</p></body>";
+                    c->write("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\nContent-Length: "
+                             + QByteArray::number(page.size()) + "\r\n\r\n" + page);
+                    c->disconnectFromHost();
+                    if (m_signIn) {
+                        m_signIn->write("http://127.0.0.1:8989" + path + "\n");
+                        m_signIn->closeWriteChannel();
+                    }
+                    emit signedInBack();
+                });
+            }
+        });
+    }
+    if (!m_callback->isListening() && !m_callback->listen(QHostAddress::LocalHost, 8989))
+        QTimer::singleShot(250, this, &Spotify::listenForCallback);
 }
 
 void Spotify::loadLibrary()

@@ -25,6 +25,12 @@ Window {
             win.signInUrls = win.signInUrls.concat([url])
             Qt.openUrlExternally(url)
         }
+        // the last approval came back: here again, from the browser
+        onSignedInBack: {
+            win.raise()
+            win.requestActivate()
+        }
+        onStateChanged: if (state === "signingIn") win.signInUrls = []
     }
     property var signInUrls: []
 

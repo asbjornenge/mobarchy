@@ -7,6 +7,8 @@
 
 #include <QObject>
 #include <QProcess>
+#include <QTemporaryDir>
+#include <QTcpServer>
 #include <QTimer>
 #include <QVariant>
 #include <QtQml/qqmlregistration.h>
@@ -47,8 +49,10 @@ public:
     bool watching() const { return m_watching; }
     void setWatching(bool watching);
 
-    // Sign in: spotify_player opens Spotify's page in the browser (twice); the URL is also
-    // given (signInUrl) in case it didn't.
+    // Sign in: Spotify's page in the browser, twice (signInUrl: open it). The first answer
+    // goes to spotify_player's own callback; the second (the streaming's) it wants pasted,
+    // so this takes it on 127.0.0.1:8989 and hands it over (signedInBack: the app comes
+    // back to the front).
     Q_INVOKABLE void signIn();
     Q_INVOKABLE void loadLibrary();
     Q_INVOKABLE void search(const QString &query);
@@ -75,6 +79,7 @@ signals:
     void errorChanged();
     void watchingChanged();
     void signInUrl(const QString &url);
+    void signedInBack();
 
 private:
     // spotify_player with args; done(ok, stdout) when it ends
@@ -94,4 +99,8 @@ private:
     bool m_refreshing = false;
     QTimer m_poll;
     QProcess *m_signIn = nullptr;
+    QTcpServer *m_callback = nullptr;
+    QTemporaryDir *m_noBrowser = nullptr;
+    int m_urls = 0;
+    void listenForCallback();
 };
