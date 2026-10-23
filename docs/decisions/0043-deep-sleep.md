@@ -31,7 +31,12 @@ Android's way, in userspace:
   event reaches the shell, which turns the screen on (and sleep-ok goes) if it should.
 - **Wi-Fi while asleep may be:** the chip filters what it wakes the phone for (Android's
   private driver command `SETSUSPENDMODE`; device.toml `[power] wifi_suspend_mode =
-  "android"`), off again with the screen on.
+  "android"`), and runs an APF program (Android Packet Filter, `wifi-apf`; `wifi_apf =
+  true`; installed through nl80211's vendor command with Google's OUI, as Android's Wi-Fi
+  HAL does): frames for us, ARP and IPv6 router/neighbour messages wake the phone, other
+  broadcasts and multicasts and 802.3/LLC frames don't. Verified against Google's APF
+  interpreter (hardware/google/apf) before it went to the chip (APF 6.1, 4 KB). Both off
+  again with the screen on.
 - **The modem told the screen is off:** oFono's binder plugin sets the RIL's device state
   and indication filter (no signal strength reports and the like) from MCE's display
   state; Mobarchy has no MCE, so `mobarchy-mce` (root) offers that much of its D-Bus face
@@ -78,3 +83,6 @@ Android's way, in userspace:
   multicasts (Realtek's RRCP, ethertype 0x8899, from the home router; 802.3/LLC frames),
   ZeroTier (UDP 9993), and connections to the internet. Next: drop non-IP broadcasts in
   the chip's packet filter, and fewer keepalives.
+- With APF: **90 mA** (5 min). What still woke it (~130 times in 5 min) was almost all
+  ZeroTier (UDP 9993 and 59956: the development PC on the same network and ZeroTier's
+  roots, every few seconds): a developer's cost, measured next without it.

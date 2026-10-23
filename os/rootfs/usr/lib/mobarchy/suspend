@@ -14,9 +14,10 @@ Android's system suspend does it.
   which turns the screen on (sleep-ok goes) if it should.
 - Alarms: the RTC wakes the phone for the shell's next alarm or timer (`next-wake` beside
   sleep-ok: seconds since the epoch), a little before it is due.
-- Wi-Fi: while asleep may be, its chip filters what it wakes for (Android's
-  SETSUSPENDMODE: no broadcasts or multicasts), when the device says it can
-  (device.toml [power] wifi_suspend_mode = "android").
+- Wi-Fi: while asleep may be, its chip filters what it wakes for, when the device says it
+  can: Android's SETSUSPENDMODE (device.toml [power] wifi_suspend_mode = "android"), and an
+  APF program (wifi_apf = true; /usr/lib/mobarchy/wifi-apf): only frames for us, ARP and
+  IPv6 router/neighbour messages wake it.
 - /run/mobarchy/stay-awake (a developer's), or the hotspot on (others use the phone's
   internet): no sleep.
 
@@ -84,18 +85,21 @@ def wifi_command(iface: str, command: str) -> bool:
 
 
 class Wifi:
-    def __init__(self, mode: str):
+    def __init__(self, mode: str, apf: bool):
         self.mode = mode
+        self.apf = apf
         self.suspended = None
 
     def set(self, suspended: bool) -> None:
-        if self.mode != "android" or suspended == self.suspended:
+        if suspended == self.suspended or not Path("/sys/class/net/wlan0").exists():
             return
-        if not Path("/sys/class/net/wlan0").exists():
-            return
-        if wifi_command("wlan0", f"SETSUSPENDMODE {1 if suspended else 0}"):
-            self.suspended = suspended
+        if self.mode == "android" and wifi_command("wlan0", f"SETSUSPENDMODE {1 if suspended else 0}"):
             log(f"wifi suspend mode {'on' if suspended else 'off'}")
+        if self.apf:
+            r = os.system(f"/usr/lib/mobarchy/wifi-apf {'on' if suspended else 'off'} >/dev/null")
+            if r:
+                log("wifi-apf failed")
+        self.suspended = suspended
 
 
 def next_wake(runtime: Path) -> int | None:
@@ -157,7 +161,8 @@ def wake_irq() -> str:
 
 
 def main() -> int:
-    wifi = Wifi(str(device().get("power", {}).get("wifi_suspend_mode", "")))
+    power = device().get("power", {})
+    wifi = Wifi(str(power.get("wifi_suspend_mode", "")), bool(power.get("wifi_apf", False)))
     ok_since = None
     # a refused suspend (a device busy) is tried again later and later, as Android's
     # system suspend backs off: rapid tries kept the Wi-Fi's PCIe link going up and down

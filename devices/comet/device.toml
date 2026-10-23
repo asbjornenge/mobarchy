@@ -136,6 +136,8 @@ psds_url = "https://1.ssiloc.com/p4/42F3"
 # what it wakes the phone for while it may sleep
 [power]
 wifi_suspend_mode = "android"
+# and runs Android's packet filter (APF v6.1, 4 KB): what may wake the phone (wifi-apf)
+wifi_apf = true
 
 [wifi]
 # a second interface on the Wi-Fi chip for the hotspot (beside wlan0, on its channel)

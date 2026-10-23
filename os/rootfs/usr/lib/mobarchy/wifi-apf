@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""The Wi-Fi chip's packet filter while the phone may sleep (ADR 0043): an APF program
+(Android Packet Filter, interpreted by the chip's firmware; hardware/google/apf) that
+decides which frames wake the phone. Installed with the screen off, removed with it on.
+
+Passed (woken for):
+  - frames for us alone (unicast): connections, EAPOL (Wi-Fi's group rekeying), all
+  - ARP (our address must stay resolvable)
+  - IPv6 ICMP router advertisements and neighbour solicitations (our IPv6 addresses)
+Dropped:
+  - 802.3/LLC frames (spanning tree and the like: no Ethernet type)
+  - every other broadcast and multicast: mDNS, SSDP, NetBIOS, router chatter (Realtek
+    RRCP), IPv6 multicast other than the above
+
+    wifi-apf caps            the chip's APF version and room
+    wifi-apf on | off        install the filter / one that passes everything
+    wifi-apf test            run the program over sample frames (Google's interpreter not
+                             needed: its rules, here)
+
+Through nl80211's vendor command (Google's OUI, the APF subcommands Android's Wi-Fi HAL
+uses); root.
+"""
+import os
+import socket
+import struct
+import sys
+
+IFACE = "wlan0"
+GOOGLE_OUI = 0x001A11
+APF_GET_CAPABILITIES = 0x1800
+APF_SET_FILTER = 0x1801
+APF_ATTRIBUTE_VERSION, APF_ATTRIBUTE_MAX_LEN, APF_ATTRIBUTE_PROGRAM, APF_ATTRIBUTE_PROGRAM_LEN = 0, 1, 2, 3
+
+# --- the program -------------------------------------------------------------------------
+LDB, LDH, JMP, JEQ, JNE, JLT, JSET = 1, 2, 14, 15, 16, 18, 19
+
+
+class Asm:
+    """A tiny APF assembler: two-byte immediates, labels resolved at the end; "PASS" and
+    "DROP" are the special targets just past the program."""
+
+    def __init__(self):
+        self.ins = []           # (opcode, reg, imm..., label)
+
+    def ld(self, op, offset):
+        self.ins.append(("ld", op, offset))
+
+    def jump(self, op, label, value=None):
+        self.ins.append(("j", op, label, value))
+
+    def label(self, name):
+        self.ins.append(("label", name))
+
+    def assemble(self) -> bytes:
+        def size(i):
+            if i[0] == "label":
+                return 0
+            if i[0] == "ld":
+                return 3
+            return 3 if i[1] == JMP else 5          # jump: offset; conditional: offset, value
+        pos, labels = 0, {}
+        for i in self.ins:
+            if i[0] == "label":
+                labels[i[1]] = pos
+            pos += size(i)
+        labels["PASS"], labels["DROP"] = pos, pos + 1
+        out, pc = bytearray(), 0
+        for i in self.ins:
+            if i[0] == "label":
+                continue
+            pc += size(i)
+            if i[0] == "ld":
+                out += bytes([(i[1] << 3) | (2 << 1)]) + struct.pack(">H", i[2])
+            else:
+                offset = labels[i[2]] - pc
+                out += bytes([(i[1] << 3) | (2 << 1)]) + struct.pack(">H", offset)
+                if i[1] != JMP:
+                    out += struct.pack(">H", i[3])
+        return bytes(out)
+
+
+def program() -> bytes:
+    a = Asm()
+    a.ld(LDH, 12)                            # the Ethernet type
+    a.jump(JLT, "DROP", 0x0600)              # 802.3 length: LLC frames
+    a.jump(JEQ, "PASS", 0x0806)              # ARP
+    a.ld(LDB, 0)                             # the destination's first byte
+    a.jump(JSET, "group", 1)                 # multicast or broadcast
+    a.jump(JMP, "PASS")                      # for us alone
+    a.label("group")
+    a.ld(LDH, 12)
+    a.jump(JNE, "DROP", 0x86DD)              # (IPv4 broadcasts and the rest: dropped)
+    a.ld(LDB, 20)                            # IPv6 next header
+    a.jump(JNE, "DROP", 58)                  # not ICMPv6
+    a.ld(LDB, 54)                            # ICMPv6 type
+    a.jump(JEQ, "PASS", 134)                 # router advertisement
+    a.jump(JEQ, "PASS", 135)                 # neighbour solicitation
+    a.jump(JMP, "DROP")
+    return a.assemble()
+
+
+def run(prog: bytes, pkt: bytes) -> bool:
+    """APF's semantics for the instructions used here: True if passed."""
+    pc, r0 = 0, 0
+    while True:
+        if pc == len(prog):
+            return True
+        if pc == len(prog) + 1:
+            return False
+        b = prog[pc]
+        op, size = b >> 3, (b >> 1) & 3
+        imm = int.from_bytes(prog[pc + 1:pc + 1 + size], "big")
+        pc += 1 + size
+        if op in (LDB, LDH):
+            n = 1 if op == LDB else 2
+            if imm + n > len(pkt):
+                return True                  # (the interpreter passes on an out-of-bounds load)
+            r0 = int.from_bytes(pkt[imm:imm + n], "big")
+        elif op == JMP:
+            pc += imm
+        else:
+            value = int.from_bytes(prog[pc:pc + size], "big")
+            pc += size
+            taken = {JEQ: r0 == value, JNE: r0 != value, JLT: r0 < value, JSET: bool(r0 & value)}[op]
+            if taken:
+                pc += imm
+
+
+def test() -> int:
+    me = bytes.fromhex("08aabbccee02")
+    bcast, them = b"\xff" * 6, bytes.fromhex("3caabbcc063e")
+    v6mc = bytes.fromhex("333300000001")
+    ip6 = lambda nh, icmp: b"\x60" + b"\0" * 5 + bytes([nh, 255]) + b"\0" * 32 + bytes([icmp]) + b"\0" * 7
+    cases = [
+        ("unicast IPv4", me + them + b"\x08\x00" + b"\x45" + b"\0" * 40, True),
+        ("unicast EAPOL", me + them + b"\x88\x8e" + b"\0" * 20, True),
+        ("ARP broadcast", bcast + them + b"\x08\x06" + b"\0" * 28, True),
+        ("IPv4 broadcast (DHCP, NetBIOS)", bcast + them + b"\x08\x00" + b"\x45" + b"\0" * 40, False),
+        ("mDNS (IPv4 multicast)", bytes.fromhex("01005e0000fb") + them + b"\x08\x00" + b"\x45" + b"\0" * 40, False),
+        ("Realtek RRCP broadcast", bcast + them + b"\x88\x99" + b"\0" * 20, False),
+        ("STP (802.3 LLC)", bytes.fromhex("0180c2000000") + them + b"\x00\x26" + b"\0" * 38, False),
+        ("IPv6 router advertisement", v6mc + them + b"\x86\xdd" + ip6(58, 134), True),
+        ("IPv6 neighbour solicitation", v6mc + them + b"\x86\xdd" + ip6(58, 135), True),
+        ("IPv6 multicast UDP (mDNS)", v6mc + them + b"\x86\xdd" + ip6(17, 0), False),
+        ("unicast IPv6", me + them + b"\x86\xdd" + ip6(6, 0), True),
+    ]
+    prog = program()
+    print(f"program: {len(prog)} bytes: {prog.hex()}")
+    bad = 0
+    for name, pkt, want in cases:
+        got = run(prog, pkt)
+        bad += got != want
+        print(f"{'ok ' if got == want else 'BAD'} {name}: {'pass' if got else 'drop'}")
+    return 1 if bad else 0
+
+
+# --- nl80211 -------------------------------------------------------------------------------
+NETLINK_GENERIC = 16
+GENL_ID_CTRL, CTRL_CMD_GETFAMILY, CTRL_ATTR_FAMILY_ID, CTRL_ATTR_FAMILY_NAME = 16, 3, 1, 2
+NL80211_CMD_VENDOR = 103
+NL80211_ATTR_IFINDEX, NL80211_ATTR_VENDOR_ID, NL80211_ATTR_VENDOR_SUBCMD, NL80211_ATTR_VENDOR_DATA = 3, 195, 196, 197
+NLM_F_REQUEST, NLM_F_ACK = 1, 4
+NLA_F_NESTED = 0x8000
+
+
+def nla(kind: int, data: bytes) -> bytes:
+    n = 4 + len(data)
+    return struct.pack("=HH", n, kind) + data + b"\0" * ((4 - n % 4) % 4)
+
+
+def parse(data: bytes) -> dict:
+    out, i = {}, 0
+    while i + 4 <= len(data):
+        n, kind = struct.unpack_from("=HH", data, i)
+        if n < 4:
+            break
+        out[kind & 0x3FFF] = data[i + 4:i + n]
+        i += (n + 3) & ~3
+    return out
+
+
+class Genl:
+    def __init__(self):
+        self.s = socket.socket(socket.AF_NETLINK, socket.SOCK_RAW, NETLINK_GENERIC)
+        self.s.bind((0, 0))
+        self.seq = 0
+        reply = self.request(GENL_ID_CTRL, CTRL_CMD_GETFAMILY, nla(CTRL_ATTR_FAMILY_NAME, b"nl80211\0"))
+        self.family = struct.unpack("=H", parse(reply[0])[CTRL_ATTR_FAMILY_ID][:2])[0]
+
+    def request(self, family: int, cmd: int, attrs: bytes) -> list[bytes]:
+        self.seq += 1
+        body = struct.pack("=BBH", cmd, 1, 0) + attrs
+        self.s.send(struct.pack("=IHHII", 16 + len(body), family, NLM_F_REQUEST | NLM_F_ACK, self.seq, 0) + body)
+        replies = []
+        while True:
+            data = self.s.recv(65536)
+            i = 0
+            while i < len(data):
+                n, kind = struct.unpack_from("=IH", data, i)
+                if kind == 2:                       # NLMSG_ERROR
+                    err = struct.unpack_from("=i", data, i + 16)[0]
+                    if err:
+                        raise OSError(-err, os.strerror(-err))
+                    return replies
+                if kind == 3:                       # NLMSG_DONE
+                    return replies
+                replies.append(data[i + 20:i + n])  # (after the genl header)
+                i += (n + 3) & ~3
+
+    def vendor(self, subcmd: int, data: bytes) -> list[bytes]:
+        attrs = (nla(NL80211_ATTR_IFINDEX, struct.pack("=I", socket.if_nametoindex(IFACE)))
+                 + nla(NL80211_ATTR_VENDOR_ID, struct.pack("=I", GOOGLE_OUI))
+                 + nla(NL80211_ATTR_VENDOR_SUBCMD, struct.pack("=I", subcmd))
+                 + nla(NL80211_ATTR_VENDOR_DATA | NLA_F_NESTED, data))
+        return self.request(self.family, NL80211_CMD_VENDOR, attrs)
+
+
+def caps() -> tuple[int, int]:
+    replies = Genl().vendor(APF_GET_CAPABILITIES, b"")
+    for r in replies:
+        a = parse(r)
+        if NL80211_ATTR_VENDOR_DATA in a:
+            v = parse(a[NL80211_ATTR_VENDOR_DATA])
+            return (struct.unpack("=I", v[APF_ATTRIBUTE_VERSION][:4])[0],
+                    struct.unpack("=I", v[APF_ATTRIBUTE_MAX_LEN][:4])[0])
+    raise OSError("no APF capabilities in the answer")
+
+
+def install(prog: bytes) -> None:
+    Genl().vendor(APF_SET_FILTER, nla(APF_ATTRIBUTE_PROGRAM_LEN, struct.pack("=I", len(prog)))
+                  + nla(APF_ATTRIBUTE_PROGRAM, prog))
+
+
+def main() -> int:
+    cmd = sys.argv[1] if len(sys.argv) > 1 else ""
+    if cmd == "test":
+        return test()
+    if cmd == "caps":
+        version, room = caps()
+        print(f"APF version {version}, {room} bytes")
+        return 0
+    if cmd == "on":
+        install(program())
+        print(f"wifi-apf: filter on ({len(program())} bytes)")
+        return 0
+    if cmd == "off":
+        # (a program that jumps straight to PASS: everything wakes the phone again)
+        install(bytes([(JMP << 3) | (2 << 1)]) + struct.pack(">H", 0))
+        print("wifi-apf: filter off")
+        return 0
+    print(__doc__, file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
