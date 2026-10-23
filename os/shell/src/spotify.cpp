@@ -288,7 +288,8 @@ void Spotify::refresh()
                      {QStringLiteral("artists"), meta.value(QStringLiteral("xesam:artist")).toStringList().join(QStringLiteral(", "))},
                      {QStringLiteral("album"), meta.value(QStringLiteral("xesam:album")).toString()},
                      {QStringLiteral("image"), meta.value(QStringLiteral("mpris:artUrl")).toString()},
-                     {QStringLiteral("trackId"), trackPath.section(u'/', -1)},
+                     // (no ids in its MPRIS: the track by its title, artists and length)
+                     {QStringLiteral("trackId"), title + u'|' + meta.value(QStringLiteral("mpris:length")).toString()},
                      {QStringLiteral("trackPath"), trackPath},
                      {QStringLiteral("durationMs"), meta.value(QStringLiteral("mpris:length")).toLongLong() / 1000},
                      {QStringLiteral("progressMs"), props.value(QStringLiteral("Position")).toLongLong() / 1000},
@@ -463,10 +464,11 @@ void Spotify::signOut()
 
 void Spotify::seekTo(qint64 ms)
 {
-    const QString track = m_playback.value(QStringLiteral("trackPath")).toString();
-    if (track.isEmpty())
+    // (spotify-player's MPRIS has no track ids to SetPosition with: a relative Seek, µs)
+    if (m_playback.isEmpty())
         return;
-    mpris(QStringLiteral("SetPosition"), {QVariant::fromValue(QDBusObjectPath(track)), qlonglong(ms) * 1000});
+    const qint64 at = qint64(m_playback.value(QStringLiteral("progressMs")).toDouble());
+    mpris(QStringLiteral("Seek"), {qlonglong(ms - at) * 1000});
 }
 
 void Spotify::like(bool like)
