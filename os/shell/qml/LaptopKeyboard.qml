@@ -10,7 +10,8 @@ import Mobarchy.Shell
 // lower half from the apps (an exclusive zone). Modifiers latch with a tap (two taps lock
 // them) and hold while a finger is on them. Text goes through Keyboard as the on-screen
 // keyboard's does; keys with Ctrl, Alt or Super, and the keys that aren't text, are key
-// presses (Keyboard.press).
+// presses (Keyboard.press). Super alone (pressed and let go) opens the app drawer; with
+// another key it is held down.
 LayerWindow {
     id: kb
 
@@ -20,6 +21,7 @@ LayerWindow {
     // the height it takes: the lower half of the screen, less the edge strip under it
     property real wantedHeight: 300
     property real sideInsets: 0
+    signal superTapped()
 
     shown: wanted || slide.running
     color: "transparent"
@@ -293,7 +295,7 @@ LayerWindow {
                 if (item) item.fingers++
                 if (spec.k === "enter") kb.enterDown = true
                 if (spec.k === "mod") {
-                    if (!kb.modOn(spec.m) || kb.latched[spec.m] || kb.locked[spec.m])
+                    if (spec.m !== "super" && (!kb.modOn(spec.m) || kb.latched[spec.m] || kb.locked[spec.m]))
                         kb.tapMod(spec.m)
                     const h = Object.assign({}, kb.held)
                     h[spec.m] = (h[spec.m] || 0) + 1
@@ -323,6 +325,8 @@ LayerWindow {
                     delete h[t.spec.m]
                     // held and used for a key: it was a hold, not a tap
                     if (usedWhileHeld[t.spec.m]) setMod("latched", t.spec.m, false)
+                    // Super alone: the app drawer
+                    else if (t.spec.m === "super") superTapped()
                 }
                 held = h
             }

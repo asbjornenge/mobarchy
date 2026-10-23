@@ -86,6 +86,17 @@ QtObject {
         wanted: shell.laptop
         wantedHeight: Math.max(200, shell.laptopBottom - shell.edge.height)
         sideInsets: shell.leftInset.inset + shell.rightInset.inset
+        // the app drawer, searching (type its name, Enter starts it); again: closed
+        onSuperTapped: {
+            if (shell.lockScreen.shown)
+                return
+            if (shell.drawer.shown) {
+                shell.drawer.close()
+            } else {
+                shell.drawer.open()
+                shell.drawer.startSearch()
+            }
+        }
     }
     readonly property SystemStatus system: SystemStatus {}
     readonly property Brightness brightness: Brightness {}
