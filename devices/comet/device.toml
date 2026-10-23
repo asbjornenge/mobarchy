@@ -132,6 +132,11 @@ trusty_persist = ["0660", "system", "system"]
 [location]
 psds_url = "https://1.ssiloc.com/p4/42F3"
 
+# Deep sleep (ADR 0043): the Wi-Fi chip (bcmdhd) takes Android's SETSUSPENDMODE, filtering
+# what it wakes the phone for while it may sleep
+[power]
+wifi_suspend_mode = "android"
+
 [wifi]
 # a second interface on the Wi-Fi chip for the hotspot (beside wlan0, on its channel)
 ap_interface = "wlan1"

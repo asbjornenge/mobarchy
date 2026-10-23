@@ -50,6 +50,7 @@ qt_add_qml_module(mobarchy-shell
         src/homeconfig.cpp src/homeconfig.h
         src/orientation.cpp src/orientation.h
         src/hinge.cpp src/hinge.h
+        src/sleepgate.cpp src/sleepgate.h
         src/spotify.cpp src/spotify.h
         src/proximity.cpp src/proximity.h
         src/hotspot.cpp src/hotspot.h

@@ -121,7 +121,7 @@ EOP
 
     chown -R mob:mob /home/mob
 
-    systemctl enable sshd systemd-networkd systemd-resolved wpa_supplicant@wlan0 mobarchy-usb-gadget mobarchy-session mobarchy-widevine mobarchy-location mobarchy-mobile-data systemd-oomd >/dev/null 2>&1
+    systemctl enable sshd systemd-networkd systemd-resolved wpa_supplicant@wlan0 mobarchy-usb-gadget mobarchy-session mobarchy-widevine mobarchy-location mobarchy-mobile-data mobarchy-suspend systemd-oomd >/dev/null 2>&1
     systemctl set-default graphical.target >/dev/null 2>&1
     systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1
     sed -i "s/^#en_US.UTF-8/en_US.UTF-8/" /etc/locale.gen && locale-gen >/dev/null && echo LANG=en_US.UTF-8 > /etc/locale.conf

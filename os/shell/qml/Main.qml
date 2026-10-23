@@ -192,6 +192,23 @@ QtObject {
     }
     // Apps that keep the screen on (a playing video) through org.freedesktop.ScreenSaver.
     readonly property Inhibitors inhibitors: Inhibitors {}
+    // Deep sleep (ADR 0043): allowed with the screen off and nothing that needs the phone
+    // awake (a call, ringing, an alarm, something playing, Frigg in a conversation or
+    // listening for "Hei Frigg", an app keeping the screen on); the next alarm or timer wakes it
+    readonly property SleepGate sleepGate: SleepGate {
+        allowed: !shell.screen.on && !shell.inCall && !shell.ringing && !shell.alarms.ringing
+                 && !shell.media.playing && !shell.talk.talking && !shell.talk.wake
+                 && !shell.inhibitors.active
+        nextWake: {
+            let next = shell.alarms.nextAlarm
+            for (const t of shell.alarms.timerList) {
+                const ends = new Date(t.ends)
+                if (!next || isNaN(next.getTime()) || ends < next)
+                    next = ends
+            }
+            return next
+        }
+    }
     // Screen off after a while without input (the owner's choice in quick settings; a minute
     // by default, never if they say so), unless an app keeps it on (Wayland idle inhibitors
     // count too: the compositor holds the notification back), or Frigg is in a conversation.

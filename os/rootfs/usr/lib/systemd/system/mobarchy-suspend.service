@@ -1,0 +1,11 @@
+[Unit]
+Description=Deep sleep when nothing needs the phone awake (ADR 0043)
+After=multi-user.target
+
+[Service]
+ExecStart=/usr/lib/mobarchy/suspend
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

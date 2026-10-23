@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""Deep sleep (ADR 0043): the phone suspends (to RAM) whenever nothing needs it awake, as
+Android's system suspend does it.
+
+- Nothing needs it awake: the shell says so (the screen is off and no call, ringing alarm,
+  music or app keeps it on): it puts the file `sleep-ok` in its runtime directory
+  (/run/user/<uid>/mobarchy/sleep-ok), and takes it away again. A shell that isn't running
+  says nothing: no sleep.
+- The kernel's own wakeup sources (a call coming in on the modem, a packet for us, the
+  power key) and userspace wake locks (/sys/power/wake_lock) are respected through
+  /sys/power/wakeup_count: reading it waits while one is active, and a suspend after an
+  event since is refused.
+- After a wake, a grace period: whatever woke it (a call, a message) gets to the shell,
+  which turns the screen on (sleep-ok goes) if it should.
+- Alarms: the RTC wakes the phone for the shell's next alarm or timer (`next-wake` beside
+  sleep-ok: seconds since the epoch), a little before it is due.
+- Wi-Fi: while asleep may be, its chip filters what it wakes for (Android's
+  SETSUSPENDMODE: no broadcasts or multicasts), when the device says it can
+  (device.toml [power] wifi_suspend_mode = "android").
+- /run/mobarchy/stay-awake (a developer's), or the hotspot on (others use the phone's
+  internet): no sleep.
+
+Run as root (mobarchy-suspend.service).
+"""
+import array
+import ctypes
+import fcntl
+import os
+import socket
+import struct
+import sys
+import time
+import tomllib
+from pathlib import Path
+
+GRACE_AFTER_WAKE = 5.0      # s: the event that woke it reaches the shell
+GRACE_AFTER_OK = 3.0        # s: the screen just went off
+EARLY = 30                  # s: the RTC wakes this much before an alarm
+STAY_AWAKE = Path("/run/mobarchy/stay-awake")
+WAKEUP_COUNT = Path("/sys/power/wakeup_count")
+STATE = Path("/sys/power/state")
+WAKEALARM = Path("/sys/class/rtc/rtc0/wakealarm")
+
+
+def log(msg: str) -> None:
+    print(f"suspend: {msg}", flush=True)
+
+
+def owner_runtime() -> Path | None:
+    """The phone's owner's runtime directory: the first user session's (uid >= 1000)."""
+    for d in sorted(Path("/run/user").glob("[0-9]*")):
+        if int(d.name) >= 1000:
+            return d / "mobarchy"
+    return None
+
+
+def device() -> dict:
+    try:
+        return tomllib.load(open("/etc/mobarchy/device.toml", "rb"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+
+
+# --- Wi-Fi: Android's private driver commands (SIOCDEVPRIVATE + 1, android_wifi_priv_cmd) ---
+SIOCDEVPRIVATE = 0x89F0
+
+
+class PrivCmd(ctypes.Structure):
+    _fields_ = [("buf", ctypes.c_void_p), ("used_len", ctypes.c_int), ("total_len", ctypes.c_int)]
+
+
+def wifi_command(iface: str, command: str) -> bool:
+    buf = ctypes.create_string_buffer(command.encode() + b"\0", 512)
+    cmd = PrivCmd(ctypes.cast(buf, ctypes.c_void_p), len(command) + 1, 512)
+    ifreq = struct.pack("16sP16x", iface.encode(), ctypes.addressof(cmd))   # struct ifreq: 40 bytes
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            fcntl.ioctl(s.fileno(), SIOCDEVPRIVATE + 1, array.array("B", ifreq))
+        return True
+    except OSError as e:
+        log(f"wifi {command}: {e}")
+        return False
+
+
+class Wifi:
+    def __init__(self, mode: str):
+        self.mode = mode
+        self.suspended = None
+
+    def set(self, suspended: bool) -> None:
+        if self.mode != "android" or suspended == self.suspended:
+            return
+        if not Path("/sys/class/net/wlan0").exists():
+            return
+        if wifi_command("wlan0", f"SETSUSPENDMODE {1 if suspended else 0}"):
+            self.suspended = suspended
+            log(f"wifi suspend mode {'on' if suspended else 'off'}")
+
+
+def next_wake(runtime: Path) -> int | None:
+    try:
+        return int((runtime / "next-wake").read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def set_rtc(at: int | None) -> None:
+    try:
+        WAKEALARM.write_text("0\n")
+        if at:
+            WAKEALARM.write_text(f"{at}\n")
+    except OSError as e:
+        log(f"rtc: {e}")
+
+
+def others_need_it() -> bool:
+    """The hotspot is on (devices on it use the phone's internet), or a developer said so."""
+    if STAY_AWAKE.exists():
+        return True
+    return os.system("systemctl is-active --quiet mobarchy-hotspot-ap") == 0
+
+
+def suspend_once(runtime: Path) -> bool:
+    """One suspend, if the kernel agrees; True if it slept."""
+    try:
+        count = WAKEUP_COUNT.read_text().strip()      # (waits while a wakeup source is active)
+    except OSError:
+        return False
+    if not (runtime / "sleep-ok").exists() or STAY_AWAKE.exists():
+        return False
+    try:
+        WAKEUP_COUNT.write_text(count)                # refused: an event since
+    except OSError:
+        return False
+    wake = next_wake(runtime)
+    set_rtc(wake - EARLY if wake and wake - EARLY > time.time() + 5 else None)
+    start = time.time()
+    try:
+        STATE.write_text("mem\n")
+    except OSError:
+        return False                                  # (a device busy: again in a moment)
+    log(f"slept {time.time() - start:.0f} s")
+    return True
+
+
+def main() -> int:
+    wifi = Wifi(str(device().get("power", {}).get("wifi_suspend_mode", "")))
+    ok_since = None
+    while True:
+        runtime = owner_runtime()
+        ok = runtime is not None and (runtime / "sleep-ok").exists() and not others_need_it()
+        wifi.set(ok)
+        if not ok:
+            ok_since = None
+            time.sleep(1)
+            continue
+        ok_since = ok_since or time.monotonic()
+        if time.monotonic() - ok_since < GRACE_AFTER_OK:
+            time.sleep(0.5)
+            continue
+        if suspend_once(runtime):
+            time.sleep(GRACE_AFTER_WAKE)
+        else:
+            time.sleep(1)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
