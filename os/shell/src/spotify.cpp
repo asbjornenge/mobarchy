@@ -2,6 +2,10 @@
 
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QDBusMetaType>
+#include <QDBusObjectPath>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDBusReply>
 #include <QDir>
 #include <QFile>
@@ -33,6 +37,10 @@ void closeSignInTabs()
 const QString Program = QStringLiteral("spotify_player");
 const QString Config = QStringLiteral("/usr/share/mobarchy/spotify-player");
 const QString Service = QStringLiteral("mobarchy-spotify.service");
+const QString DeviceName = QStringLiteral("Mobarchy");       // (its config's device.name)
+const QString Mpris = QStringLiteral("org.mpris.MediaPlayer2.spotify_player");
+const QString MprisPath = QStringLiteral("/org/mpris/MediaPlayer2");
+const QString MprisPlayer = QStringLiteral("org.mpris.MediaPlayer2.Player");
 
 QString cacheDir()
 {
@@ -245,32 +253,49 @@ void Spotify::control(const QStringList &args)
     });
 }
 
+// Something new to play: on this phone (the Connect device "Mobarchy"), not on whichever
+// device Spotify had active (another phone, a speaker), then the playback
+void Spotify::startHere(const QStringList &args)
+{
+    run({QStringLiteral("connect"), QStringLiteral("--name"), DeviceName}, [this, args](bool, const QByteArray &) {
+        control(args);
+    });
+}
+
 void Spotify::refresh()
 {
+    // What plays, from the daemon's MPRIS (local: no Web API request, which a poll would
+    // spend on Spotify's rate limit)
     if (m_refreshing)
         return;
     m_refreshing = true;
-    run({QStringLiteral("get"), QStringLiteral("key"), QStringLiteral("playback")}, [this](bool ok, const QByteArray &out) {
+    QDBusMessage msg = QDBusMessage::createMethodCall(Mpris, MprisPath, QStringLiteral("org.freedesktop.DBus.Properties"),
+                                                      QStringLiteral("GetAll"));
+    msg << MprisPlayer;
+    auto *w = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
         m_refreshing = false;
-        if (!ok)
-            return;
-        const QJsonObject o = QJsonDocument::fromJson(out).object();
+        QDBusPendingReply<QVariantMap> reply = *w;
         QVariantMap p;
-        const QJsonObject item = o.value(QStringLiteral("item")).toObject();
-        if (!item.isEmpty()) {
-            const QVariantMap t = track(item);
-            p = {{QStringLiteral("title"), t.value(QStringLiteral("name"))},
-                 {QStringLiteral("artists"), t.value(QStringLiteral("artists"))},
-                 {QStringLiteral("album"), t.value(QStringLiteral("album"))},
-                 {QStringLiteral("image"), t.value(QStringLiteral("image"))},
-                 {QStringLiteral("trackId"), t.value(QStringLiteral("id"))},
-                 {QStringLiteral("durationMs"), t.value(QStringLiteral("durationMs"))},
-                 {QStringLiteral("progressMs"), o.value(QStringLiteral("progress_ms")).toDouble()},
-                 {QStringLiteral("playing"), o.value(QStringLiteral("is_playing")).toBool()},
-                 {QStringLiteral("shuffle"), o.value(QStringLiteral("shuffle_state")).toBool()},
-                 {QStringLiteral("repeat"), o.value(QStringLiteral("repeat_state")).toString()},
-                 {QStringLiteral("contextUri"), o.value(QStringLiteral("context")).toObject().value(QStringLiteral("uri")).toString()},
-                 {QStringLiteral("device"), o.value(QStringLiteral("device")).toObject().value(QStringLiteral("name")).toString()}};
+        if (!reply.isError()) {
+            const QVariantMap props = reply.value();
+            const QVariantMap meta = qdbus_cast<QVariantMap>(props.value(QStringLiteral("Metadata")));
+            const QString title = meta.value(QStringLiteral("xesam:title")).toString();
+            if (!title.isEmpty()) {
+                const QString trackPath = meta.value(QStringLiteral("mpris:trackid")).value<QDBusObjectPath>().path();
+                p = {{QStringLiteral("title"), title},
+                     {QStringLiteral("artists"), meta.value(QStringLiteral("xesam:artist")).toStringList().join(QStringLiteral(", "))},
+                     {QStringLiteral("album"), meta.value(QStringLiteral("xesam:album")).toString()},
+                     {QStringLiteral("image"), meta.value(QStringLiteral("mpris:artUrl")).toString()},
+                     {QStringLiteral("trackId"), trackPath.section(u'/', -1)},
+                     {QStringLiteral("trackPath"), trackPath},
+                     {QStringLiteral("durationMs"), meta.value(QStringLiteral("mpris:length")).toLongLong() / 1000},
+                     {QStringLiteral("progressMs"), props.value(QStringLiteral("Position")).toLongLong() / 1000},
+                     {QStringLiteral("playing"), props.value(QStringLiteral("PlaybackStatus")).toString() == u"Playing"},
+                     {QStringLiteral("shuffle"), m_shuffle},
+                     {QStringLiteral("repeat"), m_repeat}};
+            }
         }
         if (p != m_playback) {
             m_playback = p;
@@ -366,12 +391,12 @@ void Spotify::playContext(const QString &type, const QString &id, bool shuffle)
     QStringList args{QStringLiteral("start"), QStringLiteral("context"), type, QStringLiteral("--id"), id};
     if (shuffle)
         args << QStringLiteral("--shuffle");
-    control(args);
+    startHere(args);
 }
 
 void Spotify::playTrack(const QString &id)
 {
-    control({QStringLiteral("start"), QStringLiteral("track"), QStringLiteral("--id"), id});
+    startHere({QStringLiteral("start"), QStringLiteral("track"), QStringLiteral("--id"), id});
 }
 
 void Spotify::playLiked(bool shuffle)
@@ -379,7 +404,7 @@ void Spotify::playLiked(bool shuffle)
     QStringList args{QStringLiteral("start"), QStringLiteral("liked")};
     if (shuffle)
         args << QStringLiteral("--random");
-    control(args);
+    startHere(args);
 }
 
 void Spotify::playPause()
@@ -389,19 +414,59 @@ void Spotify::playPause()
         m_playback[QStringLiteral("playing")] = !m_playback.value(QStringLiteral("playing")).toBool();
         emit playbackChanged();
     }
-    control({QStringLiteral("play-pause")});
+    mpris(QStringLiteral("PlayPause"));
 }
 
-void Spotify::next() { control({QStringLiteral("next")}); }
-void Spotify::previous() { control({QStringLiteral("previous")}); }
-void Spotify::toggleShuffle() { control({QStringLiteral("shuffle")}); }
-void Spotify::cycleRepeat() { control({QStringLiteral("repeat")}); }
+void Spotify::next() { mpris(QStringLiteral("Next")); }
+void Spotify::previous() { mpris(QStringLiteral("Previous")); }
+
+void Spotify::toggleShuffle()
+{
+    m_shuffle = !m_shuffle;
+    control({QStringLiteral("shuffle")});
+}
+
+void Spotify::cycleRepeat()
+{
+    // (spotify-player's cycle: off, track, context)
+    m_repeat = m_repeat == u"off" ? QStringLiteral("track") : m_repeat == u"track" ? QStringLiteral("context") : QStringLiteral("off");
+    control({QStringLiteral("repeat")});
+}
+
+void Spotify::mpris(const QString &method, const QVariantList &args)
+{
+    QDBusMessage msg = QDBusMessage::createMethodCall(Mpris, MprisPath, MprisPlayer, method);
+    msg.setArguments(args);
+    auto *w = new QDBusPendingCallWatcher(QDBusConnection::sessionBus().asyncCall(msg), this);
+    connect(w, &QDBusPendingCallWatcher::finished, this, [this](QDBusPendingCallWatcher *w) {
+        w->deleteLater();
+        QTimer::singleShot(200, this, &Spotify::refresh);
+    });
+}
+
+void Spotify::signOut()
+{
+    QProcess::execute(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("stop"), Service});
+    QDir cache(cacheDir());
+    for (const QString &f : cache.entryList({QStringLiteral("credentials.json"), QStringLiteral("*_token.json"),
+                                             QStringLiteral("*_cache.json")}, QDir::Files))
+        cache.remove(f);
+    m_playback.clear();
+    m_playlists.clear();
+    m_liked.clear();
+    m_albums.clear();
+    emit playbackChanged();
+    emit libraryChanged();
+    m_poll.stop();
+    setState(QStringLiteral("signedOut"));
+}
 
 void Spotify::seekTo(qint64 ms)
 {
-    // (the CLI seeks by an offset)
-    const qint64 at = qint64(m_playback.value(QStringLiteral("progressMs")).toDouble());
-    control({QStringLiteral("seek"), QStringLiteral("--"), QString::number(ms - at)});
+    const QString track = m_playback.value(QStringLiteral("trackPath")).toString();
+    if (track.isEmpty())
+        return;
+    mpris(QStringLiteral("SetPosition"), {QVariant::fromValue(QDBusObjectPath(track)), qlonglong(ms) * 1000});
 }
 
 void Spotify::like(bool like)

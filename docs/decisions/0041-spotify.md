@@ -45,8 +45,15 @@ keeps the tokens in its cache.
 ## Consequences
 
 - Spotify Premium is needed (librespot plays only for Premium accounts).
-- spotify-player's default Web API client is shared (ncspot's): heavy use may meet its rate
-  limit. A client ID of the owner's own (Spotify's developer dashboard) goes in the config
-  if that happens.
+- spotify-player's default Web API client is shared (ncspot's) and was at Spotify's rate
+  limit at once (and the app's first version, asking for the playback every second through
+  the Web API, made it worse). The owner's own Spotify app (developer.spotify.com, redirect
+  `http://127.0.0.1:8989/login`) gives a client ID of its own: `SPOTIFY_CLIENT_ID` in
+  `~/.config/mobarchy/spotify.env`, outside the image (the service passes it). What plays
+  is read from the daemon's MPRIS (local), and the transport keys go through MPRIS too; the
+  Web API is for the library, search and starting something.
+- Starting something goes to the active device Spotify knows: the app moves playback to
+  "Mobarchy" first (`connect`). A sign-out (the shelf) stops the daemon and forgets its
+  credentials and tokens.
 - The CLI's JSON is spotify-player's own serialisation of its state; the app reads it
   leniently (ids with or without `spotify:` URIs, durations in ms or as `{secs, nanos}`).

@@ -66,6 +66,8 @@ public:
     Q_INVOKABLE void toggleShuffle();
     Q_INVOKABLE void cycleRepeat();
     Q_INVOKABLE void like(bool like = true);
+    // forget the account: the daemon stops, its credentials and tokens go
+    Q_INVOKABLE void signOut();
 
 signals:
     void stateChanged();
@@ -81,6 +83,8 @@ private:
     // spotify_player with args; done(ok, stdout) when it ends
     void run(const QStringList &args, std::function<void(bool, const QByteArray &)> done = {});
     void control(const QStringList &args);   // then the playback again, soon
+    void startHere(const QStringList &args);
+    void mpris(const QString &method, const QVariantList &args = {});
     void refresh();
     void checkSignedIn();
     void setState(const QString &state);
@@ -94,6 +98,8 @@ private:
     bool m_watching = false;
     bool m_refreshing = false;
     QTimer m_poll;
+    bool m_shuffle = false;
+    QString m_repeat = QStringLiteral("off");
     QTimer m_signInPoll;
     int m_signInWait = 0;
 };

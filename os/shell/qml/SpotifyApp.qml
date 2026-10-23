@@ -325,7 +325,32 @@ Window {
                 font { family: Theme.font; pixelSize: 18; bold: true }
                 MouseArea { anchors.fill: parent; enabled: win.tracks; onClicked: win.tracks = false }
             }
+            // sign out (a tap, then a second to confirm)
             Text {
+                id: signOut
+                property bool confirm: false
+                visible: !win.tracks
+                anchors { right: closeShelf.left; rightMargin: 20; verticalCenter: parent.verticalCenter }
+                text: confirm ? qsTr("Sign out?") : "󰍃"
+                color: confirm ? Theme.red : Theme.muted
+                font { family: Theme.font; pixelSize: confirm ? 14 : 20 }
+                MouseArea {
+                    anchors { fill: parent; margins: -12 }
+                    onClicked: {
+                        if (signOut.confirm) {
+                            signOut.confirm = false
+                            win.shelf = false
+                            spotify.signOut()
+                        } else {
+                            signOut.confirm = true
+                            signOutReset.restart()
+                        }
+                    }
+                }
+                Timer { id: signOutReset; interval: 3000; onTriggered: signOut.confirm = false }
+            }
+            Text {
+                id: closeShelf
                 anchors { right: parent.right; rightMargin: 18; verticalCenter: parent.verticalCenter }
                 text: "󰅖"
                 color: Theme.muted

@@ -8,7 +8,11 @@ After=pipewire-pulse.service
 [Service]
 # (-d: it forks, the parent goes; the child is the service)
 Type=forking
-ExecStart=/usr/bin/spotify_player -c /usr/share/mobarchy/spotify-player -d
+# The owner's own Spotify app (developer.spotify.com: its client ID, not secret but the
+# owner's, so outside the image): SPOTIFY_CLIENT_ID in ~/.config/mobarchy/spotify.env.
+# Without it, spotify-player's shared one (ncspot's), which is often at Spotify's rate limit.
+EnvironmentFile=-%h/.config/mobarchy/spotify.env
+ExecStart=/bin/sh -c 'exec /usr/bin/spotify_player -c /usr/share/mobarchy/spotify-player $${SPOTIFY_CLIENT_ID:+-o client_id=$$SPOTIFY_CLIENT_ID} -d'
 Restart=on-failure
 RestartSec=5
 Slice=app.slice
