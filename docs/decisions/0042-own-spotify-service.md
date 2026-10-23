@@ -1,6 +1,6 @@
 # 0042: Spotify, a service of Mobarchy's own on librespot
 
-- Status: proposed (supersedes 0041's engine once the app uses it)
+- Status: accepted (2026-10-23; supersedes 0041's engine)
 - Date: 2026-10-23
 
 ## Context

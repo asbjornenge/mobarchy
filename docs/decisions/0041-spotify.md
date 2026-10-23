@@ -1,6 +1,6 @@
 # 0041: Spotify, as a cassette deck
 
-- Status: accepted
+- Status: accepted; its engine (spotify-player) superseded by 0042
 - Date: 2026-10-23
 
 ## Context
