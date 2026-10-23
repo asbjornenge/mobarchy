@@ -29,6 +29,9 @@ class Spotify : public QObject
     Q_PROPERTY(QVariantMap results READ results NOTIFY resultsChanged)
     // an opened playlist or album: {type, id, name, tracks}
     Q_PROPERTY(QVariantMap opened READ opened NOTIFY openedChanged)
+    // the tape in the deck: the playlist or album playing from ({type, id, name, tracks}),
+    // its songs listed under the deck; empty: a song on its own
+    Q_PROPERTY(QVariantMap loaded READ loaded NOTIFY loadedChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
     // follow what plays (once a second) while something shows it
     Q_PROPERTY(bool watching READ watching WRITE setWatching NOTIFY watchingChanged)
@@ -43,6 +46,7 @@ public:
     QVariantList albums() const { return m_albums; }
     QVariantMap results() const { return m_results; }
     QVariantMap opened() const { return m_opened; }
+    QVariantMap loaded() const { return m_loaded; }
     QString error() const { return m_error; }
     bool watching() const { return m_watching; }
     void setWatching(bool watching);
@@ -75,6 +79,7 @@ signals:
     void libraryChanged();
     void resultsChanged();
     void openedChanged();
+    void loadedChanged();
     void errorChanged();
     void watchingChanged();
     void signedInBack();
@@ -95,7 +100,11 @@ private:
     QString m_state = QStringLiteral("starting");
     QVariantMap m_playback;
     QVariantList m_playlists, m_liked, m_albums;
-    QVariantMap m_results, m_opened;
+    QVariantMap m_results, m_opened, m_loaded;
+    // a key pressed: what it did shows at once, until the daemon says so too (or 2 s)
+    qint64 m_optimisticUntil = 0;
+    bool m_optimisticPlaying = false;
+    int m_libraryTries = 0;
     QString m_error;
     bool m_watching = false;
     bool m_refreshing = false;

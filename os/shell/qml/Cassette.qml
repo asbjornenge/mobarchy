@@ -84,28 +84,53 @@ Item {
                 GradientStop { position: 1; color: Qt.darker(tape.stripe, 1.3) }
             }
         }
-        // the strip written on: the title and the artists (over the cover, as a sticker)
-        Rectangle {
-            id: strip
-            anchors { left: parent.left; right: parent.right; top: parent.top }
-            height: parent.height * 0.3
-            color: cover.visible ? Qt.rgba(0.94, 0.9, 0.82, 0.9) : "transparent"
-        }
-        Text {
-            id: titleText
-            anchors { left: parent.left; right: sideText.left; top: parent.top; margins: parent.height * 0.04 }
-            anchors.leftMargin: parent.height * 0.06
-            text: tape.title || qsTr("Blank tape")
-            elide: Text.ElideRight
-            color: "#22232d"
-            font { family: Theme.font; pixelSize: Math.max(10, tape.h * 0.075); bold: true; italic: true }
-        }
-        Text {
-            anchors { left: titleText.left; right: titleText.right; top: titleText.bottom }
-            text: tape.artists
-            elide: Text.ElideRight
-            color: "#55566a"
-            font { family: Theme.font; pixelSize: Math.max(9, tape.h * 0.055); italic: true }
+        // a piece of tape stuck on, written on: the title and the artists (over the cover,
+        // see-through, its ends torn)
+        Item {
+            id: tapeStrip
+            x: parent.width * 0.04; y: parent.height * 0.05
+            width: parent.width * 0.8; height: parent.height * 0.3
+            rotation: -1.5
+            Shape {
+                anchors.fill: parent
+                visible: cover.visible
+                readonly property real t: height / 6          // a tooth of the torn ends
+                ShapePath {
+                    fillColor: Qt.rgba(0.97, 0.94, 0.86, 0.72)
+                    strokeColor: "transparent"
+                    startX: 0; startY: 0
+                    PathLine { x: tapeStrip.width; y: 0 }
+                    PathLine { x: tapeStrip.width - tapeStrip.height / 12; y: tapeStrip.height / 6 }
+                    PathLine { x: tapeStrip.width; y: tapeStrip.height * 2 / 6 }
+                    PathLine { x: tapeStrip.width - tapeStrip.height / 12; y: tapeStrip.height * 3 / 6 }
+                    PathLine { x: tapeStrip.width; y: tapeStrip.height * 4 / 6 }
+                    PathLine { x: tapeStrip.width - tapeStrip.height / 12; y: tapeStrip.height * 5 / 6 }
+                    PathLine { x: tapeStrip.width; y: tapeStrip.height }
+                    PathLine { x: 0; y: tapeStrip.height }
+                    PathLine { x: tapeStrip.height / 12; y: tapeStrip.height * 5 / 6 }
+                    PathLine { x: 0; y: tapeStrip.height * 4 / 6 }
+                    PathLine { x: tapeStrip.height / 12; y: tapeStrip.height * 3 / 6 }
+                    PathLine { x: 0; y: tapeStrip.height * 2 / 6 }
+                    PathLine { x: tapeStrip.height / 12; y: tapeStrip.height / 6 }
+                    PathLine { x: 0; y: 0 }
+                }
+            }
+            Text {
+                id: titleText
+                anchors { left: parent.left; right: parent.right; top: parent.top
+                          leftMargin: parent.height * 0.25; rightMargin: parent.height * 0.25; topMargin: parent.height * 0.1 }
+                text: tape.title || qsTr("Blank tape")
+                elide: Text.ElideRight
+                color: "#22232d"
+                font { family: Theme.font; pixelSize: Math.max(10, tape.h * 0.075); bold: true; italic: true }
+            }
+            Text {
+                anchors { left: titleText.left; right: titleText.right; top: titleText.bottom }
+                text: tape.artists
+                elide: Text.ElideRight
+                color: "#3c3d4d"
+                font { family: Theme.font; pixelSize: Math.max(9, tape.h * 0.055); italic: true }
+            }
         }
         Text {
             id: sideText

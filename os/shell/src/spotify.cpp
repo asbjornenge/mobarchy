@@ -7,6 +7,7 @@
 #include <QDBusPendingCallWatcher>
 #include <QDBusPendingReply>
 #include <QDBusReply>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QJsonArray>
@@ -323,6 +324,13 @@ void Spotify::refresh()
                      {QStringLiteral("repeat"), m_repeat}};
             }
         }
+        // (a key just pressed: its state stands until the daemon's agrees, or 2 s)
+        if (!p.isEmpty() && QDateTime::currentMSecsSinceEpoch() < m_optimisticUntil) {
+            if (p.value(QStringLiteral("playing")).toBool() == m_optimisticPlaying)
+                m_optimisticUntil = 0;
+            else
+                p[QStringLiteral("playing")] = m_optimisticPlaying;
+        }
         if (p != m_playback) {
             m_playback = p;
             emit playbackChanged();
@@ -346,6 +354,9 @@ void Spotify::signIn()
 
 void Spotify::loadLibrary()
 {
+    // (just signed in: the daemon has nothing yet; again in a few seconds, a few times)
+    if (m_playlists.isEmpty() && m_libraryTries++ < 6)
+        QTimer::singleShot(5000, this, [this] { if (m_playlists.isEmpty() && m_state == u"ready") loadLibrary(); });
     run({QStringLiteral("get"), QStringLiteral("key"), QStringLiteral("user-playlists")}, [this](bool ok, const QByteArray &out) {
         if (!ok)
             return;
@@ -416,6 +427,10 @@ void Spotify::open(const QString &type, const QString &id, const QString &name)
 
 void Spotify::playContext(const QString &type, const QString &id, bool shuffle)
 {
+    // into the deck: the one opened on the shelf, with its songs
+    m_loaded = m_opened.value(QStringLiteral("id")).toString() == id ? m_opened
+             : QVariantMap{{QStringLiteral("type"), type}, {QStringLiteral("id"), id}};
+    emit loadedChanged();
     QStringList args{QStringLiteral("start"), QStringLiteral("context"), type, QStringLiteral("--id"), id};
     if (shuffle)
         args << QStringLiteral("--shuffle");
@@ -424,11 +439,22 @@ void Spotify::playContext(const QString &type, const QString &id, bool shuffle)
 
 void Spotify::playTrack(const QString &id)
 {
+    // (a song from the deck's own list keeps its tape; one from elsewhere is a tape alone)
+    bool inLoaded = false;
+    for (const QVariant &t : m_loaded.value(QStringLiteral("tracks")).toList())
+        inLoaded = inLoaded || t.toMap().value(QStringLiteral("id")).toString() == id;
+    if (!inLoaded) {
+        m_loaded.clear();
+        emit loadedChanged();
+    }
     startHere({QStringLiteral("start"), QStringLiteral("track"), QStringLiteral("--id"), id});
 }
 
 void Spotify::playLiked(bool shuffle)
 {
+    m_loaded = {{QStringLiteral("type"), QStringLiteral("liked")}, {QStringLiteral("name"), tr("Liked Songs")},
+                {QStringLiteral("tracks"), m_liked}};
+    emit loadedChanged();
     QStringList args{QStringLiteral("start"), QStringLiteral("liked")};
     if (shuffle)
         args << QStringLiteral("--random");
@@ -439,7 +465,9 @@ void Spotify::playPause()
 {
     // at once on the screen; the daemon's answer follows
     if (!m_playback.isEmpty()) {
-        m_playback[QStringLiteral("playing")] = !m_playback.value(QStringLiteral("playing")).toBool();
+        m_optimisticPlaying = !m_playback.value(QStringLiteral("playing")).toBool();
+        m_optimisticUntil = QDateTime::currentMSecsSinceEpoch() + 2000;
+        m_playback[QStringLiteral("playing")] = m_optimisticPlaying;
         emit playbackChanged();
     }
     mpris(QStringLiteral("PlayPause"));
@@ -480,6 +508,9 @@ void Spotify::signOut()
                                              QStringLiteral("*_cache.json")}, QDir::Files))
         cache.remove(f);
     m_playback.clear();
+    m_loaded.clear();
+    m_libraryTries = 0;
+    emit loadedChanged();
     m_playlists.clear();
     m_liked.clear();
     m_albums.clear();
