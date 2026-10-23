@@ -302,7 +302,6 @@ Sheet {
             spacing: 10
             RoundButton {
                 icon: "󰄀"
-                label: qsTr("Camera")
                 onClicked: {
                     quick.haptics.click()
                     quick.apps.launch("org.mobarchy.Camera")
@@ -317,7 +316,6 @@ Sheet {
             }
             RoundButton {
                 icon: "󰒓"
-                label: qsTr("Settings")
                 onClicked: quick.page = 6
             }
         }
