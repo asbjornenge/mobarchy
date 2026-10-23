@@ -30,6 +30,7 @@ pub fn owned<'a>(v: impl Into<Value<'a>>) -> OwnedValue {
 pub fn track_map(track: Option<&Track>) -> HashMap<String, OwnedValue> {
     let mut m = HashMap::new();
     if let Some(t) = track {
+        m.insert("kind".into(), owned(t.kind.as_str()));
         m.insert("uri".into(), owned(t.uri.as_str()));
         m.insert("id".into(), owned(t.id.as_str()));
         m.insert("title".into(), owned(t.title.as_str()));
@@ -107,6 +108,13 @@ impl SpotifyIface {
         self.svc.load(context_uri, start_track, shuffle).map_err(failed)
     }
 
+    /// Like Load, from position_ms in the start track; without a context (empty), the
+    /// start track (a URI) alone. For episodes and audiobook chapters: a show's or an
+    /// audiobook's URI as the context.
+    async fn load_at(&self, context_uri: &str, start_track: &str, position_ms: i64) -> fdo::Result<()> {
+        self.svc.load_at(context_uri, start_track, position_ms).await.map_err(failed)
+    }
+
     fn play_track(&self, uri: &str) -> fdo::Result<()> {
         self.svc.play_track(uri).map_err(failed)
     }
@@ -129,6 +137,28 @@ impl SpotifyIface {
     /// {tracks,albums,playlists,artists}
     async fn search(&self, query: &str) -> fdo::Result<String> {
         Ok(self.svc.web.search(query).await.map_err(failed)?.to_string())
+    }
+
+    /// The saved podcasts: [{uri,id,name,publisher,image}]
+    async fn shows(&self) -> fdo::Result<String> {
+        Ok(self.svc.web.shows().await.map_err(failed)?.to_string())
+    }
+
+    /// The saved audiobooks: [{uri,id,name,authors,narrators,image}]
+    async fn audiobooks(&self) -> fdo::Result<String> {
+        Ok(self.svc.web.audiobooks().await.map_err(failed)?.to_string())
+    }
+
+    /// A show's episodes, newest first (200 at most):
+    /// [{uri,id,name,description,image,durationMs,releaseDate,resumeMs,fullyPlayed}]
+    async fn episodes(&self, show_uri: &str) -> fdo::Result<String> {
+        Ok(self.svc.web.episodes(show_uri).await.map_err(failed)?.to_string())
+    }
+
+    /// An audiobook's chapters, in order:
+    /// [{uri,id,name,number,image,durationMs,resumeMs,fullyPlayed}]
+    async fn chapters(&self, audiobook_uri: &str) -> fdo::Result<String> {
+        Ok(self.svc.web.chapters(audiobook_uri).await.map_err(failed)?.to_string())
     }
 
     /// The tracks of a playlist, album, artist (top tracks) or the liked songs.

@@ -30,6 +30,11 @@ device locally (`Spirc`: play, pause, seek, `load` a context at a track with shu
   Repeat, ContextUri, Volume, LikedSongsUri, Active), the controls, Load(context, start
   track, shuffle), PlayTrack, and the library through the Web API (Playlists,
   LikedTracks, SavedAlbums, Search, ContextTracks) as JSON of Mobarchy's own shape.
+- **Podcasts and audiobooks**: Shows, Audiobooks, Episodes (newest first, 200 at most),
+  Chapters (Web API; Spotify gives audiobooks show URIs), and LoadAt(context, start,
+  position): a show's URI resolves as a context in librespot, audiobooks' too; if it
+  doesn't, or the episode isn't in it, the episode plays alone. An episode's show (URI,
+  publisher, cover) comes from Spotify's episode metadata.
 - **MPRIS** (`org.mpris.MediaPlayer2.mobarchy_spotify`) with track ids from the Spotify
   URIs, for the lock screen, Frigg and headset keys.
 - **Signing in** is the service's, both approvals (the owner's client ID for the Web API,

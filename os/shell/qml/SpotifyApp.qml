@@ -34,6 +34,8 @@ Window {
     readonly property var pb: spotify.playback
     readonly property bool hasTrack: pb.title !== undefined
     readonly property real duration: pb.durationMs || 0
+    // the wind keys' step: 15 s in a podcast or a book (speech), 10 s in music
+    readonly property real skip: pb.kind === "episode" ? 15000 : 10000
     property real position: 0
     property real reportedAt: 0
     Connections {
@@ -254,10 +256,10 @@ Window {
                 readonly property real keyWidth: (deck.width > 560 ? 520 : deck.width - 32 - 6 * spacing) / 7
                 DeckKey { icon: "󰐊"; label: "EJECT"; glyph: "⏏"; onPushed: win.shelf = true }
                 DeckKey { icon: "󰒮"; label: "PREV"; onPushed: spotify.previous() }
-                DeckKey { icon: "󰑟"; label: "REW"; onPushed: { spotify.seekTo(Math.max(0, win.position - 10000)); win.position = Math.max(0, win.position - 10000) } }
+                DeckKey { icon: "󰑟"; label: "REW"; onPushed: { const p = Math.max(0, win.position - win.skip); spotify.seekTo(p); win.position = p } }
                 DeckKey { icon: "󰐊"; label: "PLAY"; latched: win.pb.playing === true; onPushed: if (win.pb.playing !== true) spotify.playPause() }
                 DeckKey { icon: "󰏤"; label: "PAUSE"; latched: win.hasTrack && win.pb.playing !== true; onPushed: if (win.pb.playing === true) spotify.playPause() }
-                DeckKey { icon: "󰈑"; label: "FF"; onPushed: { spotify.seekTo(Math.min(win.duration, win.position + 10000)); win.position = Math.min(win.duration, win.position + 10000) } }
+                DeckKey { icon: "󰈑"; label: "FF"; onPushed: { const p = Math.min(win.duration, win.position + win.skip); spotify.seekTo(p); win.position = p } }
                 DeckKey { icon: "󰒭"; label: "NEXT"; onPushed: spotify.next() }
             }
 
@@ -460,14 +462,23 @@ Window {
         }
 
         // the tabs
-        Row {
+        Flickable {
             id: tabs
             visible: !win.tracks
-            anchors { top: shelfHead.bottom; left: parent.left; leftMargin: 12 }
+            anchors { top: shelfHead.bottom; left: parent.left; right: parent.right }
+            height: 36
+            contentWidth: tabRow.width + 24
+            flickableDirection: Flickable.HorizontalFlick
+            boundsBehavior: Flickable.StopAtBounds
+            clip: true
+            Row {
+            id: tabRow
+            x: 12
             spacing: 8
             Repeater {
                 model: [{k: "playlists", t: qsTr("Playlists")}, {k: "liked", t: qsTr("Liked")},
-                        {k: "albums", t: qsTr("Albums")}, {k: "search", t: "󰍉"}]
+                        {k: "albums", t: qsTr("Albums")}, {k: "podcasts", t: qsTr("Podcasts")},
+                        {k: "audiobooks", t: qsTr("Audiobooks")}, {k: "search", t: "󰍉"}]
                 delegate: Rectangle {
                     id: tabChip
                     required property var modelData
@@ -484,6 +495,7 @@ Window {
                     }
                     MouseArea { anchors.fill: parent; onClicked: win.tab = tabChip.modelData.k }
                 }
+            }
             }
         }
 
@@ -513,12 +525,15 @@ Window {
         // play the tape that is open: in order, or shuffled
         Row {
             id: tapeActions
-            visible: win.tracks || (win.tab === "liked" && !win.tracks)
+            readonly property string openType: spotify.opened.type || ""
+            visible: win.tracks ? openType !== "show" : win.tab === "liked"
             anchors { top: win.tracks ? shelfHead.bottom : tabs.bottom; topMargin: 10; left: parent.left; leftMargin: 12 }
             height: visible ? 40 : 0
             spacing: 10
             Repeater {
-                model: [{shuffle: false, t: "󰐊  " + qsTr("Play")}, {shuffle: true, t: "󰒟  " + qsTr("Shuffle")}]
+                model: win.tracks && tapeActions.openType === "audiobook"
+                       ? [{shuffle: false, book: true, t: "󰐊  " + qsTr("Continue")}]
+                       : [{shuffle: false, t: "󰐊  " + qsTr("Play")}, {shuffle: true, t: "󰒟  " + qsTr("Shuffle")}]
                 delegate: Rectangle {
                     id: act
                     required property var modelData
@@ -536,7 +551,9 @@ Window {
                         anchors.fill: parent
                         onClicked: {
                             const shuffle = act.modelData.shuffle
-                            if (win.tracks) {
+                            if (act.modelData.book) {
+                                win.changeTape(() => spotify.continueBook())
+                            } else if (win.tracks) {
                                 const o = spotify.opened
                                 win.changeTape(() => spotify.playContext(o.type, o.id, shuffle))
                             } else {
@@ -559,12 +576,20 @@ Window {
             maximumFlickVelocity: Theme.flickVelocity
             // rows: {kind: "playlist"|"album"|"track"|"heading", ...}
             model: {
-                if (win.tracks)
-                    return (spotify.opened.tracks || []).map(t => Object.assign({kind: "track"}, t))
+                if (win.tracks) {
+                    const ep = spotify.opened.type === "show" || spotify.opened.type === "audiobook"
+                    return (spotify.opened.tracks || []).map(t => Object.assign({kind: ep ? "episode" : "track"}, t))
+                }
                 switch (win.tab) {
                 case "playlists": return spotify.playlists.map(p => Object.assign({kind: "playlist"}, p))
                 case "liked": return spotify.liked.map(t => Object.assign({kind: "track"}, t))
                 case "albums": return spotify.albums.map(a => Object.assign({kind: "album"}, a))
+                // (an audiobook is a show to Spotify too: in its own tab only)
+                case "podcasts": {
+                    const books = spotify.audiobooks.map(b => b.id)
+                    return spotify.shows.filter(a => !books.includes(a.id)).map(a => Object.assign({kind: "show"}, a))
+                }
+                case "audiobooks": return spotify.audiobooks.map(a => Object.assign({kind: "audiobook"}, a))
                 case "search": {
                     const r = spotify.results
                     const rows = []
@@ -632,9 +657,23 @@ Window {
                             }
                             Text {
                                 width: parent.width
-                                text: row.modelData.kind === "track"
-                                      ? (row.modelData.artists || "") + (row.modelData.durationMs ? "  ·  " + win.time(row.modelData.durationMs) : "")
-                                      : row.modelData.kind === "playlist" ? (row.modelData.owner || "") : (row.modelData.artists || "")
+                                text: {
+                                    const m = row.modelData
+                                    switch (m.kind) {
+                                    case "track": return (m.artists || "") + (m.durationMs ? "  ·  " + win.time(m.durationMs) : "")
+                                    case "playlist": return m.owner || ""
+                                    case "show": return m.publisher || ""
+                                    case "audiobook": return m.authors || ""
+                                    case "episode": {
+                                        // when, how long, and how far heard
+                                        const left = m.fullyPlayed ? "✓ " + qsTr("heard")
+                                                   : m.resumeMs > 0 ? qsTr("%1 left").arg(win.time(m.durationMs - m.resumeMs))
+                                                   : win.time(m.durationMs)
+                                        return (m.number ? qsTr("Chapter %1").arg(m.number) : (m.releaseDate || "")) + "  ·  " + left
+                                    }
+                                    default: return m.artists || ""
+                                    }
+                                }
                                 elide: Text.ElideRight
                                 color: "#55566a"
                                 font { family: Theme.font; pixelSize: 11; italic: true }
@@ -648,6 +687,8 @@ Window {
                             const m = row.modelData
                             if (m.kind === "track") {
                                 win.changeTape(() => spotify.playTrack(m.id))
+                            } else if (m.kind === "episode") {
+                                win.changeTape(() => spotify.playEpisode(m.id))
                             } else {
                                 spotify.open(m.kind, m.id, m.name)
                                 win.tracks = true

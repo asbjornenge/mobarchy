@@ -24,6 +24,9 @@ class Spotify : public QObject
     Q_PROPERTY(QVariantList playlists READ playlists NOTIFY libraryChanged)
     Q_PROPERTY(QVariantList liked READ liked NOTIFY libraryChanged)
     Q_PROPERTY(QVariantList albums READ albums NOTIFY libraryChanged)
+    // podcasts [{id, uri, name, publisher, image}] and audiobooks [{id, uri, name, authors, image}]
+    Q_PROPERTY(QVariantList shows READ shows NOTIFY libraryChanged)
+    Q_PROPERTY(QVariantList audiobooks READ audiobooks NOTIFY libraryChanged)
     // a search's results: {tracks, albums, playlists, artists}
     Q_PROPERTY(QVariantMap results READ results NOTIFY resultsChanged)
     // an opened playlist or album: {type, id, uri, name, tracks, loading}
@@ -43,6 +46,8 @@ public:
     QVariantList playlists() const { return m_playlists; }
     QVariantList liked() const { return m_liked; }
     QVariantList albums() const { return m_albums; }
+    QVariantList shows() const { return m_shows; }
+    QVariantList audiobooks() const { return m_audiobooks; }
     QVariantMap results() const { return m_results; }
     QVariantMap opened() const { return m_opened; }
     QVariantMap loaded() const { return m_loaded; }
@@ -57,12 +62,17 @@ public:
     Q_INVOKABLE void signOut();
     Q_INVOKABLE void loadLibrary();
     Q_INVOKABLE void search(const QString &query);
-    // a playlist's or album's tracks (opened)
+    // a playlist's or album's tracks, a show's episodes, an audiobook's chapters (opened)
     Q_INVOKABLE void open(const QString &type, const QString &id, const QString &name);
     Q_INVOKABLE void playContext(const QString &type, const QString &id, bool shuffle = false);
     // a song: from the tape in the deck when it is one of its songs (it plays on from there),
     // else on its own
     Q_INVOKABLE void playTrack(const QString &id);
+    // an episode or a chapter of the show or audiobook opened: where it was left (Spotify's
+    // resume point), from the start if it was heard to the end
+    Q_INVOKABLE void playEpisode(const QString &id);
+    // an audiobook: on from the first chapter not heard to the end
+    Q_INVOKABLE void continueBook();
     Q_INVOKABLE void playLiked(bool shuffle = false);
     Q_INVOKABLE void playPause();
     Q_INVOKABLE void next();
@@ -98,10 +108,17 @@ private:
     void apply(const QVariantMap &props);
     void setState(const QString &state);
     void setError(const QString &error);
+    // where episodes and chapters were left: kept here (librespot doesn't tell Spotify), by
+    // URI: {positionMs, durationMs, at}; ~/.local/state/mobarchy/spotify-resume.json
+    void noteResume();
+    void saveResume();
+    QVariantList withResume(const QVariantList &episodes) const;
+    QVariantMap m_resume;
+    qint64 m_resumeSaved = 0;
 
     QString m_state = QStringLiteral("starting");
     QVariantMap m_props;            // the service's properties, as it said them
-    QVariantList m_playlists, m_liked, m_albums;
+    QVariantList m_playlists, m_liked, m_albums, m_shows, m_audiobooks;
     QVariantMap m_results, m_opened, m_loaded;
     QString m_error;
     bool m_watching = false;

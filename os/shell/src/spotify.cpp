@@ -9,6 +9,11 @@
 #include <QDBusServiceWatcher>
 #include <QDBusVariant>
 #include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QJsonObject>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <QJsonDocument>
 #include <QProcess>
 
@@ -18,6 +23,11 @@ const QString Path = QStringLiteral("/org/mobarchy/Spotify");
 const QString Iface = QStringLiteral("org.mobarchy.Spotify");
 const QString Properties = QStringLiteral("org.freedesktop.DBus.Properties");
 const QString Unit = QStringLiteral("mobarchy-spotify.service");
+
+QString resumeFile()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::GenericStateLocation) + QStringLiteral("/mobarchy/spotify-resume.json");
+}
 
 // the browser's sign-in pages, once done: closed (Mobarchy's browser, org.mobarchy.Browser)
 void closeSignInTabs()
@@ -83,6 +93,9 @@ Spotify::Spotify(QObject *parent)
     connect(watcher, &QDBusServiceWatcher::serviceRegistered, this, &Spotify::fetchAll);
     // the service runs on (Spotify plays on with the app closed); started here if it isn't
     QProcess::startDetached(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("start"), Unit});
+    QFile f(resumeFile());
+    if (f.open(QIODevice::ReadOnly))
+        m_resume = QJsonDocument::fromJson(f.readAll()).object().toVariantMap();
     m_startRetry.setInterval(1500);
     connect(&m_startRetry, &QTimer::timeout, this, &Spotify::fetchAll);
     m_startRetry.start();
@@ -151,8 +164,52 @@ void Spotify::apply(const QVariantMap &props)
         setError(m_props.value(QStringLiteral("Error")).toString());
     if (props.contains(QStringLiteral("State")))
         setState(m_props.value(QStringLiteral("State")).toString());
-    if (playbackChanged_)
+    if (playbackChanged_) {
         emit playbackChanged();
+        noteResume();
+    }
+}
+
+void Spotify::noteResume()
+{
+    const QVariantMap p = playback();
+    if (p.value(QStringLiteral("kind")).toString() != u"episode")
+        return;
+    m_resume[p.value(QStringLiteral("uri")).toString()] = QVariantMap{
+        {QStringLiteral("positionMs"), p.value(QStringLiteral("progressMs"))},
+        {QStringLiteral("durationMs"), p.value(QStringLiteral("durationMs"))},
+        {QStringLiteral("at"), QDateTime::currentMSecsSinceEpoch()}};
+    // (on a pause at once, while it plays now and then)
+    const qint64 now = QDateTime::currentMSecsSinceEpoch();
+    if (!p.value(QStringLiteral("playing")).toBool() || now - m_resumeSaved > 15000)
+        saveResume();
+}
+
+void Spotify::saveResume()
+{
+    m_resumeSaved = QDateTime::currentMSecsSinceEpoch();
+    QDir().mkpath(QFileInfo(resumeFile()).path());
+    QFile f(resumeFile());
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        f.write(QJsonDocument(QJsonObject::fromVariantMap(m_resume)).toJson(QJsonDocument::Compact));
+}
+
+QVariantList Spotify::withResume(const QVariantList &episodes) const
+{
+    // Spotify's resume point, or ours when we have one (librespot doesn't report positions)
+    QVariantList out;
+    for (QVariant v : episodes) {
+        QVariantMap e = v.toMap();
+        const QVariantMap mine = m_resume.value(e.value(QStringLiteral("uri")).toString()).toMap();
+        if (!mine.isEmpty()) {
+            const qint64 pos = mine.value(QStringLiteral("positionMs")).toLongLong();
+            const qint64 dur = e.value(QStringLiteral("durationMs")).toLongLong();
+            e[QStringLiteral("resumeMs")] = pos;
+            e[QStringLiteral("fullyPlayed")] = dur > 0 && pos > dur - 30000;   // (the last half minute: heard)
+        }
+        out << e;
+    }
+    return out;
 }
 
 QVariantMap Spotify::playback() const
@@ -172,6 +229,7 @@ QVariantMap Spotify::playback() const
             {QStringLiteral("image"), t.value(QStringLiteral("image"))},
             {QStringLiteral("uri"), t.value(QStringLiteral("uri"))},
             {QStringLiteral("trackId"), t.value(QStringLiteral("uri"))},
+            {QStringLiteral("kind"), t.value(QStringLiteral("kind")).toString().isEmpty() ? QStringLiteral("track") : t.value(QStringLiteral("kind"))},
             {QStringLiteral("durationMs"), duration},
             {QStringLiteral("progressMs"), qBound(qint64(0), at, duration > 0 ? duration : at)},
             {QStringLiteral("playing"), playing},
@@ -238,6 +296,8 @@ void Spotify::signOut()
     m_playlists.clear();
     m_liked.clear();
     m_albums.clear();
+    m_shows.clear();
+    m_audiobooks.clear();
     m_loaded.clear();
     emit libraryChanged();
     emit loadedChanged();
@@ -257,6 +317,14 @@ void Spotify::loadLibrary()
     });
     callJson(QStringLiteral("SavedAlbums"), {}, [this](const QVariant &v) {
         m_albums = withIds(v);
+        emit libraryChanged();
+    });
+    callJson(QStringLiteral("Shows"), {}, [this](const QVariant &v) {
+        m_shows = withIds(v);
+        emit libraryChanged();
+    });
+    callJson(QStringLiteral("Audiobooks"), {}, [this](const QVariant &v) {
+        m_audiobooks = withIds(v);
         emit libraryChanged();
     });
 }
@@ -284,10 +352,12 @@ void Spotify::open(const QString &type, const QString &id, const QString &name)
     m_opened = {{QStringLiteral("type"), type}, {QStringLiteral("id"), id}, {QStringLiteral("uri"), uri},
                 {QStringLiteral("name"), name}, {QStringLiteral("tracks"), QVariantList()}, {QStringLiteral("loading"), true}};
     emit openedChanged();
-    callJson(QStringLiteral("ContextTracks"), {uri}, [this, uri](const QVariant &v) {
+    const QString method = type == u"show" ? QStringLiteral("Episodes")
+                         : type == u"audiobook" ? QStringLiteral("Chapters") : QStringLiteral("ContextTracks");
+    callJson(method, {uri}, [this, uri](const QVariant &v) {
         if (m_opened.value(QStringLiteral("uri")) != uri)
             return;
-        m_opened[QStringLiteral("tracks")] = withIds(v);
+        m_opened[QStringLiteral("tracks")] = withResume(withIds(v));
         m_opened[QStringLiteral("loading")] = false;
         emit openedChanged();
     });
@@ -307,6 +377,11 @@ void Spotify::playContext(const QString &type, const QString &id, bool shuffle)
 
 void Spotify::playTrack(const QString &id)
 {
+    const QString type = m_loaded.value(QStringLiteral("type")).toString();
+    if (type == u"show" || type == u"audiobook") {
+        playEpisode(id);
+        return;
+    }
     const QString uri = uriOf(QStringLiteral("track"), id);
     // one of the deck's tape's songs: the tape from there on
     for (const QVariant &t : m_loaded.value(QStringLiteral("tracks")).toList()) {
@@ -318,6 +393,36 @@ void Spotify::playTrack(const QString &id)
     m_loaded.clear();
     emit loadedChanged();
     call(QStringLiteral("PlayTrack"), {uri});
+}
+
+void Spotify::playEpisode(const QString &id)
+{
+    const QString uri = uriOf(QStringLiteral("episode"), id);
+    // from the opened show or book, or the deck's
+    const QVariantMap from = m_opened.value(QStringLiteral("tracks")).toList().isEmpty() ? m_loaded : m_opened;
+    QVariantMap episode;
+    for (const QVariant &t : from.value(QStringLiteral("tracks")).toList())
+        if (t.toMap().value(QStringLiteral("uri")).toString() == uri)
+            episode = t.toMap();
+    const qint64 at = episode.value(QStringLiteral("fullyPlayed")).toBool() ? 0 : episode.value(QStringLiteral("resumeMs")).toLongLong();
+    if (from.value(QStringLiteral("uri")) != m_loaded.value(QStringLiteral("uri"))) {
+        m_loaded = from;
+        emit loadedChanged();
+    }
+    call(QStringLiteral("LoadAt"), {from.value(QStringLiteral("uri")).toString(), uri, qlonglong(at)});
+}
+
+void Spotify::continueBook()
+{
+    const QVariantList chapters = m_opened.value(QStringLiteral("tracks")).toList();
+    for (const QVariant &c : chapters) {
+        if (!c.toMap().value(QStringLiteral("fullyPlayed")).toBool()) {
+            playEpisode(c.toMap().value(QStringLiteral("id")).toString());
+            return;
+        }
+    }
+    if (!chapters.isEmpty())
+        playEpisode(chapters.first().toMap().value(QStringLiteral("id")).toString());
 }
 
 void Spotify::playLiked(bool shuffle)

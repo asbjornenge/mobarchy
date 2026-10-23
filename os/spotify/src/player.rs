@@ -5,7 +5,7 @@
 use crate::state::{Repeat, State, Track, now_ms};
 use librespot_connect::{ConnectConfig, Spirc};
 use librespot_core::{
-    Error, Session, SessionConfig, SpotifyUri, authentication::Credentials, cache::Cache,
+    Error, FileId, Session, SessionConfig, SpotifyId, SpotifyUri, authentication::Credentials, cache::Cache,
     config::DeviceType, dealer::protocol::Message,
 };
 use librespot_metadata::{Metadata as _, audio::AudioItem, audio::UniqueFields};
@@ -102,22 +102,38 @@ async fn follow_events(
                 tracing::info!("track: {} - {}", track.artists.join(", "), track.title);
                 // (the position comes with Loading and Playing)
                 state.send_modify(|s| s.track = Some(track));
-                // The album's URI: not in the audio item, but in the track's metadata (cached).
-                if let (Some(c), SpotifyUri::Track { .. }) = (conn.upgrade(), &audio_item.track_id) {
+                // The rest from the metadata: a track's album URI (not in the audio item), an
+                // episode's show (its URI, publisher and cover).
+                if let Some(c) = conn.upgrade() {
                     let (session, uri, state) = (c.session.clone(), audio_item.track_id.clone(), state.clone());
-                    tokio::spawn(async move {
-                        if let Ok(t) = librespot_metadata::Track::get(&session, &uri).await {
-                            let album_uri = t.album.id.to_uri().unwrap_or_default();
-                            let track_uri = uri.to_uri().unwrap_or_default();
-                            state.send_if_modified(|s| match &mut s.track {
-                                Some(t) if t.uri == track_uri && t.album_uri != album_uri => {
-                                    t.album_uri = album_uri;
-                                    true
+                    match uri {
+                        SpotifyUri::Track { .. } => {
+                            tokio::spawn(async move {
+                                if let Ok(t) = librespot_metadata::Track::get(&session, &uri).await {
+                                    let album_uri = t.album.id.to_uri().unwrap_or_default();
+                                    update_track(&state, &uri, |t| t.album_uri = album_uri);
                                 }
-                                _ => false,
                             });
                         }
-                    });
+                        SpotifyUri::Episode { .. } => {
+                            tokio::spawn(async move {
+                                match episode_show(&session, &uri).await {
+                                    Ok(show) => update_track(&state, &uri, |t| {
+                                        t.album_uri = show.uri;
+                                        if !show.name.is_empty() {
+                                            t.album = show.name.clone();
+                                        }
+                                        t.artists = vec![if show.publisher.is_empty() { show.name } else { show.publisher }];
+                                        if t.image.is_empty() {
+                                            t.image = show.image;
+                                        }
+                                    }),
+                                    Err(e) => tracing::info!("the episode's show: {e}"),
+                                }
+                            });
+                        }
+                        _ => {}
+                    }
                 }
             }
             PlayerEvent::Playing { position_ms, .. } => state.send_modify(|s| {
@@ -212,7 +228,12 @@ pub fn track_of(item: &AudioItem) -> Track {
         UniqueFields::Local { artists, album, .. } => {
             (artists.iter().cloned().collect(), album.clone().unwrap_or_default())
         }
+        // (the show's publisher comes with its metadata: episode_show)
         UniqueFields::Episode { show_name, .. } => (vec![show_name.clone()], show_name.clone()),
+    };
+    let kind = match item.unique_fields {
+        UniqueFields::Episode { .. } => "episode",
+        _ => "track",
     };
     let image = item
         .covers
@@ -221,6 +242,7 @@ pub fn track_of(item: &AudioItem) -> Track {
         .map(|c| c.url.clone())
         .unwrap_or_default();
     Track {
+        kind: kind.to_string(),
         uri: item.uri.clone(),
         id: item.track_id.to_id().unwrap_or_default(),
         title: item.name.clone(),
@@ -230,4 +252,61 @@ pub fn track_of(item: &AudioItem) -> Track {
         image,
         duration_ms: item.duration_ms,
     }
+}
+
+// What metadata adds to the track that plays (if it still is that one).
+fn update_track(state: &watch::Sender<State>, uri: &SpotifyUri, f: impl FnOnce(&mut Track)) {
+    let uri = uri.to_uri().unwrap_or_default();
+    state.send_if_modified(|s| match &mut s.track {
+        Some(t) if t.uri == uri => {
+            let before = t.clone();
+            f(t);
+            *t != before
+        }
+        _ => false,
+    });
+}
+
+pub struct Show {
+    pub uri: String,
+    pub name: String,
+    pub publisher: String,
+    pub image: String,
+}
+
+// An episode's (or audiobook chapter's) show, from Spotify's metadata: librespot's Episode
+// keeps only the show's name.
+async fn episode_show(session: &Session, episode: &SpotifyUri) -> Result<Show, Error> {
+    use librespot_protocol::metadata;
+    use protobuf::Message as _;
+    let bytes = session.spclient().get_episode_metadata(episode).await?;
+    let ep = metadata::Episode::parse_from_bytes(&bytes).map_err(Error::failed_precondition)?;
+    let mut show = ep.show.clone().unwrap_or_default();
+    let id = SpotifyId::from_raw(show.gid())?;
+    let uri = SpotifyUri::Show { id };
+    // (the show inside an episode is a short one: the rest from the show's own)
+    if (show.publisher().is_empty() || show.cover_image.image.is_empty())
+        && let Ok(bytes) = session.spclient().get_show_metadata(&uri).await
+        && let Ok(full) = metadata::Show::parse_from_bytes(&bytes)
+    {
+        show = full;
+    }
+    let template = session
+        .get_user_attribute("image-url")
+        .unwrap_or_else(|| "https://i.scdn.co/image/{file_id}".to_string());
+    let image = show
+        .cover_image
+        .image
+        .iter()
+        .filter(|i| i.file_id().len() == 20)
+        .max_by_key(|i| (i.size() as i32, i.width()))
+        .and_then(|i| FileId(i.file_id().try_into().ok()?).to_base16().ok())
+        .map(|hex| template.replace("{file_id}", &hex))
+        .unwrap_or_default();
+    Ok(Show {
+        uri: uri.to_uri()?,
+        name: show.name().to_string(),
+        publisher: show.publisher().to_string(),
+        image,
+    })
 }

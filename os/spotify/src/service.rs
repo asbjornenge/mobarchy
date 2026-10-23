@@ -449,6 +449,49 @@ impl Service {
         Ok(())
     }
 
+    /// LoadAt(context (may be empty: the track alone), start track, position): from that
+    /// position in it. A context librespot can't resolve, or one where the track isn't to
+    /// be found (a long show's episodes come a page at a time), and the track plays alone.
+    pub async fn load_at(&self, context_uri: &str, start: &str, position_ms: i64) -> Result<()> {
+        let conn = self.device()?;
+        let seek_to = position_ms.clamp(0, u32::MAX as i64) as u32;
+        let start = start.trim();
+        let start_uri = start.starts_with("spotify:").then_some(start);
+        let playing_track = if start.is_empty() {
+            None
+        } else if let Ok(i) = start.parse::<u32>() {
+            Some(PlayingTrack::Index(i))
+        } else {
+            Some(PlayingTrack::Uri(start.to_string()))
+        };
+        let context = if context_uri.trim().is_empty() {
+            None
+        } else {
+            let wanted = self.context_uri_for(&conn, context_uri.trim())?;
+            let found = resolvable_context(&conn, &wanted, start_uri).await;
+            if found.is_none() {
+                tracing::info!("{wanted} doesn't resolve with {start:?} in it: {start:?} alone");
+            }
+            found
+        };
+        let (request, playing) = match (context, start_uri) {
+            (Some(ctx), _) => {
+                let options = LoadRequestOptions { start_playing: true, seek_to, context_options: None, playing_track };
+                (LoadRequest::from_context_uri(ctx.clone(), options), ctx)
+            }
+            (None, Some(uri)) => {
+                let options = LoadRequestOptions { start_playing: true, seek_to, ..Default::default() };
+                (LoadRequest::from_tracks(vec![uri.to_string()], options), uri.to_string())
+            }
+            (None, None) => bail!("nothing to play: no context that resolves, and no track URI"),
+        };
+        tracing::info!("load {playing} at {start:?}, {seek_to} ms");
+        self.activate(&conn);
+        conn.spirc.load(request)?;
+        self.state.send_modify(|s| s.context_uri = playing);
+        Ok(())
+    }
+
     /// PlayTrack(uri): that track alone.
     pub fn play_track(&self, uri: &str) -> Result<()> {
         if !uri.starts_with("spotify:track:") && !uri.starts_with("spotify:episode:") {
@@ -481,6 +524,28 @@ pub fn parse_env_client_id(text: &str) -> Option<String> {
         .find_map(|l| l.strip_prefix("SPOTIFY_CLIENT_ID="))
         .map(|v| v.trim().trim_matches(|c| c == '"' || c == '\'').to_string())
         .filter(|v| !v.is_empty())
+}
+
+// The context as librespot will get it (Spotify's context-resolve), if it resolves, with
+// `track` in its pages when one is given. An audiobook may go by its show URI.
+async fn resolvable_context(conn: &Connection, uri: &str, track: Option<&str>) -> Option<String> {
+    let mut candidates = vec![uri.to_string()];
+    if let Some(("audiobook", id)) = context_kind(uri) {
+        candidates.push(format!("spotify:show:{id}"));
+    }
+    for candidate in candidates {
+        match conn.session.spclient().get_context(&candidate).await {
+            Ok(ctx) => {
+                let has = |t: &str| ctx.pages.iter().any(|p| p.tracks.iter().any(|x| x.uri() == t));
+                if track.is_none_or(has) {
+                    return Some(candidate);
+                }
+                tracing::info!("{candidate}: resolves, without {track:?} (of {} pages)", ctx.pages.len());
+            }
+            Err(e) => tracing::info!("{candidate} doesn't resolve: {e}"),
+        }
+    }
+    None
 }
 
 fn is_rejected(e: &SpotError) -> bool {

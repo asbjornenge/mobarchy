@@ -1429,6 +1429,7 @@ dependencies = [
  "librespot-playback",
  "librespot-protocol",
  "log",
+ "protobuf",
  "rand 0.9.5",
  "reqwest",
  "serde",

@@ -119,6 +119,11 @@ impl WebApi {
     // Every item of a paged list. The first page says how many there are; the rest are
     // fetched a few at a time (a big library is many pages), in order.
     async fn all_items(&self, path: &str) -> Result<Vec<Value>> {
+        self.items(path, usize::MAX).await
+    }
+
+    // The first `max` items (rounded up to a page).
+    async fn items(&self, path: &str, max: usize) -> Result<Vec<Value>> {
         let sep = if path.contains('?') { '&' } else { '?' };
         let first = self.get(&format!("{path}{sep}limit={PAGE}&offset=0")).await?;
         let mut items = first["items"].as_array().cloned().unwrap_or_default();
@@ -126,7 +131,7 @@ impl WebApi {
         if first["next"].is_null() || total <= items.len() {
             return Ok(items);
         }
-        let offsets: Vec<usize> = (PAGE..total).step_by(PAGE).collect();
+        let offsets: Vec<usize> = (PAGE..total.min(max)).step_by(PAGE).collect();
         let pages: Vec<Result<Value>> = stream::iter(offsets)
             .map(|offset| self.get_owned(format!("{path}{sep}limit={PAGE}&offset={offset}")))
             .buffered(4)
@@ -162,6 +167,35 @@ impl WebApi {
         // (10: the most a development-mode app may ask for)
         let r = self.get(&format!("search?q={q}&type=track,album,playlist,artist&limit=10")).await?;
         Ok(normalise_search(&r))
+    }
+
+    pub async fn shows(&self) -> Result<Value> {
+        let items = self.all_items("me/shows").await?;
+        Ok(Value::Array(items.iter().filter_map(|i| norm_show(&i["show"])).collect()))
+    }
+
+    pub async fn audiobooks(&self) -> Result<Value> {
+        let items = self.all_items("me/audiobooks").await?;
+        // (the items are the audiobooks themselves; wrapped like shows, just in case)
+        Ok(Value::Array(
+            items.iter().filter_map(|i| norm_audiobook(if i["audiobook"].is_object() { &i["audiobook"] } else { i })).collect(),
+        ))
+    }
+
+    /// A show's episodes, newest first (as Spotify gives them): the newest 200 at most.
+    pub async fn episodes(&self, show_uri: &str) -> Result<Value> {
+        let Some(("show", id)) = context_kind(show_uri) else { bail!("not a show: {show_uri}") };
+        let items = self.items(&format!("shows/{id}/episodes"), 200).await?;
+        Ok(Value::Array(items.iter().filter_map(norm_episode).collect()))
+    }
+
+    /// An audiobook's chapters, in order. (Spotify gives audiobooks show URIs: either goes.)
+    pub async fn chapters(&self, audiobook_uri: &str) -> Result<Value> {
+        let Some(("audiobook" | "show", id)) = context_kind(audiobook_uri) else {
+            bail!("not an audiobook: {audiobook_uri}")
+        };
+        let items = self.all_items(&format!("audiobooks/{id}/chapters")).await?;
+        Ok(Value::Array(items.iter().filter_map(norm_chapter).collect()))
     }
 
     /// The tracks of a playlist, an album, an artist (their top tracks) or the liked songs.
@@ -300,6 +334,96 @@ pub fn norm_artist(a: &Value) -> Option<Value> {
     Some(json!({ "uri": uri, "id": s(&a["id"]), "name": s(&a["name"]), "image": largest_image(&a["images"]) }))
 }
 
+/// A show: {uri,id,name,publisher,image}.
+pub fn norm_show(sh: &Value) -> Option<Value> {
+    let uri = s(&sh["uri"]);
+    if uri.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "uri": uri,
+        "id": s(&sh["id"]),
+        "name": s(&sh["name"]),
+        "publisher": s(&sh["publisher"]),
+        "image": largest_image(&sh["images"]),
+    }))
+}
+
+/// An audiobook: {uri,id,name,authors,narrators,image}.
+pub fn norm_audiobook(b: &Value) -> Option<Value> {
+    let uri = s(&b["uri"]);
+    if uri.is_empty() {
+        return None;
+    }
+    Some(json!({
+        "uri": uri,
+        "id": s(&b["id"]),
+        "name": s(&b["name"]),
+        "authors": names(&b["authors"]),
+        "narrators": names(&b["narrators"]),
+        "image": largest_image(&b["images"]),
+    }))
+}
+
+// Where the owner is in an episode or chapter: (resumeMs, fullyPlayed).
+fn resume_point(v: &Value) -> (u64, bool) {
+    let r = &v["resume_point"];
+    (r["resume_position_ms"].as_u64().unwrap_or(0), r["fully_played"].as_bool().unwrap_or(false))
+}
+
+// A description short enough for a list (whole words, at most about 200 characters).
+pub fn short_text(text: &str, max: usize) -> String {
+    let text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if text.chars().count() <= max {
+        return text;
+    }
+    let cut: String = text.chars().take(max).collect();
+    let cut = match cut.rfind(' ') {
+        Some(i) if i > max / 2 => &cut[..i],
+        _ => &cut[..],
+    };
+    format!("{}…", cut.trim_end_matches(|c: char| c.is_ascii_punctuation() || c == ' '))
+}
+
+/// An episode: {uri,id,name,description,image,durationMs,releaseDate,resumeMs,fullyPlayed}.
+pub fn norm_episode(e: &Value) -> Option<Value> {
+    let uri = s(&e["uri"]);
+    if uri.is_empty() {
+        return None;
+    }
+    let (resume, played) = resume_point(e);
+    Some(json!({
+        "uri": uri,
+        "id": s(&e["id"]),
+        "name": s(&e["name"]),
+        "description": short_text(s(&e["description"]), 200),
+        "image": largest_image(&e["images"]),
+        "durationMs": e["duration_ms"].as_u64().unwrap_or(0),
+        "releaseDate": s(&e["release_date"]),
+        "resumeMs": resume,
+        "fullyPlayed": played,
+    }))
+}
+
+/// A chapter: {uri,id,name,number,image,durationMs,resumeMs,fullyPlayed}.
+pub fn norm_chapter(c: &Value) -> Option<Value> {
+    let uri = s(&c["uri"]);
+    if uri.is_empty() {
+        return None;
+    }
+    let (resume, played) = resume_point(c);
+    Some(json!({
+        "uri": uri,
+        "id": s(&c["id"]),
+        "name": s(&c["name"]),
+        "number": c["chapter_number"].as_u64().unwrap_or(0),
+        "image": largest_image(&c["images"]),
+        "durationMs": c["duration_ms"].as_u64().unwrap_or(0),
+        "resumeMs": resume,
+        "fullyPlayed": played,
+    }))
+}
+
 /// Search: {tracks,albums,playlists,artists}. (Spotify's lists may hold nulls.)
 pub fn normalise_search(r: &Value) -> Value {
     let list = |key: &str, f: fn(&Value) -> Option<Value>| -> Value {
@@ -400,12 +524,58 @@ mod tests {
     }
 
     #[test]
+    fn show_and_audiobook() {
+        let sh = json!({"uri": "spotify:show:s", "id": "s", "name": "Pod", "publisher": "Pub",
+            "images": [{"url": "a", "width": 64, "height": 64}, {"url": "b", "width": 300, "height": 300}]});
+        assert_eq!(norm_show(&sh).unwrap(),
+            json!({"uri": "spotify:show:s", "id": "s", "name": "Pod", "publisher": "Pub", "image": "b"}));
+        let b = json!({"uri": "spotify:audiobook:b", "id": "b", "name": "Nexus",
+            "authors": [{"name": "Yuval Noah Harari"}], "narrators": [{"name": "Derek Perkins"}], "images": []});
+        assert_eq!(norm_audiobook(&b).unwrap(),
+            json!({"uri": "spotify:audiobook:b", "id": "b", "name": "Nexus", "authors": ["Yuval Noah Harari"],
+                   "narrators": ["Derek Perkins"], "image": ""}));
+        assert!(norm_show(&Value::Null).is_none());
+    }
+
+    #[test]
+    fn episode_and_chapter() {
+        let e = json!({"uri": "spotify:episode:e", "id": "e", "name": "Ep 1", "description": "Short.",
+            "images": [{"url": "i", "width": 640, "height": 640}], "duration_ms": 3_600_000,
+            "release_date": "2026-10-01", "resume_point": {"fully_played": false, "resume_position_ms": 120_000}});
+        assert_eq!(norm_episode(&e).unwrap(),
+            json!({"uri": "spotify:episode:e", "id": "e", "name": "Ep 1", "description": "Short.", "image": "i",
+                   "durationMs": 3_600_000, "releaseDate": "2026-10-01", "resumeMs": 120_000, "fullyPlayed": false}));
+        // (without a resume point: not started)
+        let n = norm_episode(&json!({"uri": "spotify:episode:x"})).unwrap();
+        assert_eq!((n["resumeMs"].clone(), n["fullyPlayed"].clone()), (json!(0), json!(false)));
+        let c = json!({"uri": "spotify:episode:c", "id": "c", "name": "Chapter 3", "chapter_number": 3,
+            "images": [], "duration_ms": 100, "resume_point": {"fully_played": true, "resume_position_ms": 0}});
+        assert_eq!(norm_chapter(&c).unwrap(),
+            json!({"uri": "spotify:episode:c", "id": "c", "name": "Chapter 3", "number": 3, "image": "",
+                   "durationMs": 100, "resumeMs": 0, "fullyPlayed": true}));
+    }
+
+    #[test]
+    fn short_descriptions() {
+        assert_eq!(short_text("  a\n b  ", 200), "a b");
+        let long = "word ".repeat(100);
+        let s = short_text(&long, 200);
+        assert!(s.chars().count() <= 201 && s.ends_with("word…"), "{s}");
+        let s = short_text(&"x".repeat(300), 200);
+        assert_eq!(s.chars().count(), 201);
+        let s = short_text(&"æøå ".repeat(80), 200);
+        assert!(s.ends_with("æøå…"), "{s}");
+    }
+
+    #[test]
     fn context_kinds() {
         assert_eq!(context_kind("spotify:playlist:abc"), Some(("playlist", "abc")));
         assert_eq!(context_kind("spotify:album:x"), Some(("album", "x")));
         assert_eq!(context_kind("spotify:user:bob:collection"), Some(("collection", "")));
         assert_eq!(context_kind("spotify:collection:tracks"), Some(("collection", "")));
         assert_eq!(context_kind("spotify:user:bob:playlist:p1"), Some(("playlist", "p1")));
+        assert_eq!(context_kind("spotify:show:s1"), Some(("show", "s1")));
+        assert_eq!(context_kind("spotify:audiobook:b1"), Some(("audiobook", "b1")));
         assert_eq!(context_kind("nonsense"), None);
     }
 }

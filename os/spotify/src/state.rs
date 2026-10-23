@@ -53,6 +53,8 @@ impl Repeat {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Track {
+    // "track" or "episode" (podcast episodes and audiobook chapters)
+    pub kind: String,
     pub uri: String,
     pub id: String,
     pub title: String,

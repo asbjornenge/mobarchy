@@ -11,6 +11,7 @@ librespot-connect = { version = "0.8", default-features = false, features = ["na
 librespot-playback = { version = "0.8", default-features = false, features = ["native-tls", "pulseaudio-backend"] }
 librespot-metadata = { version = "0.8", default-features = false, features = ["native-tls"] }
 librespot-protocol = "0.8"
+protobuf = "3.7"
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "signal", "fs"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls", "http2"] }
