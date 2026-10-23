@@ -159,6 +159,9 @@ def wake_irq() -> str:
 def main() -> int:
     wifi = Wifi(str(device().get("power", {}).get("wifi_suspend_mode", "")))
     ok_since = None
+    # a refused suspend (a device busy) is tried again later and later, as Android's
+    # system suspend backs off: rapid tries kept the Wi-Fi's PCIe link going up and down
+    backoff = 0.1
     while True:
         runtime = owner_runtime()
         ok = runtime is not None and (runtime / "sleep-ok").exists() and not others_need_it()
@@ -172,9 +175,11 @@ def main() -> int:
             time.sleep(0.5)
             continue
         if suspend_once(runtime):
+            backoff = 0.1
             time.sleep(GRACE_AFTER_PACKET if "dhdpcie" in wake_irq() else GRACE_AFTER_WAKE)
         else:
-            time.sleep(1)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60.0)
 
 
 if __name__ == "__main__":

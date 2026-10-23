@@ -1,6 +1,6 @@
 # 0043: Deep sleep
 
-- Status: accepted (first version; to be tuned with use)
+- Status: built; mobarchy-suspend not enabled until the Wi-Fi survives long sleeps (below)
 - Date: 2026-10-23
 
 ## Context
@@ -51,3 +51,16 @@ Android's way, in userspace:
   ARP among them): to reach it over ssh, wake it, and `touch /run/mobarchy/stay-awake`.
 - To watch: calls and messages arriving while asleep (the modem's wakeup source must hold
   until ofono and the shell have them), Bluetooth audio, and how often Wi-Fi still wakes it.
+
+## First trials (2026-10-23)
+
+- Power key, a timer ringing out of sleep: work.
+- Sleeps were short: the modem (17 of 38 wakes: hence mobarchy-mce) and Wi-Fi packets (21;
+  with SETSUSPENDMODE on, broadcasts and multicasts still woke it: 44 and 11 of 111 in one
+  count) woke it within a second or so.
+- After the first long sleep (7 min) the Wi-Fi chip didn't answer: the driver's first
+  command timed out ("Treating IOVAR timeout as PCIe linkdown"), and Wi-Fi was dead until
+  switched off and on. Before it the suspend loop had tried many times a second while the
+  chip was busy, with its PCIe link in recovery (`RCVRY LOCK`): the loop now backs off
+  (0.1 s doubling to a minute). Until the Wi-Fi resumes reliably (and filters what it
+  should), the service stays off; the shell's SleepGate and mobarchy-mce stay in.
