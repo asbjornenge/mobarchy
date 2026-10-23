@@ -150,6 +150,7 @@ qt_add_qml_module(mobarchy-shell
         qml/Rotation.qml
     RESOURCES
         data/emoji.json
+        data/fonts/Caveat.ttf
         data/sounds/alarm.wav
         data/sounds/ringback.wav
         data/sounds/message.wav

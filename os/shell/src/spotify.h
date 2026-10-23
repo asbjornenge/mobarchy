@@ -101,7 +101,7 @@ private:
     QVariantMap m_playback;
     QVariantList m_playlists, m_liked, m_albums;
     QVariantMap m_results, m_opened, m_loaded;
-    // a key pressed: what it did shows at once, until the daemon says so too (or 2 s)
+    // a key pressed: what it did shows at once, until the daemon says so too (or 6 s)
     qint64 m_optimisticUntil = 0;
     bool m_optimisticPlaying = false;
     int m_libraryTries = 0;

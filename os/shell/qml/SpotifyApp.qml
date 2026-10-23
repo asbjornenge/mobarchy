@@ -16,6 +16,9 @@ Window {
     title: qsTr("Spotify")
     color: Theme.bg
 
+    // handwriting: the insert card, the tape's label (Caveat, SIL OFL: data/fonts)
+    FontLoader { id: hand; source: "qrc:/qt/qml/Mobarchy/Shell/data/fonts/Caveat.ttf" }
+
     Spotify {
         id: spotify
         watching: win.active || win.visible
@@ -61,6 +64,36 @@ Window {
         return colours[h % colours.length]
     }
 
+    // A new tape: the one in the deck goes out first, then what was picked is started, and
+    // the tape comes in once it plays (its label then the new song's), or after 6 s
+    property string changingFrom: ""
+    property bool changing: false
+    function changeTape(start) {
+        win.shelf = false
+        win.tracks = false
+        changingFrom = pb.trackId || ""
+        changing = true
+        ejectAnim.restart()
+        start()
+        changeTimeout.restart()
+    }
+    function tapeIn() {
+        if (!changing)
+            return
+        changing = false
+        changeTimeout.stop()
+        ejectAnim.stop()
+        insertAnim.restart()
+    }
+    Timer { id: changeTimeout; interval: 6000; onTriggered: win.tapeIn() }
+    Connections {
+        target: spotify
+        function onPlaybackChanged() {
+            if (win.changing && (win.pb.trackId || "") !== win.changingFrom && win.pb.playing === true)
+                win.tapeIn()
+        }
+    }
+
     // the shelf: tapes to pick (shown over the deck)
     property bool shelf: false
     onShelfChanged: if (shelf) spotify.loadLibrary()
@@ -77,6 +110,7 @@ Window {
             width: parent.width
             title: qsTr("Mobarchy mixtape")
             artists: qsTr("Sign in to play")
+            handFont: hand.name
         }
         Text {
             width: parent.width
@@ -137,15 +171,11 @@ Window {
                     artists: win.pb.artists || ""
                     image: win.pb.image || ""
                     stripe: win.colourOf(win.pb.album || win.pb.title)
-                    // a new tape: in from below
-                    property string loaded: win.pb.trackId || ""
-                    onLoadedChanged: insert.restart()
+                    handFont: hand.name
+                    // changing tapes (win.changeTape): out below, in again once the new one plays
                     transform: Translate { id: shift; y: 0 }
-                    SequentialAnimation {
-                        id: insert
-                        NumberAnimation { target: shift; property: "y"; to: door.height; duration: 160; easing.type: Easing.InCubic }
-                        NumberAnimation { target: shift; property: "y"; from: door.height; to: 0; duration: 380; easing.type: Easing.OutBack }
-                    }
+                    NumberAnimation { id: ejectAnim; target: shift; property: "y"; to: door.height; duration: 220; easing.type: Easing.InCubic }
+                    NumberAnimation { id: insertAnim; target: shift; property: "y"; from: door.height; to: 0; duration: 420; easing.type: Easing.OutBack }
                 }
                 // the glass of the door
                 Rectangle {
@@ -252,68 +282,71 @@ Window {
             }
         }
 
-        // the tape's songs (the playlist or album in the deck): the one playing marked, a tap
-        // plays another
-        ListView {
-            id: tapeSongs
-            anchors { top: deckColumn.bottom; topMargin: 18; bottom: parent.bottom
+        // the tape's songs (the playlist or album in the deck), written on a lined sheet as a
+        // tape's insert card: the one playing marked, a tap plays another
+        Rectangle {
+            id: paper
+            visible: tapeSongs.count > 0
+            anchors { top: deckColumn.bottom; topMargin: 18; bottom: parent.bottom; bottomMargin: 10
                       horizontalCenter: parent.horizontalCenter }
             width: deckColumn.width
+            radius: 4
+            color: "#f6f1e3"
             clip: true
-            spacing: 2
-            boundsBehavior: Theme.boundsBehavior
-            flickDeceleration: Theme.flickDeceleration
-            maximumFlickVelocity: Theme.flickVelocity
-            model: spotify.loaded.tracks || []
-            header: Text {
-                visible: tapeSongs.count > 0
-                height: visible ? 30 : 0
-                text: "📼  " + (spotify.loaded.name || "")
-                color: Theme.muted
-                font { family: Theme.font; pixelSize: 13; bold: true }
-            }
-            delegate: Rectangle {
-                id: song
-                required property var modelData
-                required property int index
-                readonly property bool current: modelData.name === win.pb.title
-                width: tapeSongs.width; height: 48
-                radius: 8
-                color: songTap.pressed ? Theme.line : current ? Qt.rgba(Theme.accent.r, Theme.accent.g, Theme.accent.b, 0.12) : "transparent"
-                Text {
-                    id: songNo
-                    anchors { left: parent.left; leftMargin: 10; verticalCenter: parent.verticalCenter }
-                    width: 28
-                    text: song.current && win.pb.playing === true ? "󰐊" : String(song.index + 1)
-                    color: song.current ? Theme.accent : Theme.muted
-                    font { family: Theme.font; pixelSize: 13 }
-                }
-                Column {
-                    anchors { left: songNo.right; leftMargin: 6; right: songTime.left; rightMargin: 8
-                              verticalCenter: parent.verticalCenter }
+            readonly property real line: 40
+            // the red margin
+            Rectangle { x: 46; width: 1.5; height: parent.height; color: "#e3a1a1"; z: 1 }
+            ListView {
+                id: tapeSongs
+                anchors.fill: parent
+                boundsBehavior: Theme.boundsBehavior
+                flickDeceleration: Theme.flickDeceleration
+                maximumFlickVelocity: Theme.flickVelocity
+                model: spotify.loaded.tracks || []
+                header: Item {
+                    width: tapeSongs.width; height: paper.line * 1.4
                     Text {
-                        width: parent.width
-                        text: song.modelData.name || ""
+                        anchors { left: parent.left; leftMargin: 56; right: parent.right; rightMargin: 12; bottom: parent.bottom; bottomMargin: 4 }
+                        text: spotify.loaded.name || ""
                         elide: Text.ElideRight
-                        color: song.current ? Theme.accent : Theme.fg
-                        font { family: Theme.font; pixelSize: 14 }
+                        color: "#1f3a8a"
+                        font { family: hand.name; pixelSize: 28; bold: true }
+                    }
+                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#a9c4e8" }
+                }
+                delegate: Item {
+                    id: song
+                    required property var modelData
+                    required property int index
+                    readonly property bool current: modelData.name === win.pb.title
+                    width: tapeSongs.width; height: paper.line
+                    Rectangle { anchors.fill: parent; visible: songTap.pressed; color: Qt.rgba(0, 0, 0, 0.06) }
+                    Text {
+                        id: songNo
+                        anchors { right: parent.left; rightMargin: -40; baseline: parent.bottom; baselineOffset: -9 }
+                        text: song.current && win.pb.playing === true ? "▶" : (song.index + 1) + "."
+                        color: song.current ? "#c0392b" : "#55566a"
+                        font { family: hand.name; pixelSize: 22 }
                     }
                     Text {
-                        width: parent.width
-                        text: song.modelData.artists || ""
+                        anchors { left: parent.left; leftMargin: 56; right: songTime.left; rightMargin: 8
+                                  baseline: parent.bottom; baselineOffset: -9 }
+                        text: (song.modelData.name || "") + (song.modelData.artists ? "  – " + song.modelData.artists : "")
                         elide: Text.ElideRight
-                        color: Theme.muted
-                        font { family: Theme.font; pixelSize: 11 }
+                        color: song.current ? "#c0392b" : "#1f3a8a"
+                        font { family: hand.name; pixelSize: 24; bold: song.current }
                     }
+                    Text {
+                        id: songTime
+                        anchors { right: parent.right; rightMargin: 12; baseline: parent.bottom; baselineOffset: -9 }
+                        text: win.time(song.modelData.durationMs)
+                        color: "#55566a"
+                        font { family: hand.name; pixelSize: 20 }
+                    }
+                    // the sheet's line
+                    Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#a9c4e8" }
+                    MouseArea { id: songTap; anchors.fill: parent; onClicked: spotify.playTrack(song.modelData.id) }
                 }
-                Text {
-                    id: songTime
-                    anchors { right: parent.right; rightMargin: 10; verticalCenter: parent.verticalCenter }
-                    text: win.time(song.modelData.durationMs)
-                    color: Theme.muted
-                    font { family: Theme.font; pixelSize: 11 }
-                }
-                MouseArea { id: songTap; anchors.fill: parent; onClicked: spotify.playTrack(song.modelData.id) }
             }
         }
     }
@@ -503,12 +536,13 @@ Window {
                         id: actTap
                         anchors.fill: parent
                         onClicked: {
-                            if (win.tracks)
-                                spotify.playContext(spotify.opened.type, spotify.opened.id, act.modelData.shuffle)
-                            else
-                                spotify.playLiked(act.modelData.shuffle)
-                            win.shelf = false
-                            win.tracks = false
+                            const shuffle = act.modelData.shuffle
+                            if (win.tracks) {
+                                const o = spotify.opened
+                                win.changeTape(() => spotify.playContext(o.type, o.id, shuffle))
+                            } else {
+                                win.changeTape(() => spotify.playLiked(shuffle))
+                            }
                         }
                     }
                 }
@@ -614,9 +648,7 @@ Window {
                         onClicked: {
                             const m = row.modelData
                             if (m.kind === "track") {
-                                spotify.playTrack(m.id)
-                                win.shelf = false
-                                win.tracks = false
+                                win.changeTape(() => spotify.playTrack(m.id))
                             } else {
                                 spotify.open(m.kind, m.id, m.name)
                                 win.tracks = true

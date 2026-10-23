@@ -16,6 +16,8 @@ Item {
     property string image
     property color stripe: Theme.accent
     property string side: "A"
+    // written on the label in this (a handwriting), else the theme's
+    property string handFont: ""
 
     implicitWidth: 340
     implicitHeight: width * 0.638      // (a real one is 100 x 63.8 mm)
@@ -118,18 +120,18 @@ Item {
             Text {
                 id: titleText
                 anchors { left: parent.left; right: parent.right; top: parent.top
-                          leftMargin: parent.height * 0.25; rightMargin: parent.height * 0.25; topMargin: parent.height * 0.1 }
+                          leftMargin: parent.height * 0.25; rightMargin: parent.height * 0.25; topMargin: parent.height * 0.02 }
                 text: tape.title || qsTr("Blank tape")
                 elide: Text.ElideRight
                 color: "#22232d"
-                font { family: Theme.font; pixelSize: Math.max(10, tape.h * 0.075); bold: true; italic: true }
+                font { family: tape.handFont || Theme.font; pixelSize: Math.max(10, tape.h * (tape.handFont ? 0.085 : 0.075)); bold: true; italic: !tape.handFont }
             }
             Text {
                 anchors { left: titleText.left; right: titleText.right; top: titleText.bottom }
                 text: tape.artists
                 elide: Text.ElideRight
                 color: "#3c3d4d"
-                font { family: Theme.font; pixelSize: Math.max(9, tape.h * 0.055); italic: true }
+                font { family: tape.handFont || Theme.font; pixelSize: Math.max(9, tape.h * (tape.handFont ? 0.062 : 0.055)); italic: !tape.handFont }
             }
         }
         Text {

@@ -324,7 +324,7 @@ void Spotify::refresh()
                      {QStringLiteral("repeat"), m_repeat}};
             }
         }
-        // (a key just pressed: its state stands until the daemon's agrees, or 2 s)
+        // (a key just pressed: its state stands until the daemon's agrees, or 6 s)
         if (!p.isEmpty() && QDateTime::currentMSecsSinceEpoch() < m_optimisticUntil) {
             if (p.value(QStringLiteral("playing")).toBool() == m_optimisticPlaying)
                 m_optimisticUntil = 0;
@@ -466,7 +466,9 @@ void Spotify::playPause()
     // at once on the screen; the daemon's answer follows
     if (!m_playback.isEmpty()) {
         m_optimisticPlaying = !m_playback.value(QStringLiteral("playing")).toBool();
-        m_optimisticUntil = QDateTime::currentMSecsSinceEpoch() + 2000;
+        // (spotify-player's own state follows its Web API's: a second or more behind, even
+        // for its MPRIS)
+        m_optimisticUntil = QDateTime::currentMSecsSinceEpoch() + 6000;
         m_playback[QStringLiteral("playing")] = m_optimisticPlaying;
         emit playbackChanged();
     }
