@@ -12,6 +12,8 @@ Type=forking
 # owner's, so outside the image): SPOTIFY_CLIENT_ID in ~/.config/mobarchy/spotify.env.
 # Without it, spotify-player's shared one (ncspot's), which is often at Spotify's rate limit.
 EnvironmentFile=-%h/.config/mobarchy/spotify.env
+# its sign-in pages go to the app (/usr/lib/mobarchy/spotify-signin/xdg-open)
+Environment=PATH=/usr/lib/mobarchy/spotify-signin:/usr/local/bin:/usr/bin
 ExecStart=/bin/sh -c 'exec /usr/bin/spotify_player -c /usr/share/mobarchy/spotify-player $${SPOTIFY_CLIENT_ID:+-o client_id=$$SPOTIFY_CLIENT_ID} -d'
 Restart=on-failure
 RestartSec=5

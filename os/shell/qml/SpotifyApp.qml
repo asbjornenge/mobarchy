@@ -19,6 +19,7 @@ Window {
     Spotify {
         id: spotify
         watching: win.active || win.visible
+        onSignInUrl: (url) => Qt.openUrlExternally(url)
         // the last approval came back: here again, from the browser
         onSignedInBack: {
             win.raise()

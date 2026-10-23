@@ -37,6 +37,11 @@ void closeSignInTabs()
 const QString Program = QStringLiteral("spotify_player");
 const QString Config = QStringLiteral("/usr/share/mobarchy/spotify-player");
 const QString Service = QStringLiteral("mobarchy-spotify.service");
+// where the daemon's sign-in pages come (its xdg-open: /usr/lib/mobarchy/spotify-signin)
+QString signInFile()
+{
+    return QStandardPaths::writableLocation(QStandardPaths::RuntimeLocation) + QStringLiteral("/mobarchy-spotify-signin");
+}
 const QString DeviceName = QStringLiteral("Mobarchy");       // (its config's device.name)
 const QString Mpris = QStringLiteral("org.mpris.MediaPlayer2.spotify_player");
 const QString MprisPath = QStringLiteral("/org/mpris/MediaPlayer2");
@@ -161,8 +166,20 @@ Spotify::Spotify(QObject *parent)
     connect(&m_poll, &QTimer::timeout, this, &Spotify::refresh);
     m_signInPoll.setInterval(1000);
     connect(&m_signInPoll, &QTimer::timeout, this, [this] {
+        // a page the daemon wants opened: the one before it goes first (each is the next
+        // approval; an old one approved again would answer the wrong callback)
+        QFile f(signInFile());
+        if (f.open(QIODevice::ReadOnly)) {
+            const QStringList urls = QString::fromUtf8(f.readAll()).split(u'\n', Qt::SkipEmptyParts);
+            if (urls.size() > m_urlsSeen) {
+                m_urlsSeen = int(urls.size());
+                closeSignInTabs();
+                emit signInUrl(urls.last());
+            }
+        }
         if (QFile::exists(cacheDir() + QStringLiteral("/credentials.json"))) {
             m_signInPoll.stop();
+            QFile::remove(signInFile());
             closeSignInTabs();
             setState(QStringLiteral("ready"));
             emit signedInBack();
@@ -218,7 +235,15 @@ void Spotify::checkSignedIn()
     const QDir cache(cacheDir());
     const bool signedIn = cache.exists(QStringLiteral("credentials.json"));
     if (!signedIn) {
-        setState(QStringLiteral("signedOut"));
+        // (the daemon waiting for an approval already: go on with it)
+        if (QFile::exists(signInFile())) {
+            setState(QStringLiteral("signingIn"));
+            m_urlsSeen = 0;
+            m_signInWait = 0;
+            m_signInPoll.start();
+        } else {
+            setState(QStringLiteral("signedOut"));
+        }
         return;
     }
     // the daemon (it plays on and is a Connect device while the app is closed)
@@ -307,11 +332,13 @@ void Spotify::refresh()
 
 void Spotify::signIn()
 {
-    // The daemon signs in itself when it has no credentials: Spotify's pages open in the
-    // browser (the Web API's, then the streaming's), its own callback takes each answer,
-    // and once connected it keeps the credentials. (spotify_player's `authenticate`
-    // doesn't: it drops the streaming's.) Here: start it, and wait for them.
+    // The daemon signs in itself when it has no credentials: Spotify's pages (its Web API
+    // client's, ncspot's fallback's, then the streaming's), its own callback taking each
+    // answer, and once connected it keeps the credentials. (spotify_player's `authenticate`
+    // doesn't: it drops the streaming's.) Here: start it, open its pages, wait for them.
     setState(QStringLiteral("signingIn"));
+    QFile::remove(signInFile());
+    m_urlsSeen = 0;
     QProcess::startDetached(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("restart"), Service});
     m_signInWait = 0;
     m_signInPoll.start();

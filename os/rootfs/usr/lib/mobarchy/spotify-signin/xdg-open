@@ -1,0 +1,5 @@
+#!/bin/sh
+# Spotify's sign-in pages (ADR 0041): spotify-player, running as mobarchy-spotify.service,
+# opens them with xdg-open, and that didn't always reach the browser. This xdg-open, first
+# on the service's PATH, hands them to the Spotify app instead, which opens each once.
+printf '%s\n' "$1" >> "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/mobarchy-spotify-signin"

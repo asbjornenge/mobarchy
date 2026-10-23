@@ -33,10 +33,14 @@ keeps the tokens in its cache.
   play, pause, forward, next; PLAY stays down while it plays), with a counter and a tape to
   drag along. Eject opens the shelf: the playlists, the liked songs, the saved albums and a
   search, each a tape's spine with its label; a tape picked goes into the deck.
-- **Signing in** is the daemon's: without credentials it opens Spotify's pages in the
-  browser (its Web API client's, then the streaming's), takes each answer on its own
-  callback (127.0.0.1:8989), and keeps the credentials once connected. The app starts it
-  and waits for them; then it closes the pages and comes back to the front.
+- **Signing in** is the daemon's: without credentials it asks for Spotify's approvals (its
+  Web API client's, the ncspot fallback's that spotify-player always makes beside an own
+  client ID, then the streaming's), takes each answer on its own callback
+  (127.0.0.1:8989), and keeps the credentials once connected. Its pages it opens with
+  xdg-open, which didn't always reach the browser from the service; the service's PATH has
+  an xdg-open of Mobarchy's first (`/usr/lib/mobarchy/spotify-signin`) that hands them to
+  the app (`$XDG_RUNTIME_DIR/mobarchy-spotify-signin`), and the app opens each, once, the
+  one before it closed first. Done: the pages close and the app comes back to the front.
   (`spotify_player authenticate` is no use here: it gets the streaming's token and drops it
   without keeping credentials. Two other ways failed first: the app opening the pages too
   gave two of each, and one approved twice sent the first's code to the second's
@@ -44,6 +48,10 @@ keeps the tokens in its cache.
 
 ## Consequences
 
+- librespot plays music on comet's speaker with bigger buffers
+  (`pipewire-pulse.conf.d/50-mobarchy-spotify.conf`, 2048 frames): smaller ones stuttered.
+- spotify-player couldn't start a playlist of a single track (librespot: "the current track
+  couldn't be resolved from the transfer state").
 - Spotify Premium is needed (librespot plays only for Premium accounts).
 - spotify-player's default Web API client is shared (ncspot's) and was at Spotify's rate
   limit at once (and the app's first version, asking for the playback every second through

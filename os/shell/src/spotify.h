@@ -78,6 +78,8 @@ signals:
     void errorChanged();
     void watchingChanged();
     void signedInBack();
+    // a sign-in page to open in the browser
+    void signInUrl(const QString &url);
 
 private:
     // spotify_player with args; done(ok, stdout) when it ends
@@ -102,4 +104,5 @@ private:
     QString m_repeat = QStringLiteral("off");
     QTimer m_signInPoll;
     int m_signInWait = 0;
+    int m_urlsSeen = 0;
 };

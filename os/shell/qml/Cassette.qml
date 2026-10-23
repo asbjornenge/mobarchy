@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Shapes
 import Mobarchy.Shell
 
@@ -61,8 +62,20 @@ Item {
         width: tape.w * 0.86; height: tape.h * 0.6
         radius: tape.w * 0.015
         color: "#efe6d2"
-        // the coloured band of the label
+        clip: true
+        // the album's cover over the whole label
+        Image {
+            id: cover
+            anchors.fill: parent
+            visible: tape.image !== "" && status === Image.Ready
+            source: tape.image
+            fillMode: Image.PreserveAspectCrop
+            asynchronous: true
+            sourceSize.width: 640
+        }
+        // (no cover: the label's coloured band)
         Rectangle {
+            visible: !cover.visible
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom; bottomMargin: parent.height * 0.08 }
             height: parent.height * 0.1
             gradient: Gradient {
@@ -71,10 +84,17 @@ Item {
                 GradientStop { position: 1; color: Qt.darker(tape.stripe, 1.3) }
             }
         }
-        // written on it: the title and the artists
+        // the strip written on: the title and the artists (over the cover, as a sticker)
+        Rectangle {
+            id: strip
+            anchors { left: parent.left; right: parent.right; top: parent.top }
+            height: parent.height * 0.3
+            color: cover.visible ? Qt.rgba(0.94, 0.9, 0.82, 0.9) : "transparent"
+        }
         Text {
             id: titleText
-            anchors { left: parent.left; right: sideText.left; top: parent.top; margins: parent.height * 0.06 }
+            anchors { left: parent.left; right: sideText.left; top: parent.top; margins: parent.height * 0.04 }
+            anchors.leftMargin: parent.height * 0.06
             text: tape.title || qsTr("Blank tape")
             elide: Text.ElideRight
             color: "#22232d"
@@ -89,31 +109,21 @@ Item {
         }
         Text {
             id: sideText
-            anchors { right: parent.right; top: parent.top; margins: parent.height * 0.04 }
+            anchors { right: parent.right; top: parent.top; margins: parent.height * 0.03 }
             text: tape.side
             color: Qt.darker(tape.stripe, 1.2)
-            font { family: Theme.font; pixelSize: tape.h * 0.12; bold: true }
-        }
-        // the album's cover, as a sticker beside the window
-        Rectangle {
-            visible: tape.image !== ""
-            x: parent.width * 0.025
-            y: window.y - label.y + (window.height - height) / 2
-            width: Math.min(parent.width * 0.16, window.height * 1.1); height: width
-            radius: 3
-            color: "#22232d"
-            clip: true
-            Image {
-                anchors.fill: parent
-                source: tape.image
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
-                sourceSize.width: 160
-            }
+            font { family: Theme.font; pixelSize: tape.h * 0.11; bold: true }
         }
     }
 
     // --- the window, with the reels ------------------------------------------------------
+    Rectangle {
+        id: windowMask
+        x: window.x; y: window.y; width: window.width; height: window.height
+        radius: window.radius
+        layer.enabled: true
+        visible: false
+    }
     Rectangle {
         id: window
         x: tape.w * 0.25; y: tape.h * 0.3
@@ -122,6 +132,14 @@ Item {
         color: "#15151b"
         border.color: "#0b0b0f"
         clip: true
+        // cut to its round ends (clip alone cuts square), so that the label shows around them
+        layer.enabled: true
+        layer.effect: MultiEffect {
+            maskEnabled: true
+            maskSource: windowMask
+            maskThresholdMin: 0.5
+            maskSpreadAtMin: 1.0
+        }
 
         // the tape wound on each reel: from the left one to the right one
         readonly property real rMin: tape.w * 0.06
@@ -175,25 +193,6 @@ Item {
                     width: parent.width * 0.32; height: width; radius: width / 2
                     color: "#15151b"
                 }
-            }
-        }
-        // the label around the window's round ends (clip cuts square: cover the corners)
-        Shape {
-            anchors.fill: parent
-            ShapePath {
-                fillColor: "#efe6d2"
-                strokeColor: "transparent"
-                fillRule: ShapePath.OddEvenFill
-                startX: 0; startY: 0
-                PathLine { x: window.width; y: 0 }
-                PathLine { x: window.width; y: window.height }
-                PathLine { x: 0; y: window.height }
-                PathLine { x: 0; y: 0 }
-                PathMove { x: window.radius; y: 0 }
-                PathLine { x: window.width - window.radius; y: 0 }
-                PathArc { x: window.width - window.radius; y: window.height; radiusX: window.radius; radiusY: window.radius }
-                PathLine { x: window.radius; y: window.height }
-                PathArc { x: window.radius; y: 0; radiusX: window.radius; radiusY: window.radius }
             }
         }
         // the glass

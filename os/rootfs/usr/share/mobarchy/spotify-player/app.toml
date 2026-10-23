@@ -7,6 +7,9 @@ enable_streaming = "Always"
 enable_media_control = true      # MPRIS: the lock screen's player, Frigg, headset buttons
 enable_notify = false            # (the app shows what plays)
 enable_cover_image_cache = true
+# Everything through the owner's own client ID (SPOTIFY_CLIENT_ID; the service): no
+# fallback to ncspot's shared one (another approval, under ncspot's name, and its rate limit)
+ncspot_only_get_endpoints = []
 
 [device]
 name = "Mobarchy"
