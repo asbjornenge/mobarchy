@@ -7,7 +7,6 @@
 
 #include <QObject>
 #include <QProcess>
-#include <QTemporaryDir>
 #include <QTimer>
 #include <QVariant>
 #include <QtQml/qqmlregistration.h>
@@ -48,9 +47,9 @@ public:
     bool watching() const { return m_watching; }
     void setWatching(bool watching);
 
-    // Sign in: Spotify's page in the browser, twice (signInUrl: open each, once); both answers
-    // go to spotify_player's own callback (127.0.0.1:8989). Done: the pages close, and
-    // signedInBack (the app comes back to the front).
+    // Sign in: the daemon opens Spotify's pages in the browser and takes the answers; done
+    // when it has kept its credentials (the pages close, and signedInBack: the app comes
+    // back to the front).
     Q_INVOKABLE void signIn();
     Q_INVOKABLE void loadLibrary();
     Q_INVOKABLE void search(const QString &query);
@@ -76,7 +75,6 @@ signals:
     void openedChanged();
     void errorChanged();
     void watchingChanged();
-    void signInUrl(const QString &url);
     void signedInBack();
 
 private:
@@ -96,7 +94,6 @@ private:
     bool m_watching = false;
     bool m_refreshing = false;
     QTimer m_poll;
-    QProcess *m_signIn = nullptr;
-    QTemporaryDir *m_noBrowser = nullptr;
-    int m_urls = 0;
+    QTimer m_signInPoll;
+    int m_signInWait = 0;
 };

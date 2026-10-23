@@ -1,8 +1,8 @@
 [Unit]
 Description=Spotify on the phone (spotify-player: a Spotify Connect device, with MPRIS)
-# Started by the Spotify app once signed in; it stays up so that Spotify plays on with the
+# Started by the Spotify app (signing in too: without credentials it opens Spotify's pages
+# in the browser and keeps what it gets); it stays up so that Spotify plays on with the
 # app closed and the phone shows as a device in Spotify's other apps.
-ConditionPathExists=%h/.cache/spotify-player/credentials.json
 After=pipewire-pulse.service
 
 [Service]

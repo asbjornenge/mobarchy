@@ -19,20 +19,12 @@ Window {
     Spotify {
         id: spotify
         watching: win.active || win.visible
-        onSignInUrl: (url) => {
-            if (win.signInUrls.includes(url))
-                return
-            win.signInUrls = win.signInUrls.concat([url])
-            Qt.openUrlExternally(url)
-        }
         // the last approval came back: here again, from the browser
         onSignedInBack: {
             win.raise()
             win.requestActivate()
         }
-        onStateChanged: if (state === "signingIn") win.signInUrls = []
     }
-    property var signInUrls: []
 
     // what plays, with its progress moving on between the daemon's reports
     readonly property var pb: spotify.playback

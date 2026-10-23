@@ -5,7 +5,6 @@
 #include <QDBusReply>
 #include <QDir>
 #include <QFile>
-#include <QProcessEnvironment>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -152,6 +151,19 @@ Spotify::Spotify(QObject *parent)
 {
     m_poll.setInterval(1000);
     connect(&m_poll, &QTimer::timeout, this, &Spotify::refresh);
+    m_signInPoll.setInterval(1000);
+    connect(&m_signInPoll, &QTimer::timeout, this, [this] {
+        if (QFile::exists(cacheDir() + QStringLiteral("/credentials.json"))) {
+            m_signInPoll.stop();
+            closeSignInTabs();
+            setState(QStringLiteral("ready"));
+            emit signedInBack();
+        } else if (++m_signInWait > 600) {     // ten minutes
+            m_signInPoll.stop();
+            setError(tr("Signing in didn't finish"));
+            setState(QStringLiteral("signedOut"));
+        }
+    });
     checkSignedIn();
 }
 
@@ -269,52 +281,14 @@ void Spotify::refresh()
 
 void Spotify::signIn()
 {
-    if (m_signIn)
-        return;
+    // The daemon signs in itself when it has no credentials: Spotify's pages open in the
+    // browser (the Web API's, then the streaming's), its own callback takes each answer,
+    // and once connected it keeps the credentials. (spotify_player's `authenticate`
+    // doesn't: it drops the streaming's.) Here: start it, and wait for them.
     setState(QStringLiteral("signingIn"));
-    m_urls = 0;
-    m_signIn = new QProcess(this);
-    m_signIn->setProcessChannelMode(QProcess::MergedChannels);
-    // spotify_player opens the pages itself, through xdg-open: not that (the app opens
-    // each once), a do-nothing xdg-open first on its PATH
-    m_noBrowser = new QTemporaryDir;
-    QFile fake(m_noBrowser->filePath(QStringLiteral("xdg-open")));
-    if (fake.open(QIODevice::WriteOnly)) {
-        fake.write("#!/bin/sh\nexit 0\n");
-        fake.close();
-        fake.setPermissions(QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner);
-    }
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    env.insert(QStringLiteral("PATH"), m_noBrowser->path() + u':' + env.value(QStringLiteral("PATH")));
-    m_signIn->setProcessEnvironment(env);
-    connect(m_signIn, &QProcess::readyRead, this, [this] {
-        static const QRegularExpression url(QStringLiteral("(https://accounts\\.spotify\\.com/\\S+)"));
-        const QString text = QString::fromUtf8(m_signIn->readAll());
-        qInfo().noquote() << "spotify_player authenticate:" << text.trimmed().left(200);
-        auto it = url.globalMatch(text);
-        while (it.hasNext()) {
-            const QString u = it.next().captured(1);
-            // the second (librespot's): the first's page goes first, so that it can't be
-            // approved again into the second's callback (which takes any code, and fails)
-            if (++m_urls == 2)
-                closeSignInTabs();
-            emit signInUrl(u);
-        }
-    });
-    connect(m_signIn, &QProcess::finished, this, [this](int code) {
-        m_signIn->deleteLater();
-        m_signIn = nullptr;
-        delete m_noBrowser;
-        m_noBrowser = nullptr;
-        qInfo() << "spotify_player authenticate ended:" << code;
-        if (code != 0)
-            setError(tr("Signing in didn't work"));
-        closeSignInTabs();
-        checkSignedIn();
-        if (m_state == u"ready")
-            emit signedInBack();
-    });
-    m_signIn->start(Program, {QStringLiteral("-c"), Config, QStringLiteral("authenticate")});
+    QProcess::startDetached(QStringLiteral("systemctl"), {QStringLiteral("--user"), QStringLiteral("restart"), Service});
+    m_signInWait = 0;
+    m_signInPoll.start();
 }
 
 void Spotify::loadLibrary()

@@ -33,8 +33,14 @@ keeps the tokens in its cache.
   play, pause, forward, next; PLAY stays down while it plays), with a counter and a tape to
   drag along. Eject opens the shelf: the playlists, the liked songs, the saved albums and a
   search, each a tape's spine with its label; a tape picked goes into the deck.
-- **Signing in** is spotify-player's (`authenticate`): the app runs it, and the browser
-  opens Spotify's page (the URL it prints, once each).
+- **Signing in** is the daemon's: without credentials it opens Spotify's pages in the
+  browser (its Web API client's, then the streaming's), takes each answer on its own
+  callback (127.0.0.1:8989), and keeps the credentials once connected. The app starts it
+  and waits for them; then it closes the pages and comes back to the front.
+  (`spotify_player authenticate` is no use here: it gets the streaming's token and drops it
+  without keeping credentials. Two other ways failed first: the app opening the pages too
+  gave two of each, and one approved twice sent the first's code to the second's
+  callback; a callback of the app's own took the port the daemon needs.)
 
 ## Consequences
 
