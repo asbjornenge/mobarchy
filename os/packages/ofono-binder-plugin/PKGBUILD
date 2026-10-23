@@ -5,7 +5,7 @@
 
 pkgname=ofono-binder-plugin
 pkgver=1.1.33
-pkgrel=1
+pkgrel=2
 pkgdesc="oFono plugin for Android's radio HAL over binder"
 arch=(x86_64 aarch64)
 url='https://github.com/mer-hybris/ofono-binder-plugin'
@@ -13,8 +13,15 @@ license=(BSD-3-Clause)
 depends=(ofono-sailfish libgbinder libgbinder-radio libglibutil libmce-glib glib2)
 makedepends=(git)
 provides=(libofonobinderpluginext)
-source=("git+$url.git#tag=$pkgver")
-sha256sums=('SKIP')
+source=("git+$url.git#tag=$pkgver"
+        0001-indication-filter-off-with-the-display.patch)
+sha256sums=('SKIP' 'SKIP')
+
+# Deep sleep (ADR 0043): no network indications with the display off
+prepare() {
+	cd $pkgname
+	patch -p1 < ../0001-indication-filter-off-with-the-display.patch
+}
 
 build() {
 	cd $pkgname

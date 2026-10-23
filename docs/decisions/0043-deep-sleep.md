@@ -1,6 +1,6 @@
 # 0043: Deep sleep
 
-- Status: built; mobarchy-suspend not enabled until the Wi-Fi survives long sleeps (below)
+- Status: accepted (on since 2026-10-23 evening; calls in sleep still to be tried with a SIM)
 - Date: 2026-10-23
 
 ## Context
@@ -64,3 +64,17 @@ Android's way, in userspace:
   chip was busy, with its PCIe link in recovery (`RCVRY LOCK`): the loop now backs off
   (0.1 s doubling to a minute). Until the Wi-Fi resumes reliably (and filters what it
   should), the service stays off; the shell's SleepGate and mobarchy-mce stay in.
+
+## Second round (2026-10-23 evening)
+
+- With the backoff, Wi-Fi survived 3 and 7 minutes of sleeping (on and off): no linkdown.
+- oFono's binder plugin got MCE's display state (mobarchy-mce) and told the modem "low
+  data expected", but always set the indication filter to all: patched
+  (`os/packages/ofono-binder-plugin`, pkgrel 2): none with the display off, as Android.
+  The modem's wakes went from 104 in 7 min to none.
+- Measured with the battery's charge counter: **109 mA** on average with the screen off
+  (5 min), against 175 mA awake. What is left is Wi-Fi (138 wakes in 5 min). The packets
+  that woke it, by a sniffer comparing the wall and monotonic clocks: non-IP broadcasts and
+  multicasts (Realtek's RRCP, ethertype 0x8899, from the home router; 802.3/LLC frames),
+  ZeroTier (UDP 9993), and connections to the internet. Next: drop non-IP broadcasts in
+  the chip's packet filter, and fewer keepalives.
