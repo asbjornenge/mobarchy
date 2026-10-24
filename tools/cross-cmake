@@ -4,6 +4,7 @@
 # under qemu-user takes a quarter of an hour (and building on the phone heats it up).
 #
 #   tools/cross-cmake <package dir> --work <dir> [--repo <dir>] [--fresh] [--device <user@host>]
+#                     [--assume-installed <pkg>]...
 #
 #   --work   where the sysroot and the build tree go (a few GB)
 #   --repo   Mobarchy's repository: the package is added to it (tools/repo-build --add)
@@ -14,6 +15,9 @@
 #            against exactly what it runs (Arch Linux ARM's mirrors move on, and are not always
 #            in step with each other). The compiler's (gcc, libstdc++) still come from the
 #            container; the device's gcc-libs has to be the same version (checked).
+#   --assume-installed  a dependency the device has without pacman knowing (as pacman's own
+#            flag: e.g. qt6-imageformats, whose plugins are on comet by hand until a 6.11
+#            package exists)
 #
 # As os/packages/qt6-webengine/cross-build does it (Qt's cross-compiling): an Arch Linux ARM
 # sysroot with the package's dependencies (the mobarchy-alarm-base container, exported); an
@@ -23,13 +27,14 @@
 # tree (makepkg -R).
 set -euo pipefail
 repo_root="$(cd "$(dirname "$0")/.." && pwd)"
-pkgdir="" work="" repo="" fresh=0 device=""
+pkgdir="" work="" repo="" fresh=0 device="" assumed=""
 while [ $# -gt 0 ]; do
     case "$1" in
         --work) work="$(realpath -m "$2")"; shift 2 ;;
         --repo) repo="$(realpath -m "$2")"; shift 2 ;;
         --fresh) fresh=1; shift ;;
         --device) device="$2"; shift 2 ;;
+        --assume-installed) assumed="$assumed $2"; shift 2 ;;
         -*) echo "unknown argument: $1" >&2; exit 2 ;;
         *) pkgdir="$(realpath "$1")"; shift ;;
     esac
@@ -59,7 +64,9 @@ if [ $fresh = 1 ] || [ "$(cat "$work/sysroot.deps" 2>/dev/null)" != "$sysroot_ke
     container_pkgs="gcc pkgconf linux-api-headers $deps"
     if [ -n "$device" ]; then
         # (what it runs with: its makedepends, e.g. pkgconf, come from the container)
-        missing=$(ssh_device "pacman -T $(pkgvar 'echo ${depends[@]}')" || true)
+        missing=$(ssh_device "pacman -T $(pkgvar 'echo ${depends[@]}')" | tr ' ' '\n' \
+            | { grep -vxF -f <(printf '%s\n' $assumed) || true; } | tr '\n' ' ' || true)
+        missing=${missing% }
         [ -z "$missing" ] || { echo "not installed on $device: $missing" >&2; exit 1; }
         container_pkgs="gcc pkgconf linux-api-headers $(pkgvar 'echo ${makedepends[@]}' | tr ' ' '\n' | { grep -vxE 'cmake|ninja' || true; } | tr '\n' ' ')"
     fi

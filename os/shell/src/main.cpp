@@ -9,6 +9,7 @@
 #include "windowcapture.h"
 
 #include <QGuiApplication>
+#include <QtWebEngineQuick/qtwebenginequickglobal.h>
 #include <QQmlApplicationEngine>
 
 int main(int argc, char *argv[])
@@ -42,6 +43,10 @@ int main(int argc, char *argv[])
         if (argc > 1 && qstrcmp(argv[1], a.flag) == 0)
             own = &a;
     QGuiApplication::setDesktopFileName(QString::fromLatin1(own ? own->id : "org.mobarchy.Shell"));
+    // Mail shows HTML mail with Chromium (QtWebEngine): set up before the application, and
+    // only in its process
+    if (own && qstrcmp(own->flag, "--mail") == 0)
+        QtWebEngineQuick::initialize();
     QGuiApplication app(argc, argv);
     app.setApplicationName(QString::fromLatin1(own ? own->name : "mobarchy-shell"));
     // Layer surfaces are closed by the compositor when their output goes away (a fold);

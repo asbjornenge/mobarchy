@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.21)
 # C: the protocol code from wayland-scanner.
 project(mobarchy-shell VERSION 0.1 LANGUAGES C CXX)
 
-find_package(Qt6 6.5 REQUIRED COMPONENTS Gui GuiPrivate Quick DBus Network WaylandClient Multimedia Test)
+find_package(Qt6 6.5 REQUIRED COMPONENTS Gui GuiPrivate Quick DBus Network WaylandClient Multimedia WebEngineQuick Test)
 find_package(PolkitQt6-1 REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(PAM REQUIRED IMPORTED_TARGET pam)
@@ -170,7 +170,7 @@ qt6_generate_wayland_protocol_client_sources(mobarchy-shell
         ${CMAKE_CURRENT_SOURCE_DIR}/protocols/ext-image-copy-capture-v1.xml)
 target_include_directories(mobarchy-shell PRIVATE src)
 target_link_libraries(mobarchy-shell PRIVATE
-    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::Network Qt6::WaylandClient Qt6::Multimedia
+    core Qt6::Gui Qt6::GuiPrivate Qt6::Quick Qt6::DBus Qt6::Network Qt6::WaylandClient Qt6::Multimedia Qt6::WebEngineQuick
     PolkitQt6-1::Agent
     PkgConfig::PIPEWIRE PkgConfig::PULSE PkgConfig::PAM PkgConfig::XCRYPT PkgConfig::XKBCOMMON)
 

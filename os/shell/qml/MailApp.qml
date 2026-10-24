@@ -1,6 +1,7 @@
 pragma ComponentBehavior: Bound
 
 import QtQuick
+import QtWebEngine
 import Mobarchy.Shell
 
 // Mail (ADR 0038), after Spark: the inbox in three (people, notifications, newsletters), a
@@ -15,9 +16,23 @@ Window {
     title: qsTr("Mail")
     color: Theme.bg
 
+    // the message's HTML, when it has one; remote images only when asked for
+    readonly property bool html: !!(win.message && win.message.html)
+    readonly property bool remoteImages: html && /(src|background)\s*=\s*["']?https?:/i.test(win.message.html)
+    property bool showImages: false
+    onMessageChanged: showImages = false
+    function htmlPage() {
+        const csp = showImages ? "default-src 'none'; img-src https: http: data:; style-src 'unsafe-inline' https: http:; font-src https: http: data:"
+                               : "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
+        const head = '<meta http-equiv="Content-Security-Policy" content="' + csp + '">'
+                   + '<meta name="viewport" content="width=device-width, initial-scale=1">'
+                   + '<style>body{margin:12px;overflow-wrap:anywhere}img{max-width:100%;height:auto}table{max-width:100%}</style>'
+        return head + win.message.html
+    }
+
     MailData {
         id: mail
-        category: "people"
+        category: ""
         onOpened: (message) => win.message = message
         onSent: (ok, error) => {
             win.sending = false
@@ -116,52 +131,20 @@ Window {
             MouseArea { id: newTap; anchors.fill: parent; onClicked: compose.write(null, "") }
         }
 
-        // the inbox's parts, and the snoozed
-        Flickable {
-            id: chips
-            anchors { left: parent.left; right: parent.right; top: heading.bottom; topMargin: 14 }
-            height: 38
-            contentWidth: chipRow.width + 32
-            flickableDirection: Flickable.HorizontalFlick
-            boundsBehavior: Theme.boundsBehavior
-            Row {
-                id: chipRow
-                x: 16
-                spacing: 8
-                Repeater {
-                    model: [{ id: "people", label: qsTr("People") }, { id: "notifications", label: qsTr("Notifications") },
-                            { id: "newsletters", label: qsTr("Newsletters") }, { id: "", label: qsTr("All") },
-                            { id: "snoozed", label: qsTr("Snoozed") }]
-                    delegate: Rectangle {
-                        id: chip
-                        required property var modelData
-                        readonly property bool on: modelData.id === "snoozed" ? mail.snoozed
-                                                 : !mail.snoozed && mail.category === modelData.id
-                        readonly property int count: modelData.id && modelData.id !== "snoozed"
-                                                     ? (mail.unread[modelData.id] ?? 0) : 0
-                        width: chipText.implicitWidth + 28; height: 34; radius: 17
-                        color: on ? Theme.accent : Theme.panel
-                        Text {
-                            id: chipText
-                            anchors.centerIn: parent
-                            text: chip.modelData.label + (chip.count ? "  " + chip.count : "")
-                            color: chip.on ? Theme.bg : Theme.fg
-                            font { family: Theme.font; pixelSize: 13; bold: chip.on }
-                        }
-                        MouseArea {
-                            anchors.fill: parent
-                            onClicked: {
-                                if (chip.modelData.id === "snoozed") {
-                                    mail.snoozed = true
-                                } else {
-                                    mail.snoozed = false
-                                    mail.category = chip.modelData.id
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        // the snoozed: a toggle beside "new" (the inbox is one list, everything in it)
+        Rectangle {
+            id: snoozedToggle
+            anchors { right: newButton.left; rightMargin: 10; verticalCenter: heading.verticalCenter }
+            width: 40; height: 40; radius: 20
+            color: mail.snoozed ? Theme.accent : (snoozedTap.pressed ? Theme.line : Theme.panel)
+            Text { anchors.centerIn: parent; text: "󰒲"; color: mail.snoozed ? Theme.bg : Theme.fg
+                   font { family: Theme.font; pixelSize: 19 } }
+            MouseArea { id: snoozedTap; anchors.fill: parent; onClicked: mail.snoozed = !mail.snoozed }
+        }
+        Item {
+            id: chips           // (where the list starts)
+            anchors { left: parent.left; right: parent.right; top: heading.bottom; topMargin: 8 }
+            height: 0
         }
 
         Text {
@@ -352,8 +335,11 @@ Window {
         }
         Flickable {
             id: reader
-            anchors { left: parent.left; right: parent.right; top: readHead.bottom; bottom: actions.top }
-            contentHeight: readColumn.height + 40
+            anchors { left: parent.left; right: parent.right; top: readHead.bottom }
+            // (an HTML mail: the headers above, its own view below them)
+            height: win.html ? Math.min(contentHeight, parent.height * 0.4)
+                             : parent.height - readHead.height - actions.height - 14
+            contentHeight: readColumn.height + (win.html ? 12 : 40)
             clip: true
             boundsBehavior: Theme.boundsBehavior
             Column {
@@ -413,8 +399,23 @@ Window {
                         }
                     }
                 }
+                // remote images (and with them, trackers) only when asked for
+                Rectangle {
+                    visible: win.html && win.remoteImages && !win.showImages
+                    width: imagesText.implicitWidth + 28; height: 34; radius: 17
+                    color: imagesTap.pressed ? Theme.line : Theme.panel
+                    Text {
+                        id: imagesText
+                        anchors.centerIn: parent
+                        text: "󰋩  " + qsTr("Show images")
+                        color: Theme.fg
+                        font { family: Theme.font; pixelSize: 13 }
+                    }
+                    MouseArea { id: imagesTap; anchors.fill: parent; onClicked: win.showImages = true }
+                }
                 Rectangle { width: parent.width; height: 1; color: Theme.line }
                 TextEdit {
+                    visible: !win.html
                     width: parent.width
                     readOnly: true
                     selectByMouse: true
@@ -424,6 +425,30 @@ Window {
                     color: win.message ? Theme.fg : Theme.muted
                     selectionColor: Theme.accent
                     font { family: Theme.font; pixelSize: 15 }
+                }
+            }
+        }
+        // an HTML mail, as it was made (Chromium: no scripts; remote content only with
+        // "show images"; links open in the browser)
+        Loader {
+            anchors { left: parent.left; right: parent.right; top: reader.bottom; bottom: actions.top; bottomMargin: 8 }
+            active: win.html && win.view === "read"
+            sourceComponent: WebEngineView {
+                id: htmlView
+                backgroundColor: "white"
+                settings.javascriptEnabled: false
+                settings.localContentCanAccessRemoteUrls: false
+                settings.autoLoadImages: true
+                Component.onCompleted: htmlView.loadHtml(win.htmlPage(), "about:blank")
+                Connections {
+                    target: win
+                    function onShowImagesChanged() { htmlView.loadHtml(win.htmlPage(), "about:blank") }
+                }
+                onNavigationRequested: (request) => {
+                    if (request.navigationType === WebEngineNavigationRequest.LinkClickedNavigation) {
+                        Qt.openUrlExternally(request.url)
+                        request.reject()
+                    }
                 }
             }
         }
