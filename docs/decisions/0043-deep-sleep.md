@@ -92,3 +92,11 @@ Android's way, in userspace:
   numbers are rough. Where it stands: 175 mA awake, ~90–110 mA asleep when it can. What is
   left: unicast traffic from open connections (ZeroTier, apps' keepalives); next, longer
   keepalives while asleep and background apps frozen, as Android does.
+- The Wi-Fi chip sometimes does not answer after a wake (twice on 2026-10-24): bcmdhd
+  times out on an IOVAR, calls it a PCIe link down and sends its hang event; the interface
+  stays up and "connected" to the last network with every scan failing, until Wi-Fi is
+  switched off and on. Android's Wi-Fi service restarts Wi-Fi on that event; here
+  `wifi-watchdog` does: the driver's line (device.toml `[wifi] hang_log`) in the kernel's
+  log turns Wi-Fi off and on (rfkill, as its switch), under a 20 s wake lock, if it was on.
+  The suspend daemon applies SETSUSPENDMODE and APF again after any link change (the
+  restarted chip, a new association, forgets them).

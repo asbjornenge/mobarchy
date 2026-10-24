@@ -1,0 +1,10 @@
+[Unit]
+Description=Wi-Fi brought back after its chip hangs (ADR 0043)
+
+[Service]
+ExecStart=/usr/lib/mobarchy/wifi-watchdog
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

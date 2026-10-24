@@ -89,9 +89,16 @@ class Wifi:
         self.mode = mode
         self.apf = apf
         self.suspended = None
+        self.link = None
 
     def set(self, suspended: bool) -> None:
-        if suspended == self.suspended or not Path("/sys/class/net/wlan0").exists():
+        # (again after the link went down and up: a new association, or the chip restarted
+        # (wifi-watchdog), forgets what it was told)
+        try:
+            link = Path("/sys/class/net/wlan0/carrier_changes").read_text().strip()
+        except OSError:
+            return
+        if suspended == self.suspended and link == self.link:
             return
         if self.mode == "android" and wifi_command("wlan0", f"SETSUSPENDMODE {1 if suspended else 0}"):
             log(f"wifi suspend mode {'on' if suspended else 'off'}")
@@ -103,6 +110,7 @@ class Wifi:
             if r:
                 log("wifi-apf failed")
         self.suspended = suspended
+        self.link = link
 
 
 def next_wake(runtime: Path) -> int | None:

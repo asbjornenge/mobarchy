@@ -142,3 +142,6 @@ wifi_apf = true
 [wifi]
 # a second interface on the Wi-Fi chip for the hotspot (beside wlan0, on its channel)
 ap_interface = "wlan1"
+# the driver's line when it gives up on the chip (bcmdhd: often "PCIe link down" at a wake
+# from deep sleep): Wi-Fi is turned off and on again then (wifi-watchdog)
+hang_log = "wl_cfgvendor_simple_hang_event : hang reason:"

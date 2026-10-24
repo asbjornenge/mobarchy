@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""Wi-Fi brought back after its chip hangs, as Android's Wi-Fi service does it (ADR 0043).
+
+A Wi-Fi chip may not answer after the phone wakes from deep sleep; its driver gives up on it
+(on comet: bcmdhd, "PCIe link down", a "hang" event) and the interface is left as it was:
+still up, still "connected" to the last network, scans failing. Android restarts Wi-Fi on
+the driver's hang event; here too: the driver's line saying so (device.toml [wifi]
+hang_log, in the kernel's log) turns Wi-Fi off and on again, as its switch does (rfkill),
+when it was on.
+
+Run as root (mobarchy-wifi-watchdog.service).
+"""
+import os
+import struct
+import sys
+import time
+import tomllib
+
+RFKILL_TYPE_WLAN = 1
+RFKILL_OP_CHANGE_ALL = 3
+SETTLE = 2.0        # s: off, before on again (the driver takes the chip down)
+QUIET = 30.0        # s: one restart for a burst of hang lines
+
+
+def log(msg: str) -> None:
+    print(f"wifi-watchdog: {msg}", flush=True)
+
+
+def hang_log() -> str:
+    try:
+        return str(tomllib.load(open("/etc/mobarchy/device.toml", "rb")).get("wifi", {}).get("hang_log", ""))
+    except (OSError, tomllib.TOMLDecodeError):
+        return ""
+
+
+def wlan_blocked() -> bool:
+    """Wi-Fi switched off (soft blocked) by its owner."""
+    for d in os.listdir("/sys/class/rfkill"):
+        try:
+            if open(f"/sys/class/rfkill/{d}/type").read().strip() == "wlan":
+                return open(f"/sys/class/rfkill/{d}/soft").read().strip() == "1"
+        except OSError:
+            pass
+    return False
+
+
+def set_wlan(blocked: bool) -> None:
+    # struct rfkill_event: idx (u32), type, op, soft, hard (u8)
+    fd = os.open("/dev/rfkill", os.O_WRONLY)
+    try:
+        os.write(fd, struct.pack("=IBBBB", 0, RFKILL_TYPE_WLAN, RFKILL_OP_CHANGE_ALL, int(blocked), 0))
+    finally:
+        os.close(fd)
+
+
+def stay_awake(seconds: int) -> None:
+    """A kernel wake lock that lets go by itself: no deep sleep while Wi-Fi comes back."""
+    try:
+        with open("/sys/power/wake_lock", "w") as f:
+            f.write(f"mobarchy-wifi-watchdog {seconds * 1_000_000_000}\n")
+    except OSError as e:
+        log(f"wake lock: {e}")
+
+
+def restart() -> None:
+    if wlan_blocked():
+        log("the chip hung; Wi-Fi is off: left off")
+        return
+    log("the chip hung: Wi-Fi off and on again")
+    stay_awake(20)
+    set_wlan(True)
+    time.sleep(SETTLE)
+    set_wlan(False)
+
+
+def main() -> int:
+    pattern = hang_log()
+    if not pattern:
+        log("no [wifi] hang_log in device.toml: nothing to watch")
+        return 0
+    fd = os.open("/dev/kmsg", os.O_RDONLY)
+    os.lseek(fd, 0, os.SEEK_END)             # (from now: not the hangs before a restart)
+    last = 0.0
+    while True:
+        try:
+            record = os.read(fd, 8192).decode(errors="replace")
+        except BrokenPipeError:              # (overwritten while read: go on)
+            continue
+        if pattern in record and time.monotonic() - last > QUIET:
+            last = time.monotonic()
+            try:
+                restart()
+            except OSError as e:
+                log(f"restart: {e}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())
