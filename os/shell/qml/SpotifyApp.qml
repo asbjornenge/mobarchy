@@ -151,21 +151,68 @@ Window {
         visible: spotify.state === "ready" || spotify.state === "starting"
         anchors.fill: parent
 
-        // Upright: the door, the controls and the songs under each other. Wide (sideways, or
-        // the top half in laptop mode): the door at the left, as tall as there is room for,
-        // and the controls with the songs under them at its right.
+        // Upright: the door, the counter, the keys and the songs under each other. Wide
+        // (sideways, or the top half in laptop mode): the door in the middle, as tall as there
+        // is room for, with the counter under it; the keys at either side, the songs under
+        // the right-hand ones.
         readonly property bool wide: width > height * 1.2
-        readonly property real across: wide ? width - 32 : Math.min(width - 32, 520)
-        Grid {
+        readonly property real across: Math.min(width - 32, 520)
+        // (wide: the room at either side of the door)
+        readonly property real side: (width - door.width) / 2 - 32
+        readonly property real keyWidth: wide ? Math.min(90, (side - 6) / 2) : Math.min(90, (across - 6 * 6) / 7)
+        // the keys, left to right
+        readonly property var keySpecs: [
+            { icon: "󰐊", label: "EJECT", glyph: "⏏" }, { icon: "󰒮", label: "PREV" }, { icon: "󰑟", label: "REW" },
+            { icon: "󰐊", label: "PLAY" }, { icon: "󰏤", label: "PAUSE" }, { icon: "󰈑", label: "FF" }, { icon: "󰒭", label: "NEXT" }
+        ]
+        function latched(label) {
+            return label === "PLAY" ? win.pb.playing === true
+                 : label === "PAUSE" ? win.hasTrack && win.pb.playing !== true : false
+        }
+        function push(label) {
+            if (label === "EJECT") win.shelf = true
+            else if (label === "PREV") spotify.previous()
+            else if (label === "REW") { const p = Math.max(0, win.position - win.skip); spotify.seekTo(p); win.position = p }
+            else if (label === "PLAY") { if (win.pb.playing !== true) spotify.playPause() }
+            else if (label === "PAUSE") { if (win.pb.playing === true) spotify.playPause() }
+            else if (label === "FF") { const p = Math.min(win.duration, win.position + win.skip); spotify.seekTo(p); win.position = p }
+            else if (label === "NEXT") spotify.next()
+        }
+        component Keys: Grid {
+            id: keyGrid
+            property int from
+            property int to
+            spacing: 6
+            Repeater {
+                model: deck.keySpecs.slice(keyGrid.from, keyGrid.to)
+                delegate: DeckKey {
+                    required property var modelData
+                    icon: modelData.icon; label: modelData.label; glyph: modelData.glyph || ""
+                    latched: deck.latched(modelData.label)
+                    onPushed: deck.push(modelData.label)
+                }
+            }
+        }
+        component Toggles: Row {
+            spacing: 28
+            Toggle { icon: "󰒟"; on: win.pb.shuffle === true; onTapped: spotify.toggleShuffle() }
+            Toggle {
+                icon: win.pb.repeat === "track" ? "󰑘" : "󰑖"
+                on: win.pb.repeat === "track" || win.pb.repeat === "context"
+                onTapped: spotify.cycleRepeat()
+            }
+        }
+
+        Column {
             id: deckColumn
             anchors { top: parent.top; topMargin: deck.wide ? 16 : 24; horizontalCenter: parent.horizontalCenter }
-            columns: deck.wide ? 2 : 1
-            spacing: deck.wide ? 20 : 22
+            width: deck.wide ? door.width : deck.across
+            spacing: deck.wide ? 12 : 22
 
             // the deck's door, with the tape behind its glass
             Rectangle {
                 id: door
-                width: deck.wide ? Math.min(deck.across * 0.45, (deck.height - 32 - 36) / 0.638 + 36)
+                width: deck.wide ? Math.min(deck.width * 0.5, (deck.height - 16 - 10 - 34 - 28 - 2 * deckColumn.spacing - 36) / 0.638 + 36)
                                  : deck.across
                 height: tapeView.height + 36
                 radius: 18
@@ -205,99 +252,89 @@ Window {
                 }
             }
 
-            Column {
-                id: controls
-                width: deck.wide ? deck.across - door.width - deckColumn.spacing : deck.across
-                spacing: deck.wide ? 14 : 22
-
-                // the counter and the tape's way through (drag to wind)
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 14
-                    Rectangle {
-                        width: counterText.implicitWidth + 20; height: 34; radius: 6
-                        color: "#0b0b0f"
-                        border.color: Theme.line
-                        Text {
-                            id: counterText
-                            anchors.centerIn: parent
-                            text: win.time(win.position)
-                            color: "#ff9e64"
-                            font { family: Theme.font; pixelSize: 20; bold: true }
-                        }
-                    }
+            // the counter and the tape's way through (drag to wind)
+            Row {
+                anchors.horizontalCenter: parent.horizontalCenter
+                spacing: 14
+                Rectangle {
+                    width: counterText.implicitWidth + 20; height: 34; radius: 6
+                    color: "#0b0b0f"
+                    border.color: Theme.line
                     Text {
-                        anchors.verticalCenter: parent.verticalCenter
-                        text: "/ " + win.time(win.duration)
-                        color: Theme.muted
-                        font { family: Theme.font; pixelSize: 14 }
-                    }
-                }
-                Item {
-                    width: parent.width; height: 28
-                    Rectangle {
-                        id: groove
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: parent.width; height: 6; radius: 3
-                        color: Theme.panel
-                        Rectangle {
-                            width: groove.width * (win.duration > 0 ? win.position / win.duration : 0)
-                            height: parent.height; radius: 3
-                            color: "#4a2f1f"
-                            border.color: "#6b4630"
-                        }
-                    }
-                    Rectangle {
-                        x: groove.width * (win.duration > 0 ? win.position / win.duration : 0) - width / 2
-                        anchors.verticalCenter: parent.verticalCenter
-                        width: 18; height: 18; radius: 9
-                        color: Theme.fg
-                    }
-                    MouseArea {
-                        id: scrub
-                        anchors.fill: parent
-                        enabled: win.duration > 0
-                        function at(mx) { return Math.max(0, Math.min(1, mx / width)) * win.duration }
-                        onPressed: (m) => win.position = at(m.x)
-                        onPositionChanged: (m) => win.position = at(m.x)
-                        onReleased: (m) => { spotify.seekTo(at(m.x)); win.reportedAt = Date.now() }
-                    }
-                }
-
-                // the piano keys
-                Row {
-                    id: keys
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 6
-                    readonly property real keyWidth: Math.min(90, (controls.width - 6 * spacing) / 7)
-                    DeckKey { icon: "󰐊"; label: "EJECT"; glyph: "⏏"; onPushed: win.shelf = true }
-                    DeckKey { icon: "󰒮"; label: "PREV"; onPushed: spotify.previous() }
-                    DeckKey { icon: "󰑟"; label: "REW"; onPushed: { const p = Math.max(0, win.position - win.skip); spotify.seekTo(p); win.position = p } }
-                    DeckKey { icon: "󰐊"; label: "PLAY"; latched: win.pb.playing === true; onPushed: if (win.pb.playing !== true) spotify.playPause() }
-                    DeckKey { icon: "󰏤"; label: "PAUSE"; latched: win.hasTrack && win.pb.playing !== true; onPushed: if (win.pb.playing === true) spotify.playPause() }
-                    DeckKey { icon: "󰈑"; label: "FF"; onPushed: { const p = Math.min(win.duration, win.position + win.skip); spotify.seekTo(p); win.position = p } }
-                    DeckKey { icon: "󰒭"; label: "NEXT"; onPushed: spotify.next() }
-                }
-
-                // shuffle, repeat, like
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 28
-                    Toggle { icon: "󰒟"; on: win.pb.shuffle === true; onTapped: spotify.toggleShuffle() }
-                    Toggle {
-                        icon: win.pb.repeat === "track" ? "󰑘" : "󰑖"
-                        on: win.pb.repeat === "track" || win.pb.repeat === "context"
-                        onTapped: spotify.cycleRepeat()
+                        id: counterText
+                        anchors.centerIn: parent
+                        text: win.time(win.position)
+                        color: "#ff9e64"
+                        font { family: Theme.font; pixelSize: 20; bold: true }
                     }
                 }
                 Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    visible: !win.hasTrack
-                    text: qsTr("No tape in. Press EJECT to pick one.")
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: "/ " + win.time(win.duration)
                     color: Theme.muted
-                    font { family: Theme.font; pixelSize: 13 }
+                    font { family: Theme.font; pixelSize: 14 }
                 }
             }
+            Item {
+                width: parent.width; height: 28
+                Rectangle {
+                    id: groove
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width; height: 6; radius: 3
+                    color: Theme.panel
+                    Rectangle {
+                        width: groove.width * (win.duration > 0 ? win.position / win.duration : 0)
+                        height: parent.height; radius: 3
+                        color: "#4a2f1f"
+                        border.color: "#6b4630"
+                    }
+                }
+                Rectangle {
+                    x: groove.width * (win.duration > 0 ? win.position / win.duration : 0) - width / 2
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 18; height: 18; radius: 9
+                    color: Theme.fg
+                }
+                MouseArea {
+                    id: scrub
+                    anchors.fill: parent
+                    enabled: win.duration > 0
+                    function at(mx) { return Math.max(0, Math.min(1, mx / width)) * win.duration }
+                    onPressed: (m) => win.position = at(m.x)
+                    onPositionChanged: (m) => win.position = at(m.x)
+                    onReleased: (m) => { spotify.seekTo(at(m.x)); win.reportedAt = Date.now() }
+                }
+            }
+
+            // the piano keys, shuffle and repeat (upright: here; wide: at the door's sides)
+            Keys {
+                visible: !deck.wide
+                anchors.horizontalCenter: parent.horizontalCenter
+                columns: 7; from: 0; to: 7
+            }
+            Toggles { visible: !deck.wide; anchors.horizontalCenter: parent.horizontalCenter }
+            Text {
+                anchors.horizontalCenter: parent.horizontalCenter
+                visible: !win.hasTrack
+                text: qsTr("No tape in. Press EJECT to pick one.")
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 13 }
+            }
+        }
+
+        // wide: the keys at the door's left (and shuffle, repeat under them) and right
+        Column {
+            visible: deck.wide
+            anchors { right: deckColumn.left; rightMargin: 16; top: deckColumn.top; topMargin: 12 }
+            spacing: 22
+            Keys { columns: 2; from: 0; to: 4 }
+            Toggles { anchors.horizontalCenter: parent.horizontalCenter }
+        }
+        Keys {
+            id: rightKeys
+            visible: deck.wide
+            anchors { left: deckColumn.right; leftMargin: 16; top: deckColumn.top; topMargin: 12 }
+            columns: 2; from: 4; to: 7
         }
 
         // the tape's songs (the playlist or album in the deck), written on a lined sheet as a
@@ -305,13 +342,11 @@ Window {
         Rectangle {
             id: paper
             visible: tapeSongs.count > 0
-            anchors { top: deck.wide ? undefined : deckColumn.bottom; topMargin: 18
-                      bottom: deck.wide ? undefined : parent.bottom; bottomMargin: 10 }
-            // (wide: under the controls, at the door's right)
-            y: deckColumn.y + controls.y + controls.height + 16
+            // (upright: under the deck; wide: under the right-hand keys)
+            x: deck.wide ? rightKeys.x : deckColumn.x
+            y: deck.wide ? rightKeys.y + rightKeys.height + 14 : deckColumn.y + deckColumn.height + 18
+            width: deck.wide ? deck.width - x - 16 : deckColumn.width
             height: deck.height - y - 10
-            x: deckColumn.x + controls.x
-            width: controls.width
             radius: 4
             color: "#f6f1e3"
             clip: true
@@ -380,7 +415,7 @@ Window {
         property string label
         property bool latched: false        // stays down (PLAY while it plays)
         signal pushed()
-        width: keys.keyWidth; height: 78
+        width: deck.keyWidth; height: 78
         readonly property bool down: tap.pressed || latched
         Rectangle {
             id: cap
