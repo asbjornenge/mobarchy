@@ -74,6 +74,7 @@ Window {
         anchors { left: parent.left; right: parent.right; top: parent.top }
         height: 76
         Text {
+            id: monthName
             anchors { left: parent.left; leftMargin: 22; verticalCenter: parent.verticalCenter }
             text: win.day.toLocaleDateString(Qt.locale(), "MMMM")
             color: Theme.fg
@@ -81,11 +82,14 @@ Window {
             Text {
                 anchors { left: parent.right; leftMargin: 8; baseline: parent.baseline }
                 text: win.day.getFullYear()
+                // (only where the buttons leave room for it)
+                visible: monthName.x + monthName.width + 8 + implicitWidth + 12 < pills.x
                 color: Theme.muted
                 font { family: Theme.font; pixelSize: 20 }
             }
         }
         Row {
+            id: pills
             anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
             spacing: 8
             component Pill: Rectangle {
@@ -109,7 +113,9 @@ Window {
             }
             Pill {
                 label: qsTr("Today")
-                visible: !win.sameDay(win.day, new Date())
+                // (in the week: unless today is among the days in sight)
+                visible: win.weekView ? !weekView.inSight(new Date(win.now))
+                                      : !win.sameDay(win.day, new Date(win.now))
                 onClicked: win.day = new Date()
             }
             Pill { label: qsTr("Day"); on: !win.monthView && !win.weekView
@@ -335,28 +341,88 @@ Window {
         }
     }
 
-    // --- the week: seven days side by side ------------------------------------------------------
+    // --- the week: seven days in view, on a band of days that scrolls sideways ---------------
+    // The days lie on a band from a year back to a year on (weekView.base); a drag sideways
+    // moves it as far as it is flung, and it settles on a whole day. The hours stay put at
+    // the left; the days' names, their all-day events and their hours move together. Only the
+    // days in sight (and one either side) are made; their events come from `range`.
+    CalendarData {
+        id: range
+        from: win.addDays(weekView.base, Math.max(0, weekView.first - 7))
+        days: 21
+    }
     Item {
         id: weekView
         visible: win.weekView
         anchors { left: parent.left; right: parent.right; top: header.bottom; bottom: parent.bottom }
-        readonly property date start: win.weekStart(win.day)
         readonly property real gutter: 44
         readonly property real col: (width - gutter - 8) / 7
+        readonly property int span: 731
+        // day 0 of the band: a year before this week (fixed while the view is up)
+        property date base: win.addDays(win.weekStart(new Date()), -365)
+        // the first day in view, whole
+        readonly property int first: Math.max(0, Math.floor(band.contentX / Math.max(1, col)))
+        function index(d) { return Math.round((win.dayOnly(d) - base) / 86400000) }
+        function dayAt(i) { return win.addDays(base, i) }
+        function inSight(d) { const i = index(d); return i >= first && i < first + 7 }
+        // the band to a day (the week's first, as "Today" and the other views ask)
+        property bool scrolling: false
+        function show(d, animate) {
+            const x = Math.max(0, Math.min(span - 7, index(win.weekStart(d)))) * col
+            if (animate) { settle.to = x; settle.restart() } else band.contentX = x
+        }
+        onColChanged: if (visible) band.contentX = first * col
+        onVisibleChanged: if (visible) show(win.day, false)
+        Connections {
+            target: win
+            // (another view, or "Today": the band there, unless that day is in view already)
+            function onDayChanged() {
+                if (!weekView.scrolling && weekView.visible) {
+                    const i = weekView.index(win.day)
+                    if (!weekView.inSight(win.day))
+                        weekView.show(win.day, true)
+                }
+            }
+        }
+        NumberAnimation { id: settle; target: band; property: "contentX"; duration: 260; easing.type: Easing.OutCubic }
 
-        // the days: name and date (a tap: that day, in Day)
-        Row {
-            id: weekHead
+        // the band: sideways only; the days' names, all-day events and hours on it
+        Flickable {
+            id: band
             x: weekView.gutter
-            height: 52
+            width: weekView.width - weekView.gutter - 8
+            height: weekView.height
+            clip: true
+            flickableDirection: Flickable.HorizontalFlick
+            contentWidth: weekView.span * weekView.col
+            contentHeight: height
+            boundsBehavior: Flickable.StopAtBounds
+            maximumFlickVelocity: Theme.flickVelocity
+            flickDeceleration: Theme.flickDeceleration
+            onMovementStarted: weekView.scrolling = true
+            // at rest: on a whole day, and that day the one shown (Day and the header follow)
+            onMovementEnded: {
+                settle.to = Math.round(contentX / weekView.col) * weekView.col
+                settle.restart()
+                win.day = weekView.dayAt(Math.round(settle.to / weekView.col))
+                weekView.scrolling = false
+            }
+
+            // the days in sight, and one either side
+            readonly property int from: Math.max(0, weekView.first - 1)
+            readonly property int count: Math.min(9, weekView.span - from)
+
+            // their names and dates (a tap: that day, in Day)
             Repeater {
-                model: 7
+                model: band.count
                 delegate: Item {
                     id: wday
                     required property int index
-                    readonly property date d: win.addDays(weekView.start, index)
+                    readonly property int day: band.from + index
+                    readonly property date d: weekView.dayAt(day)
                     readonly property bool today: win.sameDay(d, new Date(win.now))
-                    width: weekView.col; height: weekHead.height
+                    x: day * weekView.col
+                    width: weekView.col; height: 52
                     Column {
                         anchors.centerIn: parent
                         spacing: 3
@@ -381,164 +447,171 @@ Window {
                     MouseArea { anchors.fill: parent; onClicked: { win.day = wday.d; win.weekView = false } }
                 }
             }
-        }
-        // the all-day ones, a row under the days
-        Row {
-            id: weekAllDay
-            x: weekView.gutter
-            anchors.top: weekHead.bottom
-            Repeater {
-                model: 7
-                delegate: Column {
-                    id: adCol
-                    required property int index
-                    readonly property var evs: win.eventsOn(week.events, win.addDays(weekView.start, index)).filter(e => e.all_day)
-                    width: weekView.col
-                    spacing: 2
-                    bottomPadding: 4
-                    Repeater {
-                        model: adCol.evs
-                        delegate: Rectangle {
-                            id: adChip
-                            required property var modelData
-                            width: weekView.col - 3; height: 20; radius: 5
-                            color: Qt.alpha(modelData.color, 0.28)
-                            Text {
-                                anchors { fill: parent; leftMargin: 4; rightMargin: 2 }
-                                verticalAlignment: Text.AlignVCenter
-                                elide: Text.ElideRight
-                                text: adChip.modelData.title
-                                color: Theme.fg
-                                font { family: Theme.font; pixelSize: 10; bold: true }
+            // the all-day ones, under the days
+            Item {
+                id: weekAllDay
+                y: 52
+                width: band.contentWidth
+                // (as tall as the most all-day events on a day in sight)
+                height: {
+                    let n = 0
+                    for (let i = 0; i < band.count; ++i)
+                        n = Math.max(n, win.eventsOn(range.events, weekView.dayAt(band.from + i)).filter(e => e.all_day).length)
+                    return n * 22 + 4
+                }
+                Repeater {
+                    model: band.count
+                    delegate: Column {
+                        id: adCol
+                        required property int index
+                        readonly property int day: band.from + index
+                        readonly property var evs: win.eventsOn(range.events, weekView.dayAt(day)).filter(e => e.all_day)
+                        x: day * weekView.col
+                        width: weekView.col
+                        spacing: 2
+                        Repeater {
+                            model: adCol.evs
+                            delegate: Rectangle {
+                                id: adChip
+                                required property var modelData
+                                width: weekView.col - 3; height: 20; radius: 5
+                                color: Qt.alpha(modelData.color, 0.28)
+                                Text {
+                                    anchors { fill: parent; leftMargin: 4; rightMargin: 2 }
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                    text: adChip.modelData.title
+                                    color: Theme.fg
+                                    font { family: Theme.font; pixelSize: 10; bold: true }
+                                }
+                                MouseArea { anchors.fill: parent; onClicked: win.editing = adChip.modelData }
                             }
-                            MouseArea { anchors.fill: parent; onClicked: win.editing = adChip.modelData }
                         }
                     }
+                }
+            }
+
+            // the hours: up and down, inside the band
+            Flickable {
+                id: weekTimeline
+                y: weekAllDay.y + weekAllDay.height + 1
+                width: band.contentWidth
+                height: band.height - y
+                clip: true
+                flickableDirection: Flickable.VerticalFlick
+                contentHeight: 24 * win.hourHeight + 40
+                boundsBehavior: Theme.boundsBehavior
+                maximumFlickVelocity: Theme.flickVelocity
+                flickDeceleration: Theme.flickDeceleration
+                Component.onCompleted: contentY = Math.max(0, (new Date().getHours() - 1.5) * win.hourHeight)
+
+                // the hours' lines (as wide as the days in sight), and the days' lines
+                Repeater {
+                    model: 23
+                    delegate: Rectangle {
+                        required property int index
+                        x: band.from * weekView.col
+                        y: (index + 1) * win.hourHeight + 12
+                        width: band.count * weekView.col; height: 1
+                        color: Qt.alpha(Theme.fg, 0.07)
+                    }
+                }
+                Repeater {
+                    model: band.count
+                    delegate: Rectangle {
+                        required property int index
+                        x: (band.from + index) * weekView.col
+                        y: 12
+                        width: 1; height: 24 * win.hourHeight
+                        color: Qt.alpha(Theme.fg, 0.05)
+                    }
+                }
+                // a tap on an empty hour of a day: a new event then
+                MouseArea {
+                    x: band.from * weekView.col; y: 12
+                    width: band.count * weekView.col; height: 24 * win.hourHeight
+                    onClicked: (m) => {
+                        const d = weekView.dayAt(band.from + Math.floor(m.x / weekView.col))
+                        const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(m.y / win.hourHeight))
+                        win.editing = { start: s.toISOString(), end: new Date(s.getTime() + 3600000).toISOString(),
+                                        all_day: false, isNew: true }
+                    }
+                }
+                // each day's events, in its column
+                Repeater {
+                    model: band.count
+                    delegate: Item {
+                        id: wcol
+                        required property int index
+                        readonly property date d: weekView.dayAt(band.from + index)
+                        x: (band.from + index) * weekView.col
+                        y: 12
+                        width: weekView.col
+                        height: 24 * win.hourHeight
+                        Repeater {
+                            model: win.layout(win.eventsOn(range.events, wcol.d), wcol.d)
+                            delegate: Rectangle {
+                                id: wblock
+                                required property var modelData
+                                readonly property var ev: modelData.ev
+                                readonly property real w: (wcol.width - 2) / modelData.lanes
+                                x: 1 + modelData.lane * w
+                                y: modelData.top * win.hourHeight + 1
+                                width: w - 2
+                                height: Math.max(16, modelData.hours * win.hourHeight - 2)
+                                radius: 5
+                                color: Qt.alpha(ev.color, wTap.pressed ? 0.4 : 0.26)
+                                clip: true
+                                Rectangle { width: 3; height: parent.height; color: wblock.ev.color }
+                                Text {
+                                    anchors { left: parent.left; right: parent.right; top: parent.top
+                                              leftMargin: 5; rightMargin: 2; topMargin: 2 }
+                                    wrapMode: Text.Wrap
+                                    maximumLineCount: Math.max(1, Math.floor((wblock.height - 4) / 13))
+                                    elide: Text.ElideRight
+                                    text: wblock.ev.title
+                                    color: Theme.fg
+                                    font { family: Theme.font; pixelSize: 10; bold: true }
+                                }
+                                MouseArea { id: wTap; anchors.fill: parent; onClicked: win.editing = wblock.ev }
+                            }
+                        }
+                    }
+                }
+                // now
+                Item {
+                    readonly property int day: weekView.index(new Date(win.now))
+                    readonly property real at: (win.now - win.dayOnly(new Date(win.now)).getTime()) / 3600000
+                    x: day * weekView.col
+                    y: 12 + at * win.hourHeight
+                    width: weekView.col
+                    Rectangle { x: -4; y: -4; width: 8; height: 8; radius: 4; color: Theme.red }
+                    Rectangle { width: parent.width; height: 2; y: -1; color: Theme.red }
+                }
+            }
+        }
+
+        // the hours' names: put at the left, moving up and down with the days
+        Item {
+            x: 0; y: weekTimeline.y
+            width: weekView.gutter; height: weekTimeline.height
+            clip: true
+            Repeater {
+                model: 23
+                delegate: Text {
+                    required property int index
+                    x: 4
+                    y: (index + 1) * win.hourHeight + 12 - weekTimeline.contentY - height / 2
+                    text: (index + 1 < 10 ? "0" : "") + (index + 1)
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 10 }
                 }
             }
         }
         Rectangle {
-            id: weekRule
-            anchors { left: parent.left; right: parent.right; top: weekAllDay.bottom }
-            height: 1
+            x: 0; y: weekTimeline.y - 1
+            width: weekView.width; height: 1
             color: Theme.line
-        }
-
-        Flickable {
-            id: weekTimeline
-            anchors { left: parent.left; right: parent.right; top: weekRule.bottom; bottom: parent.bottom }
-            clip: true
-            contentHeight: 24 * win.hourHeight + 40
-            boundsBehavior: Theme.boundsBehavior
-            maximumFlickVelocity: Theme.flickVelocity
-            flickDeceleration: Theme.flickDeceleration
-            Component.onCompleted: contentY = Math.max(0, (new Date().getHours() - 1.5) * win.hourHeight)
-
-            // the hours, and the days' lines
-            Repeater {
-                model: 24
-                delegate: Item {
-                    required property int index
-                    y: index * win.hourHeight + 12
-                    width: weekTimeline.width
-                    height: win.hourHeight
-                    Text {
-                        x: 4
-                        anchors.verticalCenter: parent.top
-                        visible: index > 0
-                        text: (index < 10 ? "0" : "") + index
-                        color: Theme.muted
-                        font { family: Theme.font; pixelSize: 10 }
-                    }
-                    Rectangle {
-                        x: weekView.gutter; width: parent.width - weekView.gutter - 8; height: 1
-                        visible: index > 0
-                        color: Qt.alpha(Theme.fg, 0.07)
-                    }
-                }
-            }
-            Repeater {
-                model: 8
-                delegate: Rectangle {
-                    required property int index
-                    x: weekView.gutter + index * weekView.col
-                    y: 12
-                    width: 1; height: 24 * win.hourHeight
-                    color: Qt.alpha(Theme.fg, 0.05)
-                }
-            }
-            // a tap on an empty hour of a day: a new event then
-            MouseArea {
-                x: weekView.gutter; y: 12
-                width: 7 * weekView.col; height: 24 * win.hourHeight
-                onClicked: (m) => {
-                    const d = win.addDays(weekView.start, Math.floor(m.x / weekView.col))
-                    const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), Math.floor(m.y / win.hourHeight))
-                    win.editing = { start: s.toISOString(), end: new Date(s.getTime() + 3600000).toISOString(),
-                                    all_day: false, isNew: true }
-                }
-            }
-            // each day's events, in its column
-            Repeater {
-                model: 7
-                delegate: Item {
-                    id: wcol
-                    required property int index
-                    readonly property date d: win.addDays(weekView.start, index)
-                    x: weekView.gutter + index * weekView.col
-                    y: 12
-                    width: weekView.col
-                    height: 24 * win.hourHeight
-                    Repeater {
-                        model: win.layout(win.eventsOn(week.events, wcol.d), wcol.d)
-                        delegate: Rectangle {
-                            id: wblock
-                            required property var modelData
-                            readonly property var ev: modelData.ev
-                            readonly property real w: (wcol.width - 2) / modelData.lanes
-                            x: 1 + modelData.lane * w
-                            y: modelData.top * win.hourHeight + 1
-                            width: w - 2
-                            height: Math.max(16, modelData.hours * win.hourHeight - 2)
-                            radius: 5
-                            color: Qt.alpha(ev.color, wTap.pressed ? 0.4 : 0.26)
-                            clip: true
-                            Rectangle { width: 3; height: parent.height; color: wblock.ev.color }
-                            Text {
-                                anchors { left: parent.left; right: parent.right; top: parent.top
-                                          leftMargin: 5; rightMargin: 2; topMargin: 2 }
-                                wrapMode: Text.Wrap
-                                maximumLineCount: Math.max(1, Math.floor((wblock.height - 4) / 13))
-                                elide: Text.ElideRight
-                                text: wblock.ev.title
-                                color: Theme.fg
-                                font { family: Theme.font; pixelSize: 10; bold: true }
-                            }
-                            MouseArea { id: wTap; anchors.fill: parent; onClicked: win.editing = wblock.ev }
-                        }
-                    }
-                }
-            }
-            // now
-            Item {
-                readonly property int dayIndex: Math.round((win.dayOnly(new Date(win.now)) - weekView.start) / 86400000)
-                visible: dayIndex >= 0 && dayIndex < 7
-                readonly property real at: (win.now - win.dayOnly(new Date(win.now)).getTime()) / 3600000
-                x: weekView.gutter + dayIndex * weekView.col
-                y: 12 + at * win.hourHeight
-                width: weekView.col
-                Rectangle { x: -4; y: -4; width: 8; height: 8; radius: 4; color: Theme.red }
-                Rectangle { width: parent.width; height: 2; y: -1; color: Theme.red }
-            }
-        }
-
-        // swiping the week: a week on or back
-        DragHandler {
-            target: null
-            xAxis.enabled: true
-            yAxis.enabled: false
-            onActiveChanged: if (!active && Math.abs(translation.x) > 80)
-                                 win.day = win.addDays(win.day, translation.x < 0 ? 7 : -7)
         }
     }
 
