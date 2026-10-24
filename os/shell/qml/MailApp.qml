@@ -450,6 +450,8 @@ Window {
                         request.reject()
                     }
                 }
+                // (links for a new window, target="_blank", as most mail has them)
+                onNewWindowRequested: (request) => Qt.openUrlExternally(request.requestedUrl)
             }
         }
         Row {
