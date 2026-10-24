@@ -343,7 +343,7 @@ Window {
 
     // --- the week: seven days in view, on a band of days that scrolls sideways ---------------
     // The days lie on a band from a year back to a year on (weekView.base); a drag sideways
-    // moves it as far as it is flung, and it settles on a whole day. The hours stay put at
+    // moves it as far as it is flung, and it stops where it stops. The hours stay put at
     // the left; the days' names, their all-day events and their hours move together. Only the
     // days in sight (and one either side) are made; their events come from `range`: six
     // weeks around them, asked for again only at rest, near its edges (each question is a
@@ -409,18 +409,22 @@ Window {
             maximumFlickVelocity: Theme.flickVelocity
             flickDeceleration: Theme.flickDeceleration
             onMovementStarted: weekView.scrolling = true
-            // at rest: on a whole day, and that day the one shown (Day and the header follow)
+            // at rest: the day mostly in sight at the left is the one shown (Day and the
+            // header follow), and the events around it are asked for
             onMovementEnded: {
-                settle.to = Math.round(contentX / weekView.col) * weekView.col
-                settle.restart()
-                win.day = weekView.dayAt(Math.round(settle.to / weekView.col))
-                weekView.load(Math.round(settle.to / weekView.col))
+                const i = Math.round(contentX / weekView.col)
+                win.day = weekView.dayAt(i)
+                weekView.load(i)
                 weekView.scrolling = false
             }
 
             // the days in sight, and one either side
-            readonly property int from: Math.max(0, weekView.first - 1)
-            readonly property int count: Math.min(9, weekView.span - from)
+            readonly property int from: Math.max(0, Math.min(weekView.span - count, weekView.first - 1))
+            readonly property int count: 9
+            // the day a slot shows: each slot keeps its day while the band moves, and only
+            // the one that falls out of sight takes the day coming in (one column made anew
+            // per day passed, not nine)
+            function slotDay(k) { return from + ((k - from) % count + count) % count }
 
             // their names and dates (a tap: that day, in Day)
             Repeater {
@@ -428,7 +432,7 @@ Window {
                 delegate: Item {
                     id: wday
                     required property int index
-                    readonly property int day: band.from + index
+                    readonly property int day: band.slotDay(index)
                     readonly property date d: weekView.dayAt(day)
                     readonly property bool today: win.sameDay(d, new Date(win.now))
                     x: day * weekView.col
@@ -474,7 +478,7 @@ Window {
                     delegate: Column {
                         id: adCol
                         required property int index
-                        readonly property int day: band.from + index
+                        readonly property int day: band.slotDay(index)
                         readonly property var evs: win.eventsOn(range.events, weekView.dayAt(day)).filter(e => e.all_day)
                         x: day * weekView.col
                         width: weekView.col
@@ -530,7 +534,7 @@ Window {
                     model: band.count
                     delegate: Rectangle {
                         required property int index
-                        x: (band.from + index) * weekView.col
+                        x: band.slotDay(index) * weekView.col
                         y: 12
                         width: 1; height: 24 * win.hourHeight
                         color: Qt.alpha(Theme.fg, 0.05)
@@ -553,8 +557,9 @@ Window {
                     delegate: Item {
                         id: wcol
                         required property int index
-                        readonly property date d: weekView.dayAt(band.from + index)
-                        x: (band.from + index) * weekView.col
+                        readonly property int day: band.slotDay(index)
+                        readonly property date d: weekView.dayAt(day)
+                        x: day * weekView.col
                         y: 12
                         width: weekView.col
                         height: 24 * win.hourHeight
