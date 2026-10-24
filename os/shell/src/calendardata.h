@@ -52,7 +52,8 @@ signals:
     void changed();     // an add, update or remove went through
 
 private:
-    void run(const QStringList &args, std::function<void(const QJsonObject &)> done);
+    void run(const QStringList &args, std::function<void(const QJsonObject &)> done,
+             std::function<void()> after = {});
     void watch();
 
     QDate m_from = QDate::currentDate();
@@ -62,4 +63,7 @@ private:
     QFileSystemWatcher m_watcher;
     QTimer m_settle;
     int m_generation = 0;   // (an answer to an older question is not taken)
+    // one question about events at a time: asked again while one is out, it is asked
+    // once more when that one is answered (a week flung through a hundred days asks twice)
+    bool m_asking = false, m_askAgain = false;
 };

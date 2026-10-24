@@ -7,6 +7,8 @@
 #include <QJsonObject>
 #include <QStandardPaths>
 
+#include <utility>
+
 namespace {
 const QString Command = QStringLiteral("mobarchy-calendar");
 
@@ -70,12 +72,15 @@ void CalendarData::setDays(int n)
     refresh();
 }
 
-void CalendarData::run(const QStringList &args, std::function<void(const QJsonObject &)> done)
+void CalendarData::run(const QStringList &args, std::function<void(const QJsonObject &)> done,
+                       std::function<void()> after)
 {
     auto *p = new QProcess(this);
-    connect(p, &QProcess::finished, this, [this, p, done](int code, QProcess::ExitStatus status) {
+    connect(p, &QProcess::finished, this, [this, p, done, after](int code, QProcess::ExitStatus status) {
         const QJsonObject o = QJsonDocument::fromJson(p->readAllStandardOutput().trimmed()).object();
         p->deleteLater();
+        if (after)
+            after();
         if (status != QProcess::NormalExit || code != 0) {
             m_error = o.value(QStringLiteral("error")).toString(tr("The calendar did not answer."));
             emit errorChanged();
@@ -87,10 +92,12 @@ void CalendarData::run(const QStringList &args, std::function<void(const QJsonOb
         }
         done(o);
     });
-    connect(p, &QProcess::errorOccurred, this, [this, p](QProcess::ProcessError e) {
+    connect(p, &QProcess::errorOccurred, this, [this, p, after](QProcess::ProcessError e) {
         if (e != QProcess::FailedToStart)
             return;
         p->deleteLater();
+        if (after)
+            after();
         m_error = tr("mobarchy-calendar is not installed");
         emit errorChanged();
     });
@@ -99,18 +106,28 @@ void CalendarData::run(const QStringList &args, std::function<void(const QJsonOb
 
 void CalendarData::refresh()
 {
+    if (m_asking) {
+        m_askAgain = true;
+        return;
+    }
     watch();
+    m_asking = true;
     const int generation = ++m_generation;
     run({QStringLiteral("events"), QStringLiteral("--from"), m_from.toString(Qt::ISODate),
          QStringLiteral("--days"), QString::number(m_days)},
         [this, generation](const QJsonObject &o) {
-            if (generation != m_generation)
+            if (generation != m_generation || m_askAgain)
                 return;
             m_events = o.value(QStringLiteral("events")).toArray().toVariantList();
             run({QStringLiteral("calendars")}, [this](const QJsonObject &c) {
                 m_calendars = c.value(QStringLiteral("calendars")).toArray().toVariantList();
                 emit eventsChanged();
             });
+        },
+        [this] {
+            m_asking = false;
+            if (std::exchange(m_askAgain, false))
+                refresh();
         });
 }
 

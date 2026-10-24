@@ -345,11 +345,13 @@ Window {
     // The days lie on a band from a year back to a year on (weekView.base); a drag sideways
     // moves it as far as it is flung, and it settles on a whole day. The hours stay put at
     // the left; the days' names, their all-day events and their hours move together. Only the
-    // days in sight (and one either side) are made; their events come from `range`.
+    // days in sight (and one either side) are made; their events come from `range`: six
+    // weeks around them, asked for again only at rest, near its edges (each question is a
+    // process: one per day flung past brought the phone to its knees).
     CalendarData {
         id: range
-        from: win.addDays(weekView.base, Math.max(0, weekView.first - 7))
-        days: 21
+        from: win.addDays(weekView.base, weekView.loaded)
+        days: 42
     }
     Item {
         id: weekView
@@ -364,11 +366,18 @@ Window {
         readonly property int first: Math.max(0, Math.floor(band.contentX / Math.max(1, col)))
         function index(d) { return Math.round((win.dayOnly(d) - base) / 86400000) }
         function dayAt(i) { return win.addDays(base, i) }
+        // the first day of `range`'s six weeks
+        property int loaded: index(win.weekStart(new Date())) - 14
+        function load(i) {
+            if (i < loaded + 7 || i + 7 > loaded + 35)
+                loaded = Math.max(0, i - 14)
+        }
         function inSight(d) { const i = index(d); return i >= first && i < first + 7 }
         // the band to a day (the week's first, as "Today" and the other views ask)
         property bool scrolling: false
         function show(d, animate) {
             const x = Math.max(0, Math.min(span - 7, index(win.weekStart(d)))) * col
+            load(Math.round(x / col))
             if (animate) { settle.to = x; settle.restart() } else band.contentX = x
         }
         onColChanged: if (visible) band.contentX = first * col
@@ -405,6 +414,7 @@ Window {
                 settle.to = Math.round(contentX / weekView.col) * weekView.col
                 settle.restart()
                 win.day = weekView.dayAt(Math.round(settle.to / weekView.col))
+                weekView.load(Math.round(settle.to / weekView.col))
                 weekView.scrolling = false
             }
 
