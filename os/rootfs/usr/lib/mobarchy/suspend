@@ -95,7 +95,10 @@ class Wifi:
             return
         if self.mode == "android" and wifi_command("wlan0", f"SETSUSPENDMODE {1 if suspended else 0}"):
             log(f"wifi suspend mode {'on' if suspended else 'off'}")
-        if self.apf:
+        # (Wi-Fi off, or not connected: the chip has nothing to filter; the next change
+        # applies it)
+        up = Path("/sys/class/net/wlan0/operstate").read_text().strip() == "up"
+        if self.apf and up:
             r = os.system(f"/usr/lib/mobarchy/wifi-apf {'on' if suspended else 'off'} >/dev/null")
             if r:
                 log("wifi-apf failed")

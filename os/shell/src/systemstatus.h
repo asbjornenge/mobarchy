@@ -17,6 +17,10 @@ class SystemStatus : public QObject
     Q_PROPERTY(bool wifiConnected READ wifiConnected NOTIFY changed)
     Q_PROPERTY(int wifiStrength READ wifiStrength NOTIFY changed)  // 0..4, -1 unknown
     Q_PROPERTY(QString wifiName READ wifiName NOTIFY changed)      // SSID
+    // Followed (every 10 s) only while active: the screen on. A read of the battery takes
+    // the charger driver's wakeup source on comet, and Wi-Fi's link is asked through iw:
+    // done while asleep may be, they woke the phone again.
+    Q_PROPERTY(bool active READ active WRITE setActive NOTIFY activeChanged)
 
 public:
     explicit SystemStatus(QObject *parent = nullptr);
@@ -28,8 +32,11 @@ public:
     QString wifiName() const { return m_wifiName; }
 
     Q_INVOKABLE void refresh();
+    bool active() const { return m_active; }
+    void setActive(bool active);
 
 signals:
+    void activeChanged();
     void changed();
 
 private:
@@ -37,6 +44,7 @@ private:
     static int strengthFromDbm(double dbm);
 
     QTimer m_poll;
+    bool m_active = true;
     QProcess *m_iw = nullptr;      // station dump: signal
     QProcess *m_iwLink = nullptr;  // link: SSID
     QString m_batteryDir;

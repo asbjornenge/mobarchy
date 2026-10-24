@@ -59,6 +59,20 @@ SystemStatus::SystemStatus(QObject *parent)
     refresh();
 }
 
+void SystemStatus::setActive(bool active)
+{
+    if (active == m_active)
+        return;
+    m_active = active;
+    emit activeChanged();
+    if (active) {
+        refresh();
+        m_poll.start();
+    } else {
+        m_poll.stop();
+    }
+}
+
 void SystemStatus::refresh()
 {
     int battery = -1;

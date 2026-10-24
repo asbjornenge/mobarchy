@@ -98,7 +98,8 @@ QtObject {
             }
         }
     }
-    readonly property SystemStatus system: SystemStatus {}
+    // (followed while the screen is on: its reads woke a sleeping phone)
+    readonly property SystemStatus system: SystemStatus { active: shell.screen.on }
     readonly property Brightness brightness: Brightness {}
     readonly property Power power: Power {}
     readonly property Device device: Device {}

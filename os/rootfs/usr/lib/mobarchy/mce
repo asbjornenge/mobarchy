@@ -13,8 +13,10 @@ stops reporting signal strength and the like, and lets the phone sleep.
         battery_status_ind, battery_level_ind
 
 The display's state is the shell's (it writes "on" or "off" to
-/run/user/<uid>/mobarchy/display); the rest is the kernel's power supply class.
-Run as root (mobarchy-mce.service).
+/run/user/<uid>/mobarchy/display): followed as it changes (inotify). The rest is the
+kernel's power supply class, read once a minute and only with the display on: on comet
+every read takes the charger driver's wakeup source ("GetProp"), and reads every second
+kept the phone from ever sleeping. Run as root (mobarchy-mce.service).
 """
 import sys
 from pathlib import Path
@@ -76,11 +78,33 @@ class Mce:
         self.state = self.read()
         node = Gio.DBusNodeInfo.new_for_xml(XML)
         bus.register_object(REQUEST, node.interfaces[0], self.on_call, None, None)
-        GLib.timeout_add_seconds(1, self.poll)
+        self.monitor = None
+        self.watch_display()
+        GLib.timeout_add_seconds(60, self.poll_power)
+
+    def watch_display(self) -> bool:
+        """The display file, followed as it changes (its directory may come later)."""
+        f = display_file()
+        if f is None or not f.parent.exists():
+            GLib.timeout_add_seconds(5, self.watch_display)
+            return False
+        self.monitor = Gio.File.new_for_path(str(f)).monitor_file(Gio.FileMonitorFlags.NONE, None)
+        self.monitor.connect("changed", lambda *_: self.update(display_only=True))
+        self.update(display_only=True)
+        return False
+
+    def poll_power(self) -> bool:
+        if self.state["display"] == "on":
+            self.update(display_only=False)
+        return True
 
     def read(self) -> dict:
         status, level = battery()
         return {"display": display(), "charger": charger(), "battery": status, "level": level}
+
+    def update(self, display_only: bool) -> None:
+        new = dict(self.state, display=display()) if display_only else self.read()
+        self.emit_changes(new)
 
     def on_call(self, bus, sender, path, iface, method, params, inv):
         s = self.state
@@ -92,8 +116,7 @@ class Mce:
         else:
             inv.return_dbus_error("org.freedesktop.DBus.Error.UnknownMethod", method)
 
-    def poll(self) -> bool:
-        new = self.read()
+    def emit_changes(self, new: dict) -> None:
         signals = {"display": ("display_status_ind", "s"), "charger": ("charger_state_ind", "s"),
                    "battery": ("battery_status_ind", "s"), "level": ("battery_level_ind", "i")}
         for key, (signal, sig) in signals.items():
@@ -102,7 +125,6 @@ class Mce:
                 if key != "level":
                     print(f"mce: {key} {new[key]}", flush=True)
         self.state = new
-        return True
 
 
 def main() -> int:
