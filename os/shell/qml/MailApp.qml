@@ -88,11 +88,75 @@ Window {
         return d.toDateString() === new Date().toDateString() ? Qt.formatTime(d, "HH:mm")
              : d.toLocaleDateString(Qt.locale(), "d MMM")
     }
+    // a conversation (more than one message): all of it, oldest first, the newest open
+    property bool threaded: false
     function read(row) {
         item = row
         message = null
         view = "read"
+        threaded = (row.count || 1) > 1
+        if (threaded)
+            mail.loadThread(row.id)
         mail.open(row.id)
+    }
+    // another of the conversation's messages, open instead
+    function openInThread(m) {
+        item = m
+        message = null
+        mail.open(m.id)
+    }
+    // the conversation's messages before the open one, and after it
+    readonly property var threadBefore: {
+        const c = threaded ? mail.conversation : [], at = c.findIndex(m => item && m.id === item.id)
+        return at < 0 ? c.filter(m => !item || m.id !== item.id) : c.slice(0, at)
+    }
+    readonly property var threadAfter: {
+        const c = threaded ? mail.conversation : [], at = c.findIndex(m => item && m.id === item.id)
+        return at < 0 ? [] : c.slice(at + 1)
+    }
+    // what is done to a row is done to its whole conversation in the inbox
+    function idsOf(row) {
+        return row.thread_ids && row.thread_ids.length ? row.thread_ids : [row.id]
+    }
+
+    // One of a conversation's messages, closed: who, when, the start of it; a tap opens it.
+    component ThreadLine: Rectangle {
+        id: line
+        property var m
+        width: readColumn.width
+        height: 58
+        radius: 10
+        color: lineTap.pressed ? Theme.line : Theme.panel
+        Column {
+            anchors { left: parent.left; right: parent.right; leftMargin: 12; rightMargin: 12; verticalCenter: parent.verticalCenter }
+            spacing: 2
+            Item {
+                width: parent.width; height: lineFrom.implicitHeight
+                Text {
+                    id: lineFrom
+                    anchors { left: parent.left; right: lineWhen.left; rightMargin: 8 }
+                    elide: Text.ElideRight
+                    text: line.m.from
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 13; bold: !line.m.seen }
+                }
+                Text {
+                    id: lineWhen
+                    anchors.right: parent.right
+                    text: win.when(line.m.date)
+                    color: Theme.muted
+                    font { family: Theme.font; pixelSize: 11 }
+                }
+            }
+            Text {
+                width: parent.width
+                elide: Text.ElideRight
+                text: line.m.snippet
+                color: Theme.muted
+                font { family: Theme.font; pixelSize: 12 }
+            }
+        }
+        MouseArea { id: lineTap; anchors.fill: parent; onClicked: win.openInThread(line.m) }
     }
 
     // --- snoozing: when ----------------------------------------------------------------------
@@ -277,7 +341,11 @@ Window {
                                 id: fromText
                                 anchors { left: parent.left; right: timeText.left; rightMargin: 10 }
                                 elide: Text.ElideRight
-                                text: row.modelData.from
+                                // (a conversation: how many messages, after its newest's sender)
+                                textFormat: Text.StyledText
+                                text: row.modelData.from.replace(/&/g, "&amp;").replace(/</g, "&lt;")
+                                      + ((row.modelData.count || 1) > 1
+                                         ? "  <font color='" + Theme.muted + "'>" + row.modelData.count + "</font>" : "")
                                 color: Theme.fg
                                 font { family: Theme.font; pixelSize: 15; bold: !row.modelData.seen }
                             }
@@ -317,12 +385,12 @@ Window {
                         onActiveChanged: {
                             if (active)
                                 return
-                            const id = row.modelData.id
+                            const id = row.modelData.id, ids = win.idsOf(row.modelData)
                             switch (row.action) {
-                            case "done": mail.archive(id); break
+                            case "done": ids.forEach(i => mail.archive(i)); break
                             case "inbox": mail.unsnooze(id); break
-                            case "read": mail.setSeen(id, true); break
-                            case "unread": mail.setSeen(id, false); break
+                            case "read": ids.forEach(i => mail.setSeen(i, true)); break
+                            case "unread": ids.forEach(i => mail.setSeen(i, false)); break
                             case "snooze": win.snoozing = id; break
                             }
                             card.x = 0
@@ -368,6 +436,11 @@ Window {
                     text: win.message ? win.message.subject : win.item ? win.item.subject : ""
                     color: Theme.fg
                     font { family: Theme.font; pixelSize: 21; bold: true }
+                }
+                // the conversation's earlier messages, one line each (a tap opens one)
+                Repeater {
+                    model: win.threadBefore
+                    delegate: ThreadLine { required property var modelData; m: modelData }
                 }
                 Text {
                     width: parent.width
@@ -440,6 +513,11 @@ Window {
                     color: win.message ? Theme.fg : Theme.muted
                     selectionColor: Theme.accent
                     font { family: Theme.font; pixelSize: 15 }
+                }
+                // and its later ones
+                Repeater {
+                    model: win.threadAfter
+                    delegate: ThreadLine { required property var modelData; m: modelData }
                 }
             }
         }

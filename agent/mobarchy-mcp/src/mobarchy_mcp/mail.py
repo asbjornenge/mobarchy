@@ -12,6 +12,10 @@ kept on the phone for the Mail app, the home board and Frigg.
 - Changes (archived, deleted, read or not) count on the phone at once and stay so until
   the server has them (`pending`): a list taken before it has them doesn't bring an
   archived one back; one that could not reach it (offline) is tried again at every sync.
+- Conversations: a message's thread is the first of its References (the conversation's
+  first message), else what it answers (In-Reply-To), else itself; the inbox lists a
+  conversation once (its newest), and `thread` gives all of it, the owner's replies (the
+  Sent folder, synced too) among them, oldest first.
 - Snooze: into a "Snoozed" folder on the server, and back in the inbox (at the top) when
   its time comes; `watch` and every sync bring back what is due.
 - `watch`: the inbox followed (IMAP IDLE), each account in a thread of its own; a new
@@ -89,6 +93,9 @@ def db() -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS pending (account TEXT, folder TEXT, uid INTEGER, action TEXT,
             arg TEXT, tries INTEGER DEFAULT 0, PRIMARY KEY (account, folder, uid, action));
     """)
+    if "thread" not in {r["name"] for r in c.execute("PRAGMA table_info(messages)")}:
+        c.execute("ALTER TABLE messages ADD COLUMN thread TEXT DEFAULT ''")
+        c.commit()
     return c
 
 
@@ -236,6 +243,16 @@ def _move(m: imaplib.IMAP4_SSL, uid: int, to: str) -> None:
 
 # --- sync ------------------------------------------------------------------------------------
 
+def thread_of(msg: email.message.Message) -> str:
+    """The conversation a message is in: the first of its References (the first message),
+    else what it answers, else the message itself."""
+    for header in ("References", "In-Reply-To", "Message-ID"):
+        ids = re.findall(r"<[^<>\s]+>", str(msg.get(header) or ""))
+        if ids:
+            return ids[0].lower()
+    return ""
+
+
 def _row(account_id: str, folder: str, uid: int, flags: str, raw: bytes) -> dict:
     msg = email.message_from_bytes(raw, policy=email.policy.default)
     name, addr = email.utils.parseaddr(decoded(msg.get("From", "")))
@@ -245,6 +262,7 @@ def _row(account_id: str, folder: str, uid: int, flags: str, raw: bytes) -> dict
         date = int(time.time())
     text, _, files = body_of(msg)
     return {"account": account_id, "folder": folder, "uid": uid, "msgid": (msg.get("Message-ID") or "").strip(),
+            "thread": thread_of(msg),
             "from_name": name or addr, "from_addr": addr, "to_addrs": decoded(msg.get("To", "")),
             "subject": decoded(msg.get("Subject", "")) or "(no subject)", "date": date,
             "snippet": snippet_of(text), "seen": int("\\Seen" in flags), "flagged": int("\\Flagged" in flags),
@@ -279,9 +297,24 @@ def sync_folder(m: imaplib.IMAP4_SSL, c: sqlite3.Connection, account_id: str, fo
             meta = item[0].decode(errors="replace")
             uid = int(re.search(r"UID (\d+)", meta).group(1))
             flags = (re.search(r"FLAGS \(([^)]*)\)", meta) or [None, ""])[1]
-            c.execute("INSERT OR REPLACE INTO messages VALUES (:account,:folder,:uid,:msgid,:from_name,:from_addr,"
-                      ":to_addrs,:subject,:date,:snippet,:seen,:flagged,:category,:attachments)",
+            c.execute("INSERT OR REPLACE INTO messages (account, folder, uid, msgid, from_name, from_addr, to_addrs, "
+                      "subject, date, snippet, seen, flagged, category, attachments, thread) VALUES (:account,:folder,"
+                      ":uid,:msgid,:from_name,:from_addr,:to_addrs,:subject,:date,:snippet,:seen,:flagged,:category,"
+                      ":attachments,:thread)",
                       _row(account_id, folder, uid, flags, item[1]))
+    # the conversations of those synced before threads were kept (their headers only)
+    bare = sorted(r["uid"] for r in c.execute(
+        "SELECT uid FROM messages WHERE account=? AND folder=? AND (thread IS NULL OR thread='')", (account_id, folder)))
+    for i in range(0, len(bare), 100):
+        resp = _ok(m.uid("FETCH", ",".join(str(u) for u in bare[i:i + 100]),
+                         "(UID BODY.PEEK[HEADER.FIELDS (MESSAGE-ID IN-REPLY-TO REFERENCES)])"), "FETCH")
+        for item in resp:
+            if not isinstance(item, tuple):
+                continue
+            uid = re.search(r"UID (\d+)", item[0].decode(errors="replace"))
+            if uid:
+                c.execute("UPDATE messages SET thread=? WHERE account=? AND folder=? AND uid=?",
+                          (thread_of(email.message_from_bytes(item[1])), account_id, folder, int(uid.group(1))))
     # the flags of the rest (read elsewhere, flagged)
     known = sorted(set(uids) & have)
     for i in range(0, len(known), 500):
@@ -329,6 +362,10 @@ def sync(account_id: str = "") -> dict:
                     new = sync_folder(m, c, a["id"], "INBOX")
                     ensure_folder(m, SNOOZED)
                     sync_folder(m, c, a["id"], SNOOZED)
+                    # (the owner's own messages: their part of the conversations)
+                    sent = special_folder(m, "\\Sent")
+                    if sent:
+                        sync_folder(m, c, a["id"], sent)
                     c.commit()
                     out[a["id"]] = {"new": new, "woken": woken, "error": ""}
                 finally:
@@ -353,19 +390,32 @@ def _split(message_id: str) -> tuple[str, str, int]:
         raise MailError(f"not a message: {message_id!r}") from e
 
 
+TKEY = "COALESCE(NULLIF(m.thread, ''), lower(m.msgid), m.account || m.folder || m.uid)"
+
+
 def listing(which: str = "inbox", cat: str = "", limit: int = 200) -> dict:
-    """The inbox (or the snoozed), newest first (a snoozed one back counts from then)."""
+    """The inbox (or the snoozed), newest first (a snoozed one back counts from then): a
+    conversation once, as its newest (`count`: its messages, the owner's too; `thread_ids`:
+    its ones in the inbox, for what is done to it all; `seen`: all of them read)."""
     folder = SNOOZED if which == "snoozed" else "INBOX"
     with contextlib.closing(db()) as c:
         rows = c.execute(
-            "SELECT m.*, COALESCE(CAST(p.arg AS INTEGER), m.seen) AS seen_now, b.at AS back_at, s.until AS until "
-            "FROM messages m "
-            "LEFT JOIN back b ON b.account=m.account AND b.msgid=m.msgid "
-            "LEFT JOIN snoozes s ON s.account=m.account AND s.msgid=m.msgid "
-            "LEFT JOIN pending p ON p.account=m.account AND p.folder=m.folder AND p.uid=m.uid AND p.action='seen' "
-            "WHERE m.folder=? AND (?='' OR m.category=?) AND NOT EXISTS (SELECT 1 FROM pending g "
-            "  WHERE g.account=m.account AND g.folder=m.folder AND g.uid=m.uid AND g.action IN ('archive','trash')) "
-            "ORDER BY MAX(m.date, COALESCE(b.at, 0)) DESC LIMIT ?", (folder, cat, cat, limit)).fetchall()
+            "WITH base AS ("
+            f" SELECT m.*, {TKEY} AS tkey, COALESCE(CAST(p.arg AS INTEGER), m.seen) AS seen_now,"
+            "  b.at AS back_at, s.until AS until FROM messages m"
+            "  LEFT JOIN back b ON b.account=m.account AND b.msgid=m.msgid"
+            "  LEFT JOIN snoozes s ON s.account=m.account AND s.msgid=m.msgid"
+            "  LEFT JOIN pending p ON p.account=m.account AND p.folder=m.folder AND p.uid=m.uid AND p.action='seen'"
+            "  WHERE m.folder=? AND (?='' OR m.category=?) AND NOT EXISTS (SELECT 1 FROM pending g"
+            "   WHERE g.account=m.account AND g.folder=m.folder AND g.uid=m.uid AND g.action IN ('archive','trash'))),"
+            " ranked AS (SELECT *, ROW_NUMBER() OVER w AS rn,"
+            "  MIN(seen_now) OVER (PARTITION BY account, tkey) AS all_seen,"
+            "  GROUP_CONCAT(account || '|' || folder || '|' || uid, ',') OVER (PARTITION BY account, tkey) AS ids"
+            "  FROM base WINDOW w AS (PARTITION BY account, tkey ORDER BY MAX(date, COALESCE(back_at, 0)) DESC))"
+            " SELECT r.*, (SELECT COUNT(DISTINCT lower(m.msgid)) FROM messages m"
+            f"   WHERE m.account=r.account AND {TKEY}=r.tkey) AS n"
+            " FROM ranked r WHERE rn=1 ORDER BY MAX(date, COALESCE(back_at, 0)) DESC LIMIT ?",
+            (folder, cat, cat, limit)).fetchall()
         counts = {r["category"]: r["n"] for r in c.execute(
             "SELECT category, COUNT(*) AS n FROM messages m WHERE folder='INBOX' "
             "AND COALESCE((SELECT CAST(arg AS INTEGER) FROM pending p WHERE p.account=m.account AND p.folder=m.folder "
@@ -376,10 +426,37 @@ def listing(which: str = "inbox", cat: str = "", limit: int = 200) -> dict:
     return {"messages": [{"id": _id(r), "account": r["account"], "account_name": names.get(r["account"], ""),
                           "from": r["from_name"], "from_addr": r["from_addr"], "to": r["to_addrs"],
                           "subject": r["subject"], "date": max(r["date"], r["back_at"] or 0),
-                          "snippet": r["snippet"], "seen": bool(r["seen_now"]), "flagged": bool(r["flagged"]),
+                          "snippet": r["snippet"], "seen": bool(r["all_seen"]), "flagged": bool(r["flagged"]),
                           "category": r["category"], "attachments": r["attachments"],
-                          "snoozed_until": r["until"]} for r in rows],
+                          "snoozed_until": r["until"], "count": max(1, r["n"] or 1),
+                          "thread_ids": (r["ids"] or "").split(",")} for r in rows],
             "unread": counts, "accounts": [{"id": i, "user": u} for i, u in names.items()]}
+
+
+def thread(message_id: str) -> dict:
+    """A message's conversation, oldest first: what is known of it on the phone (the inbox,
+    the snoozed, the owner's sent), each message once."""
+    account_id, folder, uid = _split(message_id)
+    with contextlib.closing(db()) as c:
+        key = c.execute(f"SELECT {TKEY} AS tkey FROM messages m WHERE account=? AND folder=? AND uid=?",
+                        (account_id, folder, uid)).fetchone()
+        if not key:
+            return {"messages": []}
+        rows = c.execute(
+            f"SELECT m.*, COALESCE(CAST(p.arg AS INTEGER), m.seen) AS seen_now FROM messages m"
+            " LEFT JOIN pending p ON p.account=m.account AND p.folder=m.folder AND p.uid=m.uid AND p.action='seen'"
+            f" WHERE m.account=? AND {TKEY}=? ORDER BY m.date, m.folder='INBOX' DESC",
+            (account_id, key["tkey"])).fetchall()
+    seen, out = set(), []
+    for r in rows:
+        mid = (r["msgid"] or _id(r)).lower()
+        if mid in seen:
+            continue
+        seen.add(mid)
+        out.append({"id": _id(r), "from": r["from_name"], "from_addr": r["from_addr"], "to": r["to_addrs"],
+                    "subject": r["subject"], "date": r["date"], "snippet": r["snippet"],
+                    "seen": bool(r["seen_now"]), "attachments": r["attachments"], "folder": r["folder"]})
+    return {"messages": out}
 
 
 def _fetch(m: imaplib.IMAP4_SSL, folder: str, uid: int, peek: bool) -> email.message.EmailMessage:
@@ -730,6 +807,7 @@ def main(argv: list[str] | None = None) -> int:
     ls.add_argument("--snoozed", action="store_true")
     ls.add_argument("--category", default="")
     ls.add_argument("--limit", type=int, default=200)
+    sub.add_parser("thread").add_argument("id")
     r = sub.add_parser("read")
     r.add_argument("id")
     r.add_argument("--peek", action="store_true")
@@ -761,6 +839,7 @@ def main(argv: list[str] | None = None) -> int:
         out = {"sync": lambda: sync(a.account),
                "list": lambda: listing("snoozed" if a.snoozed else "inbox", a.category, a.limit),
                "read": lambda: read(a.id, not a.peek),
+               "thread": lambda: thread(a.id),
                "archive": lambda: archive(a.id), "trash": lambda: trash(a.id),
                "unsnooze": lambda: unsnooze(a.id),
                "seen": lambda: set_seen(a.id, a.state == "on"),

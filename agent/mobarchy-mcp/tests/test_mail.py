@@ -43,7 +43,7 @@ def test_listing_newest_first_with_snoozed_back_on_top(tmp_path, monkeypatch):
     rows = [("g", "INBOX", 1, "<a@x>", "Kari", "kari@x", "", "Old one", now - 9000, "", 0, 0, "people", 0),
             ("g", "INBOX", 2, "<b@x>", "Ola", "ola@x", "", "Newer", now - 100, "", 1, 0, "people", 0),
             ("g", "INBOX", 3, "<c@x>", "Shop", "n@shop", "", "Sale", now - 50, "", 0, 0, "newsletters", 0)]
-    c.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    c.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'')", rows)
     c.execute("INSERT INTO back VALUES ('g', '<a@x>', ?)", (now,))      # (snoozed, back now)
     c.commit()
     out = mail.listing()
@@ -60,7 +60,7 @@ def test_changes_count_at_once_and_stay_until_the_server_has_them(tmp_path, monk
     c = mail.db()
     rows = [("g", "INBOX", 1, "<a@x>", "Kari", "kari@x", "", "Archive me", now - 100, "", 0, 0, "people", 0),
             ("g", "INBOX", 2, "<b@x>", "Ola", "ola@x", "", "Read me", now - 50, "", 0, 0, "people", 0)]
-    c.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    c.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,'')", rows)
     c.commit()
 
     # the server out of reach: the changes still count, and wait
@@ -83,3 +83,28 @@ def test_changes_count_at_once_and_stay_until_the_server_has_them(tmp_path, monk
     assert mail.archive("g|INBOX|1") == {"done": "g|INBOX|1"}
     assert c.execute("SELECT COUNT(*) FROM messages WHERE uid=1").fetchone()[0] == 0
     assert c.execute("SELECT COUNT(*) FROM pending WHERE action='archive'").fetchone()[0] == 0
+
+
+def test_a_conversation_is_listed_once_and_read_whole(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr(mail, "mail_accounts", lambda: [{"id": "g", "user": "me@x.no", "type": "google"}])
+    now = int(time.time())
+    c = mail.db()
+    t = "<first@anna>"
+    rows = [("g", "INBOX", 1, "<first@anna>", "Anna", "anna@x", "", "Plans", now - 900, "Shall we?", 1, 0, "people", 0, t),
+            ("g", "Sent", 7, "<reply@me>", "Me", "me@x.no", "", "Re: Plans", now - 600, "Yes!", 1, 0, "people", 0, t),
+            ("g", "INBOX", 2, "<second@anna>", "Anna", "anna@x", "", "Re: Plans", now - 300, "Great", 0, 0, "people", 0, t),
+            ("g", "INBOX", 3, "<other@x>", "Ola", "ola@x", "", "Other", now - 500, "", 1, 0, "people", 0, "")]
+    c.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    c.commit()
+    out = mail.listing()["messages"]
+    assert [(m["subject"], m["count"], m["seen"]) for m in out] == [("Re: Plans", 3, False), ("Other", 1, True)]
+    assert sorted(out[0]["thread_ids"]) == ["g|INBOX|1", "g|INBOX|2"]
+    conv = mail.thread("g|INBOX|2")["messages"]
+    assert [m["snippet"] for m in conv] == ["Shall we?", "Yes!", "Great"]
+
+
+def test_thread_of():
+    m = email.message_from_string("Message-ID: <C@x>\nIn-Reply-To: <b@x>\nReferences: <A@x> <b@x>\n\nhi")
+    assert mail.thread_of(m) == "<a@x>"
+    assert mail.thread_of(email.message_from_string("Message-ID: <Solo@x>\n\nhi")) == "<solo@x>"

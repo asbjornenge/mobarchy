@@ -134,6 +134,19 @@ void MailData::drop(const QString &id)
     }
 }
 
+void MailData::loadThread(const QString &id)
+{
+    m_conversation.clear();
+    emit conversationChanged();
+    m_threadOf = id;
+    run({QStringLiteral("thread"), id}, [this, id](const QJsonObject &o) {
+        if (m_threadOf != id)
+            return;
+        m_conversation = o.value(QStringLiteral("messages")).toArray().toVariantList();
+        emit conversationChanged();
+    });
+}
+
 void MailData::open(const QString &id)
 {
     run({QStringLiteral("read"), id}, [this](const QJsonObject &o) { emit opened(o.toVariantMap()); });

@@ -28,6 +28,9 @@ class MailData : public QObject
     Q_PROPERTY(QVariantList accounts READ accounts NOTIFY messagesChanged)
     Q_PROPERTY(bool syncing READ syncing NOTIFY syncingChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+    // a conversation, oldest first: [{id, from, from_addr, to, subject, date, snippet, seen,
+    // attachments, folder}] (loadThread)
+    Q_PROPERTY(QVariantList conversation READ conversation NOTIFY conversationChanged)
 
 public:
     explicit MailData(QObject *parent = nullptr);
@@ -41,12 +44,15 @@ public:
     QVariantList accounts() const { return m_accounts; }
     bool syncing() const { return m_syncing; }
     QString error() const { return m_error; }
+    QVariantList conversation() const { return m_conversation; }
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void sync();
     // the message in full: opened(message) when it has come ({from, to, cc, subject, date,
     // text, html, attachments [{index, name, type, size}]})
     Q_INVOKABLE void open(const QString &id);
+    // the conversation the message is in (conversation; empty at once)
+    Q_INVOKABLE void loadThread(const QString &id);
     // out of the list at once, then on the server
     Q_INVOKABLE void archive(const QString &id);
     Q_INVOKABLE void trash(const QString &id);
@@ -64,6 +70,7 @@ signals:
     void syncingChanged();
     void errorChanged();
     void opened(const QVariantMap &message);
+    void conversationChanged();
     void sent(bool ok, const QString &error);
     void saved(const QString &path);
 
@@ -74,6 +81,8 @@ private:
 
     QString m_category;
     bool m_snoozed = false;
+    QVariantList m_conversation;
+    QString m_threadOf;
     QVariantList m_messages, m_accounts;
     QVariantMap m_unread;
     bool m_syncing = false;
