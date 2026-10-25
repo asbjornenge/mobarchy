@@ -65,13 +65,13 @@ Window {
             win.visibility = request.toggleOn ? Window.FullScreen : Window.AutomaticVisibility
         }
         // (notifications and the clipboard, as an installed app has them; the camera, the
-        // microphone and the location not yet: the browser asks for those)
+        // microphone and the location: asked, as the browser asks)
         onPermissionRequested: (permission) => {
             if (permission.permissionType === WebEnginePermission.PermissionType.Notifications
                     || permission.permissionType === WebEnginePermission.PermissionType.ClipboardReadWrite)
                 permission.grant()
             else
-                permission.deny()
+                permissionSheet.ask(view, permission)
         }
     }
 
@@ -134,6 +134,11 @@ Window {
         fromRight: true
         enabled_: popup.visible ? popupView.canGoForward : view.canGoForward
         onGo: popup.visible ? popupView.goForward() : view.goForward()
+    }
+
+    PermissionSheet {
+        id: permissionSheet
+        z: 10
     }
 
     Connections {

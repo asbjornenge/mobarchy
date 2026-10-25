@@ -26,6 +26,7 @@ qt_add_qml_module(mobarchy-browser
         qml/LoginSheet.qml
         qml/EdgeSwipe.qml
         qml/PullRefresh.qml
+        qml/PermissionSheet.qml
 )
 target_include_directories(mobarchy-browser PRIVATE src)
 target_link_libraries(mobarchy-browser PRIVATE Qt6::Gui Qt6::Quick Qt6::DBus Qt6::WebEngineQuick)
