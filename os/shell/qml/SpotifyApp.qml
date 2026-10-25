@@ -153,13 +153,11 @@ Window {
 
         // Upright: the door, the counter, the keys and the songs under each other. Wide
         // (sideways, or the top half in laptop mode): the door in the middle, as tall as there
-        // is room for, with the counter under it; the keys at either side, the songs under
-        // the right-hand ones.
+        // is room for, with the counter under it; the keys at its left, the songs at its right
+        // (left to right: keys, door, songs).
         readonly property bool wide: width > height * 1.2
         readonly property real across: Math.min(width - 32, 520)
-        // (wide: the room at either side of the door)
-        readonly property real side: (width - door.width) / 2 - 32
-        readonly property real keyWidth: wide ? Math.min(90, (side - 6) / 2) : Math.min(90, (across - 6 * 6) / 7)
+        readonly property real keyWidth: wide ? 90 : Math.min(90, (across - 6 * 6) / 7)
         // the keys, left to right
         readonly property var keySpecs: [
             { icon: "󰐊", label: "EJECT", glyph: "⏏" }, { icon: "󰒮", label: "PREV" }, { icon: "󰑟", label: "REW" },
@@ -180,11 +178,10 @@ Window {
         }
         component Keys: Grid {
             id: keyGrid
-            property int from
-            property int to
+            property var order: [0, 1, 2, 3, 4, 5, 6]   // (indices into keySpecs)
             spacing: 6
             Repeater {
-                model: deck.keySpecs.slice(keyGrid.from, keyGrid.to)
+                model: keyGrid.order.map(i => deck.keySpecs[i])
                 delegate: DeckKey {
                     required property var modelData
                     icon: modelData.icon; label: modelData.label; glyph: modelData.glyph || ""
@@ -205,14 +202,16 @@ Window {
 
         Column {
             id: deckColumn
-            anchors { top: parent.top; topMargin: deck.wide ? 16 : 24; horizontalCenter: parent.horizontalCenter }
+            anchors { top: parent.top; topMargin: deck.wide ? 16 : 24
+                      horizontalCenter: deck.wide ? undefined : parent.horizontalCenter }
+            x: deck.wide ? wideKeys.x + wideKeys.width + 20 : 0
             width: deck.wide ? door.width : deck.across
             spacing: deck.wide ? 12 : 22
 
             // the deck's door, with the tape behind its glass
             Rectangle {
                 id: door
-                width: deck.wide ? Math.min(deck.width * 0.5, (deck.height - 16 - 10 - 34 - 28 - 2 * deckColumn.spacing - 36) / 0.638 + 36)
+                width: deck.wide ? Math.min(deck.width * 0.45, (deck.height - 16 - 10 - 34 - 28 - 2 * deckColumn.spacing - 36) / 0.638 + 36)
                                  : deck.across
                 height: tapeView.height + 36
                 radius: 18
@@ -310,7 +309,7 @@ Window {
             Keys {
                 visible: !deck.wide
                 anchors.horizontalCenter: parent.horizontalCenter
-                columns: 7; from: 0; to: 7
+                columns: 7
             }
             Toggles { visible: !deck.wide; anchors.horizontalCenter: parent.horizontalCenter }
             Text {
@@ -322,19 +321,15 @@ Window {
             }
         }
 
-        // wide: the keys at the door's left (and shuffle, repeat under them) and right
+        // wide: the keys at the door's left, shuffle and repeat under them
         Column {
+            id: wideKeys
             visible: deck.wide
-            anchors { right: deckColumn.left; rightMargin: 16; top: deckColumn.top; topMargin: 12 }
-            spacing: 22
-            Keys { columns: 2; from: 0; to: 4 }
+            anchors { left: parent.left; leftMargin: 16; verticalCenter: deckColumn.verticalCenter }
+            spacing: 18
+            // (in pairs: play and pause, the winds, the skips; eject under them)
+            Keys { columns: 2; order: [3, 4, 2, 5, 1, 6, 0] }
             Toggles { anchors.horizontalCenter: parent.horizontalCenter }
-        }
-        Keys {
-            id: rightKeys
-            visible: deck.wide
-            anchors { left: deckColumn.right; leftMargin: 16; top: deckColumn.top; topMargin: 12 }
-            columns: 2; from: 4; to: 7
         }
 
         // the tape's songs (the playlist or album in the deck), written on a lined sheet as a
@@ -342,9 +337,9 @@ Window {
         Rectangle {
             id: paper
             visible: tapeSongs.count > 0
-            // (upright: under the deck; wide: under the right-hand keys)
-            x: deck.wide ? rightKeys.x : deckColumn.x
-            y: deck.wide ? rightKeys.y + rightKeys.height + 14 : deckColumn.y + deckColumn.height + 18
+            // (upright: under the deck; wide: at the door's right, as tall as the deck)
+            x: deck.wide ? deckColumn.x + deckColumn.width + 20 : deckColumn.x
+            y: deck.wide ? deckColumn.y : deckColumn.y + deckColumn.height + 18
             width: deck.wide ? deck.width - x - 16 : deckColumn.width
             height: deck.height - y - 10
             radius: 4
