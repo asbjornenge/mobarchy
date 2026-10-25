@@ -91,8 +91,18 @@ Sheet {
         bluetoothError = ""
         page = 2
     }
-    // Look for devices while the Bluetooth page is in view.
-    readonly property bool lookingForDevices: page === 2 && shown && rfkill.bluetoothEnabled
+    // Look for devices while the Bluetooth page is in view, for half a minute at most: a
+    // search shares the radio with a headset's music, which stutters while it runs (and a
+    // sheet left "shown" at openness 0 kept it searching for good).
+    readonly property bool bluetoothInView: page === 2 && shown && openness > 0.5 && rfkill.bluetoothEnabled
+    property bool lookedLongEnough: false
+    onBluetoothInViewChanged: {
+        lookedLongEnough = false
+        if (bluetoothInView)
+            lookingTimer.restart()
+    }
+    Timer { id: lookingTimer; interval: 30000; onTriggered: quick.lookedLongEnough = true }
+    readonly property bool lookingForDevices: bluetoothInView && !lookedLongEnough
     onLookingForDevicesChanged: bluetooth.setDiscovery(lookingForDevices)
 
     function deviceIcon(icon) {
