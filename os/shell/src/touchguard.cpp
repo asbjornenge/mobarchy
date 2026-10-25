@@ -7,11 +7,22 @@
 #include <QTouchEvent>
 #include <qpa/qwindowsysteminterface.h>
 
+namespace {
+// No event about any point for this long: the points still down are lost ones.
+constexpr qint64 StaleMs = 15000;
+}
+
 TouchGuard::TouchGuard(QObject *parent)
     : QObject(parent)
 {
     m_clock.start();
     qGuiApp->installEventFilter(this);
+    // (only while points are down)
+    m_stale.setInterval(5000);
+    connect(&m_stale, &QTimer::timeout, this, [this] {
+        if (m_clock.elapsed() - m_lastEvent > StaleMs)
+            reset(QStringLiteral("no touch event for %1 s").arg(StaleMs / 1000));
+    });
 }
 
 bool TouchGuard::eventFilter(QObject *watched, QEvent *event)
@@ -24,6 +35,7 @@ bool TouchGuard::eventFilter(QObject *watched, QEvent *event)
     case QEvent::TouchUpdate:
     case QEvent::TouchEnd: {
         const auto *touch = static_cast<QTouchEvent *>(event);
+        m_lastEvent = m_clock.elapsed();
         for (const QEventPoint &p : touch->points()) {
             if (p.state() == QEventPoint::Released) {
                 m_down.remove(p.id());
@@ -40,13 +52,18 @@ bool TouchGuard::eventFilter(QObject *watched, QEvent *event)
         m_down.clear();
         break;
     default:
-        break;
+        return false;
     }
+    if (m_down.isEmpty())
+        m_stale.stop();
+    else if (!m_stale.isActive())
+        m_stale.start();
     return false;
 }
 
 void TouchGuard::reset(const QString &reason)
 {
+    m_stale.stop();
     if (m_down.isEmpty())
         return;
     QStringList points;

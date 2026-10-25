@@ -2,13 +2,16 @@
 // touched went away), Qt keeps that point down for good, and Qt Quick then stops turning
 // new touches into presses for MouseAreas: the whole shell ignores taps and swipes. The
 // guard follows the points the shell's windows see; reset() cancels any still down, at
-// moments when no finger can be (the screen just woke up).
+// moments when no finger can be (the screen just woke up), and points no event has
+// mentioned for a while are cancelled by themselves (a finger on glass is never that still:
+// it jitters, and each jitter is an event).
 #pragma once
 
 #include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
+#include <QTimer>
 #include <QtQml/qqmlregistration.h>
 
 class QPointingDevice;
@@ -34,4 +37,6 @@ private:
     };
     QHash<int, Point> m_down;  // by point id
     QElapsedTimer m_clock;
+    qint64 m_lastEvent = 0;    // ms on m_clock: any touch event at all
+    QTimer m_stale;
 };
