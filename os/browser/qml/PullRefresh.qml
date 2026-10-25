@@ -24,7 +24,7 @@ Item {
     readonly property real t: Math.min(1, pulled / far)
     readonly property bool armed: pulled >= far
     // the room made at the top
-    readonly property real room: refreshing ? 64 : Math.min(80, pulled * 0.55)
+    property real room: refreshing ? 64 : Math.min(80, pulled * 0.55)
 
     anchors.fill: parent
 
