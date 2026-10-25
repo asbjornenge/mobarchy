@@ -223,14 +223,14 @@ Window {
                 height: 82
                 clip: true
 
-                // What a swipe does, by how far it has come (a tenth of the row before
+                // What a swipe does, by how far it has come (a fifth of the row before
                 // anything): to the right, read or unread (as it is not), and from half way,
                 // done (archived); back to the inbox, snoozed ones. To the left, snooze. A tick
                 // as each mark is passed, either way.
                 readonly property real part: card.x / width
                 readonly property string action: part >= 0.5 ? (mail.snoozed ? "inbox" : "done")
-                                               : part >= 0.1 ? (mail.snoozed ? "inbox" : (modelData.seen ? "unread" : "read"))
-                                               : part <= -0.1 && !mail.snoozed ? "snooze" : ""
+                                               : part >= 0.2 ? (mail.snoozed ? "inbox" : (modelData.seen ? "unread" : "read"))
+                                               : part <= -0.2 && !mail.snoozed ? "snooze" : ""
                 onActionChanged: if (swipe.active) haptics.tick()
                 Rectangle {
                     anchors.fill: parent
