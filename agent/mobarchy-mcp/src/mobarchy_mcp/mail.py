@@ -9,6 +9,9 @@ kept on the phone for the Mail app, the home board and Frigg.
 - The inbox in three: people, notifications (no-reply senders, automatic mail) and
   newsletters (mailing lists, bulk), from the headers (`category`).
 - Archive: out of the inbox, into the account's archive (Gmail's All Mail).
+- Changes (archived, deleted, read or not) count on the phone at once and stay so until
+  the server has them (`pending`): a list taken before it has them doesn't bring an
+  archived one back; one that could not reach it (offline) is tried again at every sync.
 - Snooze: into a "Snoozed" folder on the server, and back in the inbox (at the top) when
   its time comes; `watch` and every sync bring back what is due.
 - `watch`: the inbox followed (IMAP IDLE), each account in a thread of its own; a new
@@ -83,6 +86,8 @@ def db() -> sqlite3.Connection:
             PRIMARY KEY (account, msgid));
         CREATE TABLE IF NOT EXISTS back (account TEXT, msgid TEXT, at INTEGER,
             PRIMARY KEY (account, msgid));
+        CREATE TABLE IF NOT EXISTS pending (account TEXT, folder TEXT, uid INTEGER, action TEXT,
+            arg TEXT, tries INTEGER DEFAULT 0, PRIMARY KEY (account, folder, uid, action));
     """)
     return c
 
@@ -319,6 +324,7 @@ def sync(account_id: str = "") -> dict:
             try:
                 m = imap(a)
                 try:
+                    flush_pending(m, c, a["id"])
                     woken = wake_due(m, c, a["id"])
                     new = sync_folder(m, c, a["id"], "INBOX")
                     ensure_folder(m, SNOOZED)
@@ -352,18 +358,25 @@ def listing(which: str = "inbox", cat: str = "", limit: int = 200) -> dict:
     folder = SNOOZED if which == "snoozed" else "INBOX"
     with contextlib.closing(db()) as c:
         rows = c.execute(
-            "SELECT m.*, b.at AS back_at, s.until AS until FROM messages m "
+            "SELECT m.*, COALESCE(CAST(p.arg AS INTEGER), m.seen) AS seen_now, b.at AS back_at, s.until AS until "
+            "FROM messages m "
             "LEFT JOIN back b ON b.account=m.account AND b.msgid=m.msgid "
             "LEFT JOIN snoozes s ON s.account=m.account AND s.msgid=m.msgid "
-            "WHERE m.folder=? AND (?='' OR m.category=?) "
+            "LEFT JOIN pending p ON p.account=m.account AND p.folder=m.folder AND p.uid=m.uid AND p.action='seen' "
+            "WHERE m.folder=? AND (?='' OR m.category=?) AND NOT EXISTS (SELECT 1 FROM pending g "
+            "  WHERE g.account=m.account AND g.folder=m.folder AND g.uid=m.uid AND g.action IN ('archive','trash')) "
             "ORDER BY MAX(m.date, COALESCE(b.at, 0)) DESC LIMIT ?", (folder, cat, cat, limit)).fetchall()
         counts = {r["category"]: r["n"] for r in c.execute(
-            "SELECT category, COUNT(*) AS n FROM messages WHERE folder='INBOX' AND seen=0 GROUP BY category")}
+            "SELECT category, COUNT(*) AS n FROM messages m WHERE folder='INBOX' "
+            "AND COALESCE((SELECT CAST(arg AS INTEGER) FROM pending p WHERE p.account=m.account AND p.folder=m.folder "
+            "  AND p.uid=m.uid AND p.action='seen'), seen)=0 "
+            "AND NOT EXISTS (SELECT 1 FROM pending g WHERE g.account=m.account AND g.folder=m.folder AND g.uid=m.uid "
+            "  AND g.action IN ('archive','trash')) GROUP BY category")}
     names = {a["id"]: a["user"] for a in mail_accounts()}
     return {"messages": [{"id": _id(r), "account": r["account"], "account_name": names.get(r["account"], ""),
                           "from": r["from_name"], "from_addr": r["from_addr"], "to": r["to_addrs"],
                           "subject": r["subject"], "date": max(r["date"], r["back_at"] or 0),
-                          "snippet": r["snippet"], "seen": bool(r["seen"]), "flagged": bool(r["flagged"]),
+                          "snippet": r["snippet"], "seen": bool(r["seen_now"]), "flagged": bool(r["flagged"]),
                           "category": r["category"], "attachments": r["attachments"],
                           "snoozed_until": r["until"]} for r in rows],
             "unread": counts, "accounts": [{"id": i, "user": u} for i, u in names.items()]}
@@ -441,7 +454,7 @@ def _forget(message_id: str) -> None:
         c.commit()
 
 
-def archive(message_id: str) -> dict:
+def _archive_on(message_id: str):
     def go(m, uid):
         where = special_folder(m, "\\Archive") or special_folder(m, "\\All")
         if not where:
@@ -449,29 +462,87 @@ def archive(message_id: str) -> dict:
             where = "Archive"
         _ok(m.select(_quote(_split(message_id)[1])), "SELECT")
         _move(m, uid, where)
-    out = _act(message_id, go)
-    _forget(message_id)
-    return out
+    return go
 
 
-def trash(message_id: str) -> dict:
+def _trash_on(message_id: str):
     def go(m, uid):
         where = special_folder(m, "\\Trash") or "Trash"
         _ok(m.select(_quote(_split(message_id)[1])), "SELECT")
         _move(m, uid, where)
-    out = _act(message_id, go)
-    _forget(message_id)
+    return go
+
+
+def _seen_on(seen: bool):
+    return lambda m, uid: _ok(m.uid("STORE", str(uid), "+FLAGS.SILENT" if seen else "-FLAGS.SILENT",
+                                     "(\\Seen)"), "STORE")
+
+
+# A change: counted on the phone first (pending), then made on the server; once it has it,
+# no longer pending (and the moved ones forgotten). Not reached: pending, tried again by sync.
+def _change(message_id: str, action: str, arg: str, how) -> dict:
+    account_id, folder, uid = _split(message_id)
+    with contextlib.closing(db()) as c:
+        c.execute("INSERT OR REPLACE INTO pending (account, folder, uid, action, arg) VALUES (?,?,?,?,?)",
+                  (account_id, folder, uid, action, arg))
+        if action == "seen":
+            c.execute("UPDATE messages SET seen=? WHERE account=? AND folder=? AND uid=?",
+                      (int(arg), account_id, folder, uid))
+        c.commit()
+    try:
+        out = _act(message_id, how)
+    except (MailError, OSError, imaplib.IMAP4.error) as e:
+        return {"pending": message_id, "error": str(e)}
+    _settled(message_id, action)
     return out
+
+
+def _settled(message_id: str, action: str) -> None:
+    account_id, folder, uid = _split(message_id)
+    with contextlib.closing(db()) as c:
+        c.execute("DELETE FROM pending WHERE account=? AND folder=? AND uid=? AND action=?",
+                  (account_id, folder, uid, action))
+        if action in ("archive", "trash"):
+            c.execute("DELETE FROM messages WHERE account=? AND folder=? AND uid=?", (account_id, folder, uid))
+        c.commit()
+
+
+def archive(message_id: str) -> dict:
+    return _change(message_id, "archive", "", _archive_on(message_id))
+
+
+def trash(message_id: str) -> dict:
+    return _change(message_id, "trash", "", _trash_on(message_id))
 
 
 def set_seen(message_id: str, seen: bool) -> dict:
-    out = _act(message_id, lambda m, uid: _ok(m.uid("STORE", str(uid), "+FLAGS.SILENT" if seen else "-FLAGS.SILENT",
-                                                     "(\\Seen)"), "STORE"))
-    account_id, folder, uid = _split(message_id)
-    with contextlib.closing(db()) as c:
-        c.execute("UPDATE messages SET seen=? WHERE account=? AND folder=? AND uid=?", (int(seen), account_id, folder, uid))
-        c.commit()
-    return out
+    return _change(message_id, "seen", "1" if seen else "0", _seen_on(seen))
+
+
+def flush_pending(m: imaplib.IMAP4_SSL, c: sqlite3.Connection, account_id: str) -> int:
+    """The account's changes the server doesn't have yet, made now (each given up after a
+    dozen tries: the message gone from the server, say)."""
+    done = 0
+    for r in c.execute("SELECT * FROM pending WHERE account=?", (account_id,)).fetchall():
+        message_id = _id(r)
+        how = {"archive": lambda: _archive_on(message_id), "trash": lambda: _trash_on(message_id),
+               "seen": lambda: _seen_on(r["arg"] == "1")}.get(r["action"])
+        key = (r["account"], r["folder"], r["uid"], r["action"])
+        try:
+            if how is None:
+                raise MailError(f"unknown change {r['action']}")
+            _ok(m.select(_quote(r["folder"])), f"SELECT {r['folder']}")
+            how()(m, r["uid"])
+        except (MailError, imaplib.IMAP4.error):
+            c.execute("UPDATE pending SET tries=tries+1 WHERE account=? AND folder=? AND uid=? AND action=?", key)
+            c.execute("DELETE FROM pending WHERE tries>12")
+            continue
+        c.execute("DELETE FROM pending WHERE account=? AND folder=? AND uid=? AND action=?", key)
+        if r["action"] in ("archive", "trash"):
+            c.execute("DELETE FROM messages WHERE account=? AND folder=? AND uid=?", key[:3])
+        done += 1
+    c.commit()
+    return done
 
 
 def snooze(message_id: str, until: int) -> dict:

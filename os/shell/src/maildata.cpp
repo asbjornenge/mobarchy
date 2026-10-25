@@ -177,6 +177,16 @@ void MailData::unsnooze(const QString &id)
 
 void MailData::setSeen(const QString &id, bool seen)
 {
+    // at once in the list (the command keeps it so until the server has it)
+    for (int i = 0; i < m_messages.size(); ++i) {
+        QVariantMap m = m_messages[i].toMap();
+        if (m.value(QStringLiteral("id")).toString() == id) {
+            m.insert(QStringLiteral("seen"), seen);
+            m_messages[i] = m;
+            emit messagesChanged();
+            break;
+        }
+    }
     run({QStringLiteral("seen"), id, seen ? QStringLiteral("on") : QStringLiteral("off")},
         [this](const QJsonObject &) { refresh(); });
 }

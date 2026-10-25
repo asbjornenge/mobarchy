@@ -51,3 +51,35 @@ def test_listing_newest_first_with_snoozed_back_on_top(tmp_path, monkeypatch):
     assert out["unread"] == {"people": 1, "newsletters": 1}
     assert [m["subject"] for m in mail.listing(cat="people")["messages"]] == ["Old one", "Newer"]
     assert out["messages"][0]["id"] == "g|INBOX|1"
+
+
+def test_changes_count_at_once_and_stay_until_the_server_has_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr(mail, "mail_accounts", lambda: [{"id": "g", "user": "me@x.no", "type": "google"}])
+    now = int(time.time())
+    c = mail.db()
+    rows = [("g", "INBOX", 1, "<a@x>", "Kari", "kari@x", "", "Archive me", now - 100, "", 0, 0, "people", 0),
+            ("g", "INBOX", 2, "<b@x>", "Ola", "ola@x", "", "Read me", now - 50, "", 0, 0, "people", 0)]
+    c.executemany("INSERT INTO messages VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", rows)
+    c.commit()
+
+    # the server out of reach: the changes still count, and wait
+    def offline(message_id, how):
+        raise mail.MailError("no network")
+    monkeypatch.setattr(mail, "_act", offline)
+    assert "pending" in mail.archive("g|INBOX|1")
+    assert "pending" in mail.set_seen("g|INBOX|2", True)
+    out = mail.listing()
+    assert [m["subject"] for m in out["messages"]] == ["Read me"]
+    assert out["messages"][0]["seen"] is True
+    assert out["unread"] == {}
+    # a sync that brings the old state back from the server doesn't undo them
+    c.execute("UPDATE messages SET seen=0 WHERE uid=2")
+    c.commit()
+    assert [(m["subject"], m["seen"]) for m in mail.listing()["messages"]] == [("Read me", True)]
+
+    # the server reached: settled (the archived one forgotten)
+    monkeypatch.setattr(mail, "_act", lambda message_id, how: {"done": message_id})
+    assert mail.archive("g|INBOX|1") == {"done": "g|INBOX|1"}
+    assert c.execute("SELECT COUNT(*) FROM messages WHERE uid=1").fetchone()[0] == 0
+    assert c.execute("SELECT COUNT(*) FROM pending WHERE action='archive'").fetchone()[0] == 0

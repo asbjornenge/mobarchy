@@ -16,6 +16,9 @@ Window {
     title: qsTr("Mail")
     color: Theme.bg
 
+    // (a tick as a swipe passes a mark)
+    Haptics { id: haptics }
+
     // the message's HTML, when it has one; remote images only when asked for
     readonly property bool html: !!(win.message && win.message.html)
     readonly property bool remoteImages: html && /(src|background)\s*=\s*["']?https?:/i.test(win.message.html)
@@ -220,21 +223,33 @@ Window {
                 height: 82
                 clip: true
 
-                // under the row: what the swipe does
+                // What a swipe does, by how far it has come (a tenth of the row before
+                // anything): to the right, read or unread (as it is not), and from half way,
+                // done (archived); back to the inbox, snoozed ones. To the left, snooze. A tick
+                // as each mark is passed, either way.
+                readonly property real part: card.x / width
+                readonly property string action: part >= 0.5 ? (mail.snoozed ? "inbox" : "done")
+                                               : part >= 0.1 ? (mail.snoozed ? "inbox" : (modelData.seen ? "unread" : "read"))
+                                               : part <= -0.1 && !mail.snoozed ? "snooze" : ""
+                onActionChanged: if (swipe.active) haptics.tick()
                 Rectangle {
                     anchors.fill: parent
-                    color: card.x > 0 ? Theme.green : Theme.magenta
                     visible: card.x !== 0
+                    color: row.action === "done" || row.action === "inbox" ? Theme.green
+                         : row.action === "read" || row.action === "unread" ? Theme.accent
+                         : row.action === "snooze" ? Theme.magenta : Theme.panel
+                    Behavior on color { ColorAnimation { duration: 120 } }
                     Text {
                         anchors { left: parent.left; leftMargin: 26; verticalCenter: parent.verticalCenter }
-                        visible: card.x > 0
-                        text: mail.snoozed ? "󰑐  " + qsTr("Inbox") : "󰀼  " + qsTr("Archive")
+                        visible: card.x > 0 && row.action !== ""
+                        text: ({ done: "󰄬  " + qsTr("Done"), inbox: "󰑐  " + qsTr("Inbox"),
+                                 read: "󰇮  " + qsTr("Read"), unread: "󰻨  " + qsTr("Unread") })[row.action] || ""
                         color: Theme.bg
                         font { family: Theme.font; pixelSize: 16; bold: true }
                     }
                     Text {
                         anchors { right: parent.right; rightMargin: 26; verticalCenter: parent.verticalCenter }
-                        visible: card.x < 0
+                        visible: row.action === "snooze"
                         text: qsTr("Snooze") + "  󰒲"
                         color: Theme.bg
                         font { family: Theme.font; pixelSize: 16; bold: true }
@@ -302,13 +317,13 @@ Window {
                         onActiveChanged: {
                             if (active)
                                 return
-                            if (card.x > row.width * 0.3) {
-                                if (mail.snoozed)
-                                    mail.unsnooze(row.modelData.id)
-                                else
-                                    mail.archive(row.modelData.id)
-                            } else if (card.x < -row.width * 0.3 && !mail.snoozed) {
-                                win.snoozing = row.modelData.id
+                            const id = row.modelData.id
+                            switch (row.action) {
+                            case "done": mail.archive(id); break
+                            case "inbox": mail.unsnooze(id); break
+                            case "read": mail.setSeen(id, true); break
+                            case "unread": mail.setSeen(id, false); break
+                            case "snooze": win.snoozing = id; break
                             }
                             card.x = 0
                         }
