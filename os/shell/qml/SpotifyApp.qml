@@ -159,12 +159,13 @@ Window {
         readonly property bool wide: width > height * 1.2
         readonly property real across: Math.min(width - 32, 520)
         readonly property real keyWidth: wide ? 90 : Math.min(90, (across - 6 * 6) / 7)
-        // (wide) the sheet's edge that shows; the keys' width; the gap between keys and door
+        // (wide) the sheet's edge that shows; the keys' width; the gap between keys and door;
+        // the door in the middle, the keys at its left
         readonly property real sheetEdge: 24
         readonly property real keysWidth: 2 * keyWidth + 6
         readonly property real gap: 24
-        readonly property real room: width - sheetEdge - 32
-        readonly property real groupX: 16 + (room - keysWidth - gap - door.width) / 2
+        readonly property real room: width - 2 * (keysWidth + gap + Math.max(16, sheetEdge + 8))
+        readonly property real groupX: (width - door.width) / 2 - gap - keysWidth
         // the keys, left to right
         readonly property var keySpecs: [
             { icon: "󰐊", label: "EJECT", glyph: "⏏" }, { icon: "󰒮", label: "PREV" }, { icon: "󰑟", label: "REW" },
@@ -217,7 +218,7 @@ Window {
             // the deck's door, with the tape behind its glass
             Rectangle {
                 id: door
-                width: deck.wide ? Math.min(deck.room - deck.keysWidth - deck.gap, (deck.height - 16 - 10 - 34 - 28 - 2 * deckColumn.spacing - 36) / 0.638 + 36)
+                width: deck.wide ? Math.min(deck.room, (deck.height - 16 - 10 - 34 - 28 - 2 * deckColumn.spacing - 36) / 0.638 + 36)
                                  : deck.across
                 height: tapeView.height + 36
                 radius: 18
@@ -340,6 +341,34 @@ Window {
             Toggles { anchors.horizontalCenter: parent.horizontalCenter }
         }
 
+        // (wide) a swipe in from near the right edge pulls the sheet in too
+        component SheetDrag: DragHandler {
+            enabled: deck.wide
+            target: null
+            xAxis.enabled: true
+            yAxis.enabled: false
+            property real from: 0
+            // a flick decides (in: at least half way; out: away); else it stays where it is
+            // let go, back to its edge if barely out
+            onActiveChanged: {
+                if (active) {
+                    from = paper.out
+                    return
+                }
+                const v = centroid.velocity.x
+                paper.out = v > 300 ? 0 : v < -300 ? Math.max(paper.out, paper.outDefault)
+                          : paper.out < 60 ? 0 : paper.out
+            }
+            onTranslationChanged: if (active) paper.out = Math.max(0, Math.min(paper.outMax, from - translation.x))
+        }
+        Item {
+            visible: deck.wide && paper.visible
+            anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
+            width: deck.sheetEdge + 48
+            z: 1
+            SheetDrag { id: edgeDrag }
+        }
+
         // the tape's songs (the playlist or album in the deck), written on a lined sheet as a
         // tape's insert card: the one playing marked, a tap plays another
         Rectangle {
@@ -355,7 +384,7 @@ Window {
             property real out: 0
             readonly property real outMax: width - deck.sheetEdge
             readonly property real outDefault: Math.min(outMax, deck.width * 0.4)
-            Behavior on out { enabled: !sheetDrag.active; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+            Behavior on out { enabled: !sheetDrag.active && !edgeDrag.active; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
             // its shadow over the deck
             Rectangle {
                 visible: deck.wide
@@ -367,26 +396,8 @@ Window {
                     GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.35) }
                 }
             }
-            // pulled sideways (the list scrolls up and down); a flick decides, else it stays
-            // where it is let go (back to its edge if barely out)
-            DragHandler {
-                id: sheetDrag
-                enabled: deck.wide
-                target: null
-                xAxis.enabled: true
-                yAxis.enabled: false
-                property real from: 0
-                onActiveChanged: {
-                    if (active) {
-                        from = paper.out
-                        return
-                    }
-                    const v = centroid.velocity.x
-                    paper.out = v > 400 || paper.out < 60 ? 0
-                              : v < -400 ? Math.max(paper.out, paper.outDefault) : paper.out
-                }
-                onTranslationChanged: if (active) paper.out = Math.max(0, Math.min(paper.outMax, from - translation.x))
-            }
+            // pulled sideways (the list scrolls up and down)
+            SheetDrag { id: sheetDrag }
             // its edge: a tap pulls it in or puts it back
             Item {
                 visible: deck.wide
