@@ -348,15 +348,15 @@ Window {
             xAxis.enabled: true
             yAxis.enabled: false
             property real from: 0
-            // a flick decides (in: at least half way; out: away); else it stays where it is
-            // let go, back to its edge if barely out
+            // a flick decides (in: all the way; out: away); else it stays where it is let go,
+            // back to its edge if barely out
             onActiveChanged: {
                 if (active) {
                     from = paper.out
                     return
                 }
                 const v = centroid.velocity.x
-                paper.out = v > 300 ? 0 : v < -300 ? Math.max(paper.out, paper.outDefault)
+                paper.out = v > 300 ? 0 : v < -300 ? paper.outMax
                           : paper.out < 60 ? 0 : paper.out
             }
             onTranslationChanged: if (active) paper.out = Math.max(0, Math.min(paper.outMax, from - translation.x))
@@ -364,9 +364,16 @@ Window {
         Item {
             visible: deck.wide && paper.visible
             anchors { right: parent.right; top: parent.top; bottom: parent.bottom }
-            width: deck.sheetEdge + 48
+            width: deck.sheetEdge + 110
             z: 1
             SheetDrag { id: edgeDrag }
+        }
+        // (wide) out: a tap anywhere else puts it back
+        MouseArea {
+            visible: deck.wide && paper.out > 0
+            anchors.fill: parent
+            z: 1.5
+            onClicked: paper.out = 0
         }
 
         // the tape's songs (the playlist or album in the deck), written on a lined sheet as a
