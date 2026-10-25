@@ -1,0 +1,11 @@
+[Unit]
+Description=The cameras as webcams (V4L2: v4l2loopback), fed only while something reads them
+PartOf=graphical-session.target
+After=mobarchy-shell.service pipewire.service
+# (a device without the module: nothing to feed)
+ConditionPathExists=/dev/video20
+
+[Service]
+ExecStart=/usr/lib/mobarchy/webcam
+Restart=on-failure
+RestartSec=10

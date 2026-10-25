@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""The phone's cameras as ordinary webcams (V4L2), for programs that look for those (a
+browser's getUserMedia, video calls): the camera bridge's PipeWire cameras (ADR 0018) fed
+into v4l2loopback devices, only while something reads one: a camera is not kept running.
+
+    v4l2loopback devices=2 video_nr=20,21 exclusive_caps=1 card_label="Back camera,Front camera"
+    /dev/video20 <- mobarchy-camera-0, /dev/video21 <- mobarchy-camera-1
+
+Each device is held open as its producer, its format set (I420, 1280x720) and one black
+frame written: with exclusive_caps it is then a capture device to readers. v4l2loopback
+tells (its client usage event) when a reader streams and when it stops; the camera's
+PipeWire stream runs between the two, its frames written to the device.
+
+Run as the owner (mobarchy-webcam.service, a user service).
+"""
+import fcntl
+import os
+import struct
+import sys
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gst", "1.0")
+from gi.repository import GLib, Gst  # noqa: E402
+
+WIDTH, HEIGHT = 1280, 720
+FRAME = WIDTH * HEIGHT * 3 // 2          # I420
+# (device, the bridge's PipeWire node)
+CAMERAS = [("/dev/video20", "mobarchy-camera-0"), ("/dev/video21", "mobarchy-camera-1")]
+
+# linux/videodev2.h (64-bit layouts)
+def _ioc(direction, nr, size):
+    return (direction << 30) | (size << 16) | (ord("V") << 8) | nr
+VIDIOC_S_FMT = _ioc(3, 5, 208)
+VIDIOC_DQEVENT = _ioc(2, 89, 136)
+VIDIOC_SUBSCRIBE_EVENT = _ioc(1, 90, 32)
+BUF_TYPE_VIDEO_OUTPUT = 2
+FIELD_NONE = 1
+PIX_I420 = int.from_bytes(b"YU12", "little")
+EVENT_SUB_FL_SEND_INITIAL = 1
+# v4l2loopback's: a reader started or stopped streaming (count: 1 or 0)
+EVENT_CLIENT_USAGE = 0x08000000 + 0x08E00000 + 1
+
+
+def log(msg: str) -> None:
+    print(f"webcam: {msg}", flush=True)
+
+
+class Webcam:
+    def __init__(self, device: str, node: str):
+        self.device, self.node = device, node
+        self.pipeline = None
+        self.fd = os.open(device, os.O_RDWR | os.O_NONBLOCK)
+        pix = struct.pack("=12I", WIDTH, HEIGHT, PIX_I420, FIELD_NONE, WIDTH, FRAME, 0, 0, 0, 0, 0, 0)
+        fmt = struct.pack("=I4x", BUF_TYPE_VIDEO_OUTPUT) + pix.ljust(200, b"\0")
+        fcntl.ioctl(self.fd, VIDIOC_S_FMT, bytearray(fmt))
+        # black: luma 16, chroma 128
+        os.write(self.fd, b"\x10" * (WIDTH * HEIGHT) + b"\x80" * (WIDTH * HEIGHT // 2))
+        sub = struct.pack("=8I", EVENT_CLIENT_USAGE, 0, EVENT_SUB_FL_SEND_INITIAL, 0, 0, 0, 0, 0)
+        fcntl.ioctl(self.fd, VIDIOC_SUBSCRIBE_EVENT, sub)
+        GLib.io_add_watch(self.fd, GLib.PRIORITY_DEFAULT, GLib.IOCondition.PRI, self.on_event)
+        log(f"{device}: ready ({node})")
+
+    def on_event(self, fd, cond) -> bool:
+        buf = bytearray(136)
+        try:
+            fcntl.ioctl(self.fd, VIDIOC_DQEVENT, buf)
+        except OSError:
+            return True
+        kind, = struct.unpack_from("=I", buf, 0)
+        if kind == EVENT_CLIENT_USAGE:
+            count, = struct.unpack_from("=I", buf, 8)
+            self.start() if count else self.stop()
+        return True
+
+    def start(self) -> None:
+        if self.pipeline:
+            return
+        log(f"{self.device}: read: {self.node} on")
+        self.pipeline = Gst.parse_launch(
+            f"pipewiresrc target-object={self.node} always-copy=true ! videoconvert ! videoscale"
+            f" ! video/x-raw,format=I420,width={WIDTH},height={HEIGHT}"
+            " ! appsink name=out emit-signals=true max-buffers=2 drop=true sync=false")
+        self.pipeline.get_by_name("out").connect("new-sample", self.on_sample)
+        self.pipeline.set_state(Gst.State.PLAYING)
+
+    def stop(self) -> None:
+        if not self.pipeline:
+            return
+        log(f"{self.device}: no reader: {self.node} off")
+        self.pipeline.set_state(Gst.State.NULL)
+        self.pipeline = None
+
+    def on_sample(self, sink) -> Gst.FlowReturn:
+        sample = sink.emit("pull-sample")
+        buf = sample.get_buffer()
+        ok, info = buf.map(Gst.MapFlags.READ)
+        if ok:
+            try:
+                if info.size == FRAME:
+                    os.write(self.fd, info.data)
+            except BlockingIOError:
+                pass                         # (a frame dropped: the reader is behind)
+            finally:
+                buf.unmap(info)
+        return Gst.FlowReturn.OK
+
+
+def main() -> int:
+    Gst.init(None)
+    cams = []
+    for device, node in CAMERAS:
+        if Path(device).exists():
+            try:
+                cams.append(Webcam(device, node))
+            except OSError as e:
+                log(f"{device}: {e}")
+    if not cams:
+        log("no v4l2loopback devices: nothing to feed")
+        return 0
+    GLib.MainLoop().run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

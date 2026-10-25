@@ -5,6 +5,8 @@
 #   /extra/firmware  vendor firmware from the factory image (unpacked vendor/firmware)
 #   /extra/gpu       GPU stack from devices/comet/scripts/gpu-artifacts (ADR 0008): Panthor
 #                    modules, CSF firmware, Mesa build
+#   /extra/modules   other out-of-tree modules from devices/comet/scripts/extra-modules
+#                    (v4l2loopback: the cameras as webcams)
 # None of these are stored in the repo.
 set -euo pipefail
 
@@ -47,6 +49,14 @@ if [ -d /extra/gpu ]; then
     # The GPU belongs to Panthor (mobarchy-gpu.service); kbase is blacklisted as well.
     sed -i '/^mali_kbase$/d' /etc/modules-load.d/mobarchy-comet.conf 2>/dev/null || true
     echo "comet: installed the GPU stack (Panthor for $kver, $(ls $g/mesa-mobarchy-*.pkg.tar.zst | xargs -n1 basename))"
+fi
+
+if [ -d /extra/modules ]; then
+    m=/extra/modules
+    kver=$(modinfo -F vermagic $m/v4l2loopback.ko | cut -d' ' -f1)
+    install -Dm644 -t /usr/lib/modules/$kver/extra/mobarchy $m/*.ko
+    depmod "$kver"
+    echo "comet: installed out-of-tree modules for $kver ($(ls $m/*.ko | xargs -n1 basename | tr '\n' ' '))"
 fi
 
 # Mark healthy boots successful in devinfo, or the bootloader stops in fastboot once the
