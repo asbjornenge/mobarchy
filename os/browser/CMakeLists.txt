@@ -24,6 +24,7 @@ qt_add_qml_module(mobarchy-browser
         qml/MenuSheet.qml
         qml/BarButton.qml
         qml/LoginSheet.qml
+        qml/EdgeBack.qml
 )
 target_include_directories(mobarchy-browser PRIVATE src)
 target_link_libraries(mobarchy-browser PRIVATE Qt6::Gui Qt6::Quick Qt6::DBus Qt6::WebEngineQuick)

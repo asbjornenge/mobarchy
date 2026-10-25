@@ -119,23 +119,14 @@ Window {
         }
     }
 
-    // Back: a swipe in from the left edge
-    Item {
-        anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-        width: 16
-        DragHandler {
-            id: edge
-            target: null
-            xAxis.enabled: true
-            yAxis.enabled: false
-            onActiveChanged: {
-                if (!active && centroid.position.x - centroid.pressPosition.x > 80) {
-                    if (popup.visible)
-                        popupView.canGoBack ? popupView.goBack() : (popup.visible = false)
-                    else if (view.canGoBack)
-                        view.goBack()
-                }
-            }
+    // Back: a swipe in from the left edge (a pop-up's page, or the pop-up closed)
+    EdgeBack {
+        enabled_: popup.visible || view.canGoBack
+        onBack: {
+            if (popup.visible)
+                popupView.canGoBack ? popupView.goBack() : (popup.visible = false)
+            else
+                view.goBack()
         }
     }
 

@@ -270,6 +270,11 @@ Window {
         id: page
         anchors.fill: parent
     }
+    // back: a swipe in from the left edge
+    EdgeBack {
+        enabled_: !!win.current && win.current.canGoBack
+        onBack: win.current.goBack()
+    }
 
     BottomBar {
         id: bar
