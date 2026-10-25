@@ -711,10 +711,10 @@ Window {
                 case "recent": {
                     const rows = []
                     const eps = spotify.recent.episodes || [], ctx = spotify.recent.contexts || []
-                    if (eps.length) rows.push({kind: "heading", name: qsTr("Continue listening")})
-                    for (const e of eps) rows.push(Object.assign({recent: true}, e))
                     if (ctx.length) rows.push({kind: "heading", name: qsTr("Recently played")})
                     for (const c of ctx) rows.push(Object.assign({recent: true}, c))
+                    if (eps.length) rows.push({kind: "heading", name: qsTr("Continue listening")})
+                    for (const e of eps) rows.push(Object.assign({recent: true}, e))
                     return rows
                 }
                 case "playlists": return spotify.playlists.map(p => Object.assign({kind: "playlist"}, p))
