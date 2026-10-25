@@ -152,12 +152,19 @@ Window {
         anchors.fill: parent
 
         // Upright: the door, the counter, the keys and the songs under each other. Wide
-        // (sideways, or the top half in laptop mode): the door in the middle, as tall as there
-        // is room for, with the counter under it; the keys at its left, the songs at its right
-        // (left to right: keys, door, songs).
+        // (sideways, or the top half in laptop mode): the keys and the door (as tall as there is
+        // room for, the counter under it) side by side in the middle; the songs on a sheet at
+        // the right edge, its edge showing: pulled in as far as wanted (over the door too),
+        // swiped back out of the way.
         readonly property bool wide: width > height * 1.2
         readonly property real across: Math.min(width - 32, 520)
         readonly property real keyWidth: wide ? 90 : Math.min(90, (across - 6 * 6) / 7)
+        // (wide) the sheet's edge that shows; the keys' width; the gap between keys and door
+        readonly property real sheetEdge: 24
+        readonly property real keysWidth: 2 * keyWidth + 6
+        readonly property real gap: 24
+        readonly property real room: width - sheetEdge - 32
+        readonly property real groupX: 16 + (room - keysWidth - gap - door.width) / 2
         // the keys, left to right
         readonly property var keySpecs: [
             { icon: "󰐊", label: "EJECT", glyph: "⏏" }, { icon: "󰒮", label: "PREV" }, { icon: "󰑟", label: "REW" },
@@ -202,16 +209,15 @@ Window {
 
         Column {
             id: deckColumn
-            anchors { top: parent.top; topMargin: deck.wide ? 16 : 24
-                      horizontalCenter: deck.wide ? undefined : parent.horizontalCenter }
-            x: deck.wide ? wideKeys.x + wideKeys.width + 20 : 0
+            anchors { top: parent.top; topMargin: deck.wide ? 16 : 24 }
+            x: deck.wide ? deck.groupX + deck.keysWidth + deck.gap : (deck.width - width) / 2
             width: deck.wide ? door.width : deck.across
             spacing: deck.wide ? 12 : 22
 
             // the deck's door, with the tape behind its glass
             Rectangle {
                 id: door
-                width: deck.wide ? Math.min(deck.width * 0.45, (deck.height - 16 - 10 - 34 - 28 - 2 * deckColumn.spacing - 36) / 0.638 + 36)
+                width: deck.wide ? Math.min(deck.room - deck.keysWidth - deck.gap, (deck.height - 16 - 10 - 34 - 28 - 2 * deckColumn.spacing - 36) / 0.638 + 36)
                                  : deck.across
                 height: tapeView.height + 36
                 radius: 18
@@ -325,7 +331,9 @@ Window {
         Column {
             id: wideKeys
             visible: deck.wide
-            anchors { left: parent.left; leftMargin: 16; verticalCenter: deckColumn.verticalCenter }
+            x: deck.groupX
+            width: deck.keysWidth
+            anchors.verticalCenter: deckColumn.verticalCenter
             spacing: 18
             // (in pairs: play and pause, the winds, the skips; eject under them)
             Keys { columns: 2; order: [3, 4, 2, 5, 1, 6, 0] }
@@ -337,11 +345,60 @@ Window {
         Rectangle {
             id: paper
             visible: tapeSongs.count > 0
-            // (upright: under the deck; wide: at the door's right, as tall as the deck)
-            x: deck.wide ? deckColumn.x + deckColumn.width + 20 : deckColumn.x
-            y: deck.wide ? deckColumn.y : deckColumn.y + deckColumn.height + 18
-            width: deck.wide ? deck.width - x - 16 : deckColumn.width
+            // (upright: under the deck; wide: a sheet at the right edge, `out` of it pulled in)
+            x: deck.wide ? deck.width - deck.sheetEdge - out : deckColumn.x
+            y: deck.wide ? 10 : deckColumn.y + deckColumn.height + 18
+            width: deck.wide ? Math.min(deck.width * 0.85, 640) : deckColumn.width
             height: deck.height - y - 10
+            z: 2
+            // how far it is pulled in (wide), 0 = only its edge
+            property real out: 0
+            readonly property real outMax: width - deck.sheetEdge
+            readonly property real outDefault: Math.min(outMax, deck.width * 0.4)
+            Behavior on out { enabled: !sheetDrag.active; NumberAnimation { duration: 240; easing.type: Easing.OutCubic } }
+            // its shadow over the deck
+            Rectangle {
+                visible: deck.wide
+                z: -1
+                x: -10; width: 10; height: parent.height
+                gradient: Gradient {
+                    orientation: Gradient.Horizontal
+                    GradientStop { position: 0; color: "transparent" }
+                    GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.35) }
+                }
+            }
+            // pulled sideways (the list scrolls up and down); a flick decides, else it stays
+            // where it is let go (back to its edge if barely out)
+            DragHandler {
+                id: sheetDrag
+                enabled: deck.wide
+                target: null
+                xAxis.enabled: true
+                yAxis.enabled: false
+                property real from: 0
+                onActiveChanged: {
+                    if (active) {
+                        from = paper.out
+                        return
+                    }
+                    const v = centroid.velocity.x
+                    paper.out = v > 400 || paper.out < 60 ? 0
+                              : v < -400 ? Math.max(paper.out, paper.outDefault) : paper.out
+                }
+                onTranslationChanged: if (active) paper.out = Math.max(0, Math.min(paper.outMax, from - translation.x))
+            }
+            // its edge: a tap pulls it in or puts it back
+            Item {
+                visible: deck.wide
+                z: 3
+                width: deck.sheetEdge; height: parent.height
+                Rectangle {
+                    anchors.centerIn: parent
+                    width: 4; height: 44; radius: 2
+                    color: "#c9bfa6"
+                }
+                TapHandler { onTapped: paper.out = paper.out > 0 ? 0 : paper.outDefault }
+            }
             radius: 4
             color: "#f6f1e3"
             clip: true
