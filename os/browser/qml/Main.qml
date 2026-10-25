@@ -270,10 +270,15 @@ Window {
         id: page
         anchors.fill: parent
     }
-    // back: a swipe in from the left edge
-    EdgeBack {
+    // back and forward: a swipe in from the left edge, and from the right
+    EdgeSwipe {
         enabled_: !!win.current && win.current.canGoBack
-        onBack: win.current.goBack()
+        onGo: win.current.goBack()
+    }
+    EdgeSwipe {
+        right: true
+        enabled_: !!win.current && win.current.canGoForward
+        onGo: win.current.goForward()
     }
 
     BottomBar {

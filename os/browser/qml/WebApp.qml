@@ -119,15 +119,21 @@ Window {
         }
     }
 
-    // Back: a swipe in from the left edge (a pop-up's page, or the pop-up closed)
-    EdgeBack {
+    // Back and forward: a swipe in from the left edge (a pop-up's page, or the pop-up
+    // closed), and from the right
+    EdgeSwipe {
         enabled_: popup.visible || view.canGoBack
-        onBack: {
+        onGo: {
             if (popup.visible)
                 popupView.canGoBack ? popupView.goBack() : (popup.visible = false)
             else
                 view.goBack()
         }
+    }
+    EdgeSwipe {
+        right: true
+        enabled_: popup.visible ? popupView.canGoForward : view.canGoForward
+        onGo: popup.visible ? popupView.goForward() : view.goForward()
     }
 
     Connections {

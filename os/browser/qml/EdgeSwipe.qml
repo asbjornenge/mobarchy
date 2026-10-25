@@ -1,30 +1,35 @@
 import QtQuick
 
-// Back, as on Android: a swipe in from the left edge. A bubble with an arrow follows the
-// finger in, and lights up once it has come far enough; let go then, and `back` is emitted.
-// With nowhere to go back to (enabled_ false) the bubble still comes, dimmed, and nothing
-// happens.
-// Put it over the page, along its left edge. It takes the touches that start there from
+// Back (or forward), as on Android: a swipe in from the left edge (or the right). A bubble
+// with an arrow follows the finger in, and lights up once it has come far enough; let go
+// then, and `go` is emitted. With nowhere to go (enabled_ false) the bubble still comes,
+// dimmed, and nothing happens.
+// Put it over the page, along its edge. It takes the touches that start there from
 // the first moment (a touch area, not a drag handler: the page's view keeps a touch it has
 // been given, and a handler could never take it over).
 Item {
     id: edge
 
-    signal back()
+    signal go()
     property bool enabled_: true
+    // the right edge (forward) instead of the left (back)
+    property bool right: false
     // how far the finger has to come
     readonly property real far: 90
 
-    anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
+    x: right ? parent.width - width : 0
+    anchors { top: parent.top; bottom: parent.bottom }
     width: 28
-    readonly property real pulled: finger.pressed ? Math.max(0, finger.x - finger.startX) : 0
+    // how far the finger has come in
+    function inward(t) { return right ? t.startX - t.x : t.x - t.startX }
+    readonly property real pulled: finger.pressed ? Math.max(0, inward(finger)) : 0
     readonly property bool enough: enabled_ && pulled >= far
 
     MultiPointTouchArea {
         anchors.fill: parent
         maximumTouchPoints: 1
         touchPoints: TouchPoint { id: finger }
-        onReleased: if (edge.enabled_ && finger.x - finger.startX >= edge.far) edge.back()
+        onReleased: if (edge.enabled_ && edge.inward(finger) >= edge.far) edge.go()
     }
 
     // the bubble, at the finger's height
@@ -33,7 +38,7 @@ Item {
         readonly property real t: Math.min(1, edge.pulled / edge.far)
         visible: edge.pulled > 4
         width: 44; height: 44; radius: 22
-        x: -width + t * (width + 14)
+        x: edge.right ? edge.width - t * (width + 14) : -width + t * (width + 14)
         y: finger.y - height / 2
         color: edge.enough ? Theme.accent : Theme.panel
         border.color: Theme.line
@@ -42,7 +47,7 @@ Item {
         Behavior on color { ColorAnimation { duration: 120 } }
         Text {
             anchors.centerIn: parent
-            text: "󰁍"
+            text: edge.right ? "󰁔" : "󰁍"
             color: edge.enough ? Theme.bg : Theme.fg
             font { family: Theme.font; pixelSize: 22 }
         }
