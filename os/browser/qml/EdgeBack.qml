@@ -4,7 +4,9 @@ import QtQuick
 // finger in, and lights up once it has come far enough; let go then, and `back` is emitted.
 // With nowhere to go back to (enabled_ false) the bubble still comes, dimmed, and nothing
 // happens.
-// Put it over the page, along its left edge (it takes the touches that start there).
+// Put it over the page, along its left edge. It takes the touches that start there from
+// the first moment (a touch area, not a drag handler: the page's view keeps a touch it has
+// been given, and a handler could never take it over).
 Item {
     id: edge
 
@@ -15,28 +17,24 @@ Item {
 
     anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
     width: 28
-    readonly property real pulled: drag.active ? Math.max(0, drag.centroid.position.x - drag.centroid.pressPosition.x) : 0
+    readonly property real pulled: finger.pressed ? Math.max(0, finger.x - finger.startX) : 0
     readonly property bool enough: enabled_ && pulled >= far
 
-    DragHandler {
-        id: drag
-        target: null
-        xAxis.enabled: true
-        yAxis.enabled: false
-        onActiveChanged: if (!active && edge.enabled_ && edge.lastPulled >= edge.far) edge.back()
+    MultiPointTouchArea {
+        anchors.fill: parent
+        maximumTouchPoints: 1
+        touchPoints: TouchPoint { id: finger }
+        onReleased: if (edge.enabled_ && finger.x - finger.startX >= edge.far) edge.back()
     }
-    // (the last pull, as the drag ends: `pulled` is 0 by then)
-    property real lastPulled: 0
-    onPulledChanged: if (drag.active) lastPulled = pulled
 
     // the bubble, at the finger's height
     Rectangle {
         id: bubble
         readonly property real t: Math.min(1, edge.pulled / edge.far)
-        visible: drag.active && edge.pulled > 4
+        visible: edge.pulled > 4
         width: 44; height: 44; radius: 22
         x: -width + t * (width + 14)
-        y: drag.centroid.position.y - height / 2
+        y: finger.y - height / 2
         color: edge.enough ? Theme.accent : Theme.panel
         border.color: Theme.line
         opacity: (edge.enabled_ ? 0.4 + 0.6 * t : 0.5 * t)
