@@ -86,6 +86,8 @@ LayerWindow {
                 kb.endEmojiSearch(false)
             if (kb.keyboard.active && kb.mode !== "emoji")
                 kb.mode = "letters"
+            if (kb.keyboard.active)
+                kb.showRecent()
             kb.followField()
         }
     }
@@ -705,6 +707,12 @@ LayerWindow {
         const recent = [e].concat(emojiSettings.recent.filter(r => r !== e)).slice(0, 32)
         emojiSettings.recent = recent
     }
+    // The recently used as they were when the emoji came up: kept still while they are up (the
+    // same one tapped twice stays where it was), in their new order the next time.
+    property var shownRecent: []
+    function showRecent() { shownRecent = emojiSettings.recent.slice() }
+    onModeChanged: if (mode === "emoji") showRecent()
+    Component.onCompleted: showRecent()
 
     Item {
         id: emojiPanel
@@ -725,7 +733,7 @@ LayerWindow {
             rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
             boundsBehavior: Theme.boundsBehavior
             // the recently used first, then Unicode's groups
-            model: (emojiSettings.recent.length ? [{name: "recent", emoji: emojiSettings.recent}] : [])
+            model: (kb.shownRecent.length ? [{name: "recent", emoji: kb.shownRecent}] : [])
                    .concat(kb.emojiGroups)
             delegate: Grid {
                 id: group
@@ -768,7 +776,7 @@ LayerWindow {
                     font { family: "Noto Color Emoji"; pixelSize: 18 }
                     TapHandler {
                         onTapped: emojiList.positionViewAtIndex(
-                            parent.index + (emojiSettings.recent.length ? 1 : 0), ListView.Beginning)
+                            parent.index + (kb.shownRecent.length ? 1 : 0), ListView.Beginning)
                     }
                 }
             }
