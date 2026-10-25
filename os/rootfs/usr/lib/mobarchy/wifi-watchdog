@@ -4,9 +4,13 @@
 A Wi-Fi chip may not answer after the phone wakes from deep sleep; its driver gives up on it
 (on comet: bcmdhd, "PCIe link down", a "hang" event) and the interface is left as it was:
 still up, still "connected" to the last network, scans failing. Android restarts Wi-Fi on
-the driver's hang event; here too: the driver's line saying so (device.toml [wifi]
-hang_log, in the kernel's log) turns Wi-Fi off and on again, as its switch does (rfkill),
-when it was on.
+the driver's hang event; here too: the driver's lines saying so (device.toml [wifi]
+hang_log, in the kernel's log) turn Wi-Fi off and on again, as its switch does (rfkill),
+when it was on. A chip still dead after that (its driver keeps saying so) is restarted
+again, later and later (as long as it stays dead: 15 s, 30 s, ... 10 min).
+
+Times are the boot clock's (time asleep counts): a hang a night's sleep after the last
+restart is not "the same burst" because little monotonic time passed between them.
 
 Run as root (mobarchy-wifi-watchdog.service).
 """
@@ -19,18 +23,25 @@ import tomllib
 RFKILL_TYPE_WLAN = 1
 RFKILL_OP_CHANGE_ALL = 3
 SETTLE = 2.0        # s: off, before on again (the driver takes the chip down)
-QUIET = 30.0        # s: one restart for a burst of hang lines
+QUIET = 15.0        # s: one restart for a burst of hang lines; doubled while it stays dead
+QUIET_MAX = 600.0
+WORKING = 300.0     # s: a restart this long after the last one: the chip worked in between
 
 
 def log(msg: str) -> None:
     print(f"wifi-watchdog: {msg}", flush=True)
 
 
-def hang_log() -> str:
+def hang_log() -> list[str]:
     try:
-        return str(tomllib.load(open("/etc/mobarchy/device.toml", "rb")).get("wifi", {}).get("hang_log", ""))
+        v = tomllib.load(open("/etc/mobarchy/device.toml", "rb")).get("wifi", {}).get("hang_log", [])
     except (OSError, tomllib.TOMLDecodeError):
-        return ""
+        return []
+    return [v] if isinstance(v, str) else [str(p) for p in v]
+
+
+def now() -> float:
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
 
 
 def wlan_blocked() -> bool:
@@ -74,24 +85,26 @@ def restart() -> None:
 
 
 def main() -> int:
-    pattern = hang_log()
-    if not pattern:
+    patterns = hang_log()
+    if not patterns:
         log("no [wifi] hang_log in device.toml: nothing to watch")
         return 0
     fd = os.open("/dev/kmsg", os.O_RDONLY)
     os.lseek(fd, 0, os.SEEK_END)             # (from now: not the hangs before a restart)
-    last = 0.0
+    last, quiet = -WORKING, QUIET
     while True:
         try:
             record = os.read(fd, 8192).decode(errors="replace")
         except BrokenPipeError:              # (overwritten while read: go on)
             continue
-        if pattern in record and time.monotonic() - last > QUIET:
-            last = time.monotonic()
-            try:
-                restart()
-            except OSError as e:
-                log(f"restart: {e}")
+        if not any(p in record for p in patterns) or now() - last < quiet:
+            continue
+        quiet = QUIET if now() - last > WORKING else min(quiet * 2, QUIET_MAX)
+        try:
+            restart()
+        except OSError as e:
+            log(f"restart: {e}")
+        last = now()
 
 
 if __name__ == "__main__":
