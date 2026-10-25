@@ -27,6 +27,10 @@ class Spotify : public QObject
     // podcasts [{id, uri, name, publisher, image}] and audiobooks [{id, uri, name, authors, image}]
     Q_PROPERTY(QVariantList shows READ shows NOTIFY libraryChanged)
     Q_PROPERTY(QVariantList audiobooks READ audiobooks NOTIFY libraryChanged)
+    // what was played lately, on any device: {episodes: [episodes part heard: {..., showUri,
+    // showName}], contexts: [{kind: playlist|album|artist|liked|track, uri, name, image,
+    // trackUri}]}
+    Q_PROPERTY(QVariantMap recent READ recent NOTIFY recentChanged)
     // a search's results: {tracks, albums, playlists, artists}
     Q_PROPERTY(QVariantMap results READ results NOTIFY resultsChanged)
     // an opened playlist or album: {type, id, uri, name, tracks, loading}
@@ -48,6 +52,7 @@ public:
     QVariantList albums() const { return m_albums; }
     QVariantList shows() const { return m_shows; }
     QVariantList audiobooks() const { return m_audiobooks; }
+    QVariantMap recent() const { return m_recent; }
     QVariantMap results() const { return m_results; }
     QVariantMap opened() const { return m_opened; }
     QVariantMap loaded() const { return m_loaded; }
@@ -61,6 +66,10 @@ public:
     // forget the account
     Q_INVOKABLE void signOut();
     Q_INVOKABLE void loadLibrary();
+    Q_INVOKABLE void loadRecent();
+    // one of `recent`'s: an episode from where it was left, a playlist (album, ...) from
+    // the song last played from it
+    Q_INVOKABLE void playRecent(const QVariantMap &item);
     Q_INVOKABLE void search(const QString &query);
     // a playlist's or album's tracks, a show's episodes, an audiobook's chapters (opened)
     Q_INVOKABLE void open(const QString &type, const QString &id, const QString &name);
@@ -86,6 +95,7 @@ signals:
     void stateChanged();
     void playbackChanged();
     void libraryChanged();
+    void recentChanged();
     void resultsChanged();
     void openedChanged();
     void loadedChanged();
@@ -119,6 +129,7 @@ private:
     QString m_state = QStringLiteral("starting");
     QVariantMap m_props;            // the service's properties, as it said them
     QVariantList m_playlists, m_liked, m_albums, m_shows, m_audiobooks;
+    QVariantMap m_recent;
     QVariantMap m_results, m_opened, m_loaded;
     QString m_error;
     bool m_watching = false;

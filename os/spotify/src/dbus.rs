@@ -139,6 +139,13 @@ impl SpotifyIface {
         Ok(self.svc.web.search(query).await.map_err(failed)?.to_string())
     }
 
+    /// What was played lately, on any device: {episodes: [{...episode, showUri,
+    /// showName}], contexts: [{kind: playlist|album|artist|liked|track, uri, name, image,
+    /// playedAt, ...}]}
+    async fn recent(&self) -> fdo::Result<String> {
+        Ok(self.svc.web.recent().await.map_err(failed)?.to_string())
+    }
+
     /// The saved podcasts: [{uri,id,name,publisher,image}]
     async fn shows(&self) -> fdo::Result<String> {
         Ok(self.svc.web.shows().await.map_err(failed)?.to_string())

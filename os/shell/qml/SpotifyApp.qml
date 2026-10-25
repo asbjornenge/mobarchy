@@ -103,8 +103,8 @@ Window {
 
     // the shelf: tapes to pick (shown over the deck)
     property bool shelf: false
-    onShelfChanged: if (shelf) spotify.loadLibrary()
-    property string tab: "playlists"     // playlists, liked, albums, search
+    onShelfChanged: if (shelf) { spotify.loadLibrary(); spotify.loadRecent() }
+    property string tab: "recent"        // recent, playlists, liked, albums, podcasts, audiobooks, search
     property bool tracks: false          // a tape's songs (spotify.opened)
 
     // --- signed out --------------------------------------------------------------------------
@@ -602,7 +602,7 @@ Window {
             x: 12
             spacing: 8
             Repeater {
-                model: [{k: "playlists", t: qsTr("Playlists")}, {k: "liked", t: qsTr("Liked")},
+                model: [{k: "recent", t: qsTr("Recent")}, {k: "playlists", t: qsTr("Playlists")}, {k: "liked", t: qsTr("Liked")},
                         {k: "albums", t: qsTr("Albums")}, {k: "podcasts", t: qsTr("Podcasts")},
                         {k: "audiobooks", t: qsTr("Audiobooks")}, {k: "search", t: "󰍉"}]
                 delegate: Rectangle {
@@ -707,6 +707,16 @@ Window {
                     return (spotify.opened.tracks || []).map(t => Object.assign({kind: ep ? "episode" : "track"}, t))
                 }
                 switch (win.tab) {
+                // (recent's rows play at a tap, from where they were left)
+                case "recent": {
+                    const rows = []
+                    const eps = spotify.recent.episodes || [], ctx = spotify.recent.contexts || []
+                    if (eps.length) rows.push({kind: "heading", name: qsTr("Continue listening")})
+                    for (const e of eps) rows.push(Object.assign({recent: true}, e))
+                    if (ctx.length) rows.push({kind: "heading", name: qsTr("Recently played")})
+                    for (const c of ctx) rows.push(Object.assign({recent: true}, c))
+                    return rows
+                }
                 case "playlists": return spotify.playlists.map(p => Object.assign({kind: "playlist"}, p))
                 case "liked": return spotify.liked.map(t => Object.assign({kind: "track"}, t))
                 case "albums": return spotify.albums.map(a => Object.assign({kind: "album"}, a))
@@ -791,12 +801,14 @@ Window {
                                     case "show": return m.publisher || ""
                                     case "audiobook": return m.authors || ""
                                     case "episode": {
-                                        // when, how long, and how far heard
+                                        // when (or which show), how long, and how far heard
                                         const left = m.fullyPlayed ? "✓ " + qsTr("heard")
                                                    : m.resumeMs > 0 ? qsTr("%1 left").arg(win.time(m.durationMs - m.resumeMs))
                                                    : win.time(m.durationMs)
-                                        return (m.number ? qsTr("Chapter %1").arg(m.number) : (m.releaseDate || "")) + "  ·  " + left
+                                        return (m.showName || (m.number ? qsTr("Chapter %1").arg(m.number) : (m.releaseDate || ""))) + "  ·  " + left
                                     }
+                                    case "artist": return qsTr("Artist")
+                                    case "liked": return qsTr("Your liked songs")
                                     default: return m.artists || ""
                                     }
                                 }
@@ -811,7 +823,9 @@ Window {
                         anchors.fill: parent
                         onClicked: {
                             const m = row.modelData
-                            if (m.kind === "track") {
+                            if (m.recent) {
+                                win.changeTape(() => spotify.playRecent(m))
+                            } else if (m.kind === "track") {
                                 win.changeTape(() => spotify.playTrack(m.id))
                             } else if (m.kind === "episode") {
                                 win.changeTape(() => spotify.playEpisode(m.id))

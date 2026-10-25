@@ -425,6 +425,56 @@ void Spotify::continueBook()
         playEpisode(chapters.first().toMap().value(QStringLiteral("id")).toString());
 }
 
+void Spotify::loadRecent()
+{
+    callJson(QStringLiteral("Recent"), {}, [this](const QVariant &v) {
+        const QVariantMap r = v.toMap();
+        m_recent = {{QStringLiteral("episodes"), withIds(r.value(QStringLiteral("episodes")))},
+                    {QStringLiteral("contexts"), withIds(r.value(QStringLiteral("contexts")))}};
+        emit recentChanged();
+    });
+}
+
+void Spotify::playRecent(const QVariantMap &item)
+{
+    const QString kind = item.value(QStringLiteral("kind")).toString();
+    const QString uri = item.value(QStringLiteral("uri")).toString();
+    if (kind == u"episode") {
+        // into the deck: the show, its episodes under it once they come
+        const QString show = item.value(QStringLiteral("showUri")).toString();
+        m_loaded = {{QStringLiteral("type"), QStringLiteral("show")}, {QStringLiteral("uri"), show},
+                    {QStringLiteral("name"), item.value(QStringLiteral("showName"))}, {QStringLiteral("tracks"), QVariantList()}};
+        emit loadedChanged();
+        const qint64 at = item.value(QStringLiteral("fullyPlayed")).toBool() ? 0 : item.value(QStringLiteral("resumeMs")).toLongLong();
+        call(QStringLiteral("LoadAt"), {show, uri, qlonglong(at)});
+        callJson(QStringLiteral("Episodes"), {show}, [this, show](const QVariant &v) {
+            if (m_loaded.value(QStringLiteral("uri")) != show)
+                return;
+            m_loaded[QStringLiteral("tracks")] = withResume(withIds(v));
+            emit loadedChanged();
+        });
+        return;
+    }
+    if (kind == u"track") {
+        m_loaded.clear();
+        emit loadedChanged();
+        call(QStringLiteral("PlayTrack"), {uri});
+        return;
+    }
+    // a playlist, an album, an artist or the liked songs: on from the song last played from it
+    const QString type = kind == u"liked" ? QStringLiteral("liked") : kind;
+    m_loaded = {{QStringLiteral("type"), type}, {QStringLiteral("uri"), uri},
+                {QStringLiteral("name"), item.value(QStringLiteral("name"))}, {QStringLiteral("tracks"), QVariantList()}};
+    emit loadedChanged();
+    call(QStringLiteral("Load"), {uri, item.value(QStringLiteral("trackUri")).toString(), false});
+    callJson(QStringLiteral("ContextTracks"), {uri}, [this, uri](const QVariant &v) {
+        if (m_loaded.value(QStringLiteral("uri")) != uri)
+            return;
+        m_loaded[QStringLiteral("tracks")] = withIds(v);
+        emit loadedChanged();
+    });
+}
+
 void Spotify::playLiked(bool shuffle)
 {
     m_loaded = {{QStringLiteral("type"), QStringLiteral("liked")}, {QStringLiteral("uri"), QStringLiteral("spotify:collection")},

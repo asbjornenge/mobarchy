@@ -7,7 +7,7 @@
 
 pkgname=mobarchy-spotify
 pkgver=0.1.0
-pkgrel=3
+pkgrel=4
 pkgdesc="Mobarchy's Spotify service: a Spotify Connect device on librespot, with D-Bus and MPRIS"
 arch=(aarch64 x86_64)
 depends=(libpulse openssl gcc-libs glibc)

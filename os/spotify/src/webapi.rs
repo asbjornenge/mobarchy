@@ -182,6 +182,89 @@ impl WebApi {
         ))
     }
 
+    /// What was played lately, on any of the owner's devices:
+    /// {episodes: [episodes part heard, with their show], contexts: [what songs were
+    /// played from: playlists, albums, artists, the liked songs, single songs]}. Spotify
+    /// tells which songs were played (not episodes): podcasts come from how far each
+    /// episode of the saved shows has been heard.
+    pub async fn recent(&self) -> Result<Value> {
+        let played = self.get("me/player/recently-played?limit=50").await?;
+        let mut seen = std::collections::HashSet::new();
+        let mut wanted = Vec::new();
+        for item in played["items"].as_array().into_iter().flatten() {
+            let context = s(&item["context"]["uri"]).to_string();
+            let key = if context.is_empty() { s(&item["track"]["uri"]).to_string() } else { context.clone() };
+            if !key.is_empty() && seen.insert(key) {
+                wanted.push((context, item.clone()));
+            }
+            if wanted.len() == 12 {
+                break;
+            }
+        }
+        let contexts: Vec<Value> = stream::iter(wanted)
+            .map(|(context, item)| self.recent_context(context, item))
+            .buffered(4)
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
+
+        let shows = self.all_items("me/shows").await.unwrap_or_default();
+        let mut episodes: Vec<Value> = stream::iter(shows)
+            .map(|i| self.heard_episodes(i))
+            .buffered(4)
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .flatten()
+            .collect();
+        episodes.sort_by(|a, b| s(&b["releaseDate"]).cmp(s(&a["releaseDate"])));
+        episodes.truncate(10);
+        Ok(json!({"episodes": episodes, "contexts": contexts}))
+    }
+
+    // One of recent()'s: what a song was played from (or the song), named and pictured.
+    async fn recent_context(&self, context: String, item: Value) -> Option<Value> {
+        let mut v = match context_kind(&context) {
+            Some(("playlist", id)) => {
+                let p = self.get(&format!("playlists/{id}?fields=uri,id,name,owner,images")).await.ok()?;
+                norm_playlist(&p).map(|v| (v, "playlist"))
+            }
+            Some(("album", id)) => norm_album(&self.get(&format!("albums/{id}")).await.ok()?).map(|v| (v, "album")),
+            Some(("artist", id)) => norm_artist(&self.get(&format!("artists/{id}")).await.ok()?).map(|v| (v, "artist")),
+            Some(("collection", _)) => Some((json!({"uri": context, "name": "Liked Songs"}), "liked")),
+            _ => norm_track(&item["track"], None).map(|v| (v, "track")),
+        };
+        if let Some((v, kind)) = v.as_mut() {
+            v["kind"] = json!(*kind);
+            v["playedAt"] = item["played_at"].clone();
+            // (the song last played from it: where to go on from)
+            v["trackUri"] = item["track"]["uri"].clone();
+        }
+        v.map(|(v, _)| v)
+    }
+
+    // One of recent()'s: a saved show's newest episodes that are part heard.
+    async fn heard_episodes(&self, saved: Value) -> Vec<Value> {
+        let Some(show) = norm_show(&saved["show"]) else { return Vec::new() };
+        let id = s(&show["id"]);
+        let Ok(page) = self.get(&format!("shows/{id}/episodes?limit=10")).await else { return Vec::new() };
+        page["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(norm_episode)
+            .filter(|e| e["resumeMs"].as_u64().unwrap_or(0) > 0 && e["fullyPlayed"] != true)
+            .map(|mut e| {
+                e["kind"] = json!("episode");
+                e["showUri"] = show["uri"].clone();
+                e["showName"] = show["name"].clone();
+                e
+            })
+            .collect()
+    }
+
     /// A show's episodes, newest first (as Spotify gives them): the newest 200 at most.
     pub async fn episodes(&self, show_uri: &str) -> Result<Value> {
         let Some(("show", id)) = context_kind(show_uri) else { bail!("not a show: {show_uri}") };
