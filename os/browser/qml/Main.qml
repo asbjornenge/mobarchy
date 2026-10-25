@@ -107,7 +107,38 @@ Window {
             settings.fullScreenSupportEnabled: true
             settings.touchIconsEnabled: true
             property real lastY: 0
+            // Back (or forward) to where the page was scrolled: where each page was left is
+            // kept, and gone back to, it is scrolled there again, again and again for a few
+            // seconds while a page that fills in as it goes (a list of results) grows, until
+            // the finger touches it. (Chromium's own keeps it only for pages it may cache.)
+            property var scrolledTo: ({})
+            property real seenY: 0
+            property string shownUrl: ""
+            property real restoreY: -1
+            onUrlChanged: {
+                if (shownUrl !== "" && shownUrl !== url.toString())
+                    scrolledTo[shownUrl] = seenY
+                shownUrl = url.toString()
+                if (restoreY > 0)
+                    restoreSoon.restart()
+            }
+            onNavigationRequested: (request) => {
+                const y = scrolledTo[request.url.toString()]
+                restoreY = request.navigationType === WebEngineNavigationRequest.BackForwardNavigation && y > 0 ? y : -1
+            }
+            function restoreScroll() {
+                if (restoreY <= 0)
+                    return
+                const y = Math.round(restoreY)
+                restoreY = -1
+                runJavaScript("(function(y) { var n = 0, stop = false;"
+                    + " addEventListener('touchstart', function() { stop = true }, {once: true, capture: true});"
+                    + " (function go() { if (stop) return; window.scrollTo(0, y);"
+                    + "   if (Math.abs(window.scrollY - y) > 4 && n++ < 30) setTimeout(go, 200); })(); })(" + y + ")")
+            }
+            Timer { id: restoreSoon; interval: 150; onTriggered: view.restoreScroll() }
             onScrollPositionChanged: {
+                seenY = scrollPosition.y
                 if (view !== win.current)
                     return
                 const y = scrollPosition.y
@@ -122,6 +153,7 @@ Window {
                 if (info.status === WebEngineView.LoadSucceededStatus) {
                     win.remember(view.url, view.title)
                     win.checkLogin()
+                    view.restoreScroll()
                 }
                 win.publish()
             }
@@ -268,7 +300,13 @@ Window {
     // --- the window --------------------------------------------------------------------
     Item {
         id: page
-        anchors.fill: parent
+        // (moved down by a pull to refresh)
+        width: parent.width; height: parent.height
+    }
+    // pull to refresh, the page at its top
+    PullRefresh {
+        view: win.current
+        page: page
     }
     // back and forward: a swipe in from the left edge, and from the right
     EdgeSwipe {

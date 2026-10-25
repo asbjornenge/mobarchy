@@ -22,7 +22,9 @@ int main(int argc, char *argv[])
 {
     // The page's viewport as a phone's (meta viewport, device-width), and touch as touch.
     QByteArray flags = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS");
-    flags += " --enable-viewport --touch-events=enabled --enable-features=OverlayScrollbar";
+    // (BackForwardCache: a page gone back to is the one left, kept: where it was scrolled,
+    // nothing loaded again)
+    flags += " --enable-viewport --touch-events=enabled --enable-features=OverlayScrollbar,BackForwardCache";
     // Widevine (DRM: Spotify, Netflix), where widevine-installer put the arm64 CDM
     const char *widevine = "/var/lib/widevine/WidevineCdm/_platform_specific/linux_arm64/libwidevinecdm.so";
     if (QFile::exists(QString::fromLatin1(widevine)))
