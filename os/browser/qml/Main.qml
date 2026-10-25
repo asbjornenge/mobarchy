@@ -276,7 +276,7 @@ Window {
         onGo: win.current.goBack()
     }
     EdgeSwipe {
-        right: true
+        fromRight: true
         enabled_: !!win.current && win.current.canGoForward
         onGo: win.current.goForward()
     }

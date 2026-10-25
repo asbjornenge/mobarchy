@@ -131,7 +131,7 @@ Window {
         }
     }
     EdgeSwipe {
-        right: true
+        fromRight: true
         enabled_: popup.visible ? popupView.canGoForward : view.canGoForward
         onGo: popup.visible ? popupView.goForward() : view.goForward()
     }

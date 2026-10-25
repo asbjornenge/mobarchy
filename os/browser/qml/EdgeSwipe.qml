@@ -13,15 +13,15 @@ Item {
     signal go()
     property bool enabled_: true
     // the right edge (forward) instead of the left (back)
-    property bool right: false
+    property bool fromRight: false
     // how far the finger has to come
     readonly property real far: 90
 
-    x: right ? parent.width - width : 0
+    x: fromRight ? parent.width - width : 0
     anchors { top: parent.top; bottom: parent.bottom }
     width: 28
     // how far the finger has come in
-    function inward(t) { return right ? t.startX - t.x : t.x - t.startX }
+    function inward(t) { return fromRight ? t.startX - t.x : t.x - t.startX }
     readonly property real pulled: finger.pressed ? Math.max(0, inward(finger)) : 0
     readonly property bool enough: enabled_ && pulled >= far
 
@@ -38,7 +38,7 @@ Item {
         readonly property real t: Math.min(1, edge.pulled / edge.far)
         visible: edge.pulled > 4
         width: 44; height: 44; radius: 22
-        x: edge.right ? edge.width - t * (width + 14) : -width + t * (width + 14)
+        x: edge.fromRight ? edge.width - t * (width + 14) : -width + t * (width + 14)
         y: finger.y - height / 2
         color: edge.enough ? Theme.accent : Theme.panel
         border.color: Theme.line
@@ -47,7 +47,7 @@ Item {
         Behavior on color { ColorAnimation { duration: 120 } }
         Text {
             anchors.centerIn: parent
-            text: edge.right ? "󰁔" : "󰁍"
+            text: edge.fromRight ? "󰁔" : "󰁍"
             color: edge.enough ? Theme.bg : Theme.fg
             font { family: Theme.font; pixelSize: 22 }
         }
