@@ -2,6 +2,8 @@ import QtQuick
 
 // Back, as on Android: a swipe in from the left edge. A bubble with an arrow follows the
 // finger in, and lights up once it has come far enough; let go then, and `back` is emitted.
+// With nowhere to go back to (enabled_ false) the bubble still comes, dimmed, and nothing
+// happens.
 // Put it over the page, along its left edge (it takes the touches that start there).
 Item {
     id: edge
@@ -14,15 +16,14 @@ Item {
     anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
     width: 28
     readonly property real pulled: drag.active ? Math.max(0, drag.centroid.position.x - drag.centroid.pressPosition.x) : 0
-    readonly property bool enough: pulled >= far
+    readonly property bool enough: enabled_ && pulled >= far
 
     DragHandler {
         id: drag
-        enabled: edge.enabled_
         target: null
         xAxis.enabled: true
         yAxis.enabled: false
-        onActiveChanged: if (!active && edge.lastPulled >= edge.far) edge.back()
+        onActiveChanged: if (!active && edge.enabled_ && edge.lastPulled >= edge.far) edge.back()
     }
     // (the last pull, as the drag ends: `pulled` is 0 by then)
     property real lastPulled: 0
@@ -38,7 +39,7 @@ Item {
         y: drag.centroid.position.y - height / 2
         color: edge.enough ? Theme.accent : Theme.panel
         border.color: Theme.line
-        opacity: 0.4 + 0.6 * t
+        opacity: (edge.enabled_ ? 0.4 + 0.6 * t : 0.5 * t)
         scale: 0.7 + 0.3 * t
         Behavior on color { ColorAnimation { duration: 120 } }
         Text {
