@@ -26,6 +26,9 @@ connector = "DSI-1"
 width = 2152
 height = 2076
 top_inset = 24      # camera cutout
+# the camera's hole, upright: centre x, centre y, radius (logical px); Android's cutout for
+# this panel is "m 2027,80 a 39.5,39.5" (physical px, scale 2)
+cutout = [994, 40, 20]
 side_inset = 20     # trial value: the clock was cut off at the left edge
 bottom_inset = 32   # the panel runs under the bezel at the bottom too (confirmed on the device)
 fold_axis = "vertical"  # it folds like a book; turned and half open, it is a laptop

@@ -103,4 +103,12 @@ int bottomInset(const Device &device, const QString &connector)
     return display(device, connector).value(QStringLiteral("bottom_inset")).toInt();
 }
 
+QList<qreal> cutout(const Device &device, const QString &connector)
+{
+    QList<qreal> out;
+    for (const QVariant &v : display(device, connector).value(QStringLiteral("cutout")).toList())
+        out << v.toReal();
+    return out.size() == 3 ? out : QList<qreal>();
+}
+
 }  // namespace deviceinfo

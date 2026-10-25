@@ -49,6 +49,23 @@ void Device::rotate(const QString &orientation) const
     launch::detached(program, args << orientation);
 }
 
+QRectF Device::cutout(const QString &connector, int turns, qreal width, qreal height) const
+{
+    const QList<qreal> c = deviceinfo::cutout(m_device, connector);
+    if (c.isEmpty())
+        return {};
+    // the panel upright is the screen turned back (a quarter or three: sides swapped)
+    turns = (turns % 4 + 4) % 4;
+    const qreal w = turns % 2 ? height : width, h = turns % 2 ? width : height;
+    const qreal x = c[0], y = c[1], r = c[2];
+    // the device turned clockwise by a quarter: the panel's top is now on the right
+    const QPointF at = turns == 0 ? QPointF(x, y)
+                     : turns == 1 ? QPointF(h - y, x)
+                     : turns == 2 ? QPointF(w - x, h - y)
+                                  : QPointF(y, w - x);
+    return {at.x() - r, at.y() - r, 2 * r, 2 * r};
+}
+
 int Device::inset(const QString &connector, const QString &edge, int turns) const
 {
     // the panel's edges, clockwise from its top

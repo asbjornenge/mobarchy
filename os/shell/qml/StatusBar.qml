@@ -23,6 +23,13 @@ LayerWindow {
     property int turns: 0
     readonly property int inset: device.inset(screen ? screen.name : "", "top", turns)
     height: inset + 28
+    // a camera's hole in the bar (the screen turned so that it is at the top, not under the
+    // inset strip): the clock or the icons beside it move clear of it
+    readonly property rect hole: screen ? device.cutout(screen.name, turns, screen.width, screen.height) : Qt.rect(0, 0, 0, 0)
+    readonly property real holeLeft: hole.x - device.inset(screen ? screen.name : "", "left", turns)
+    readonly property bool holeInBar: hole.width > 0 && hole.y < height && hole.y + hole.height > height - 28
+    readonly property real leftClear: holeInBar && holeLeft < width / 2 ? Math.max(16, holeLeft + hole.width + 8) : 16
+    readonly property real rightClear: holeInBar && holeLeft >= width / 2 ? Math.max(16, width - holeLeft + 8) : 16
     color: Theme.bgDark
     LayerShell.Window.scope: "mobarchy-status"
     LayerShell.Window.layer: LayerShell.Window.LayerTop
@@ -73,7 +80,7 @@ LayerWindow {
         height: 28
     }
     Row {
-        anchors { left: parent.left; leftMargin: 16; verticalCenter: row.verticalCenter }
+        anchors { left: parent.left; leftMargin: bar.leftClear; verticalCenter: row.verticalCenter }
         spacing: 12
         Text {
             text: Qt.formatTime(bar.now, "HH:mm")
@@ -88,7 +95,7 @@ LayerWindow {
         }
     }
     Row {
-        anchors { right: parent.right; rightMargin: 16; verticalCenter: row.verticalCenter }
+        anchors { right: parent.right; rightMargin: bar.rightClear; verticalCenter: row.verticalCenter }
         spacing: 9
         Repeater {
             model: [bar.listening ? "󰍬" : "", bar.alarmSet ? "󰀠" : "", bar.cellText, bar.wifiIcon,

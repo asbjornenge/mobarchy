@@ -27,5 +27,8 @@ int topInset(const Device &device, const QString &connector);
 int sideInset(const Device &device, const QString &connector);
 // The same at the bottom edge: `bottom_inset`.
 int bottomInset(const Device &device, const QString &connector);
+// A camera's hole in the panel, upright: [centre x, centre y, radius] in logical pixels
+// (`cutout`); empty if none.
+QList<qreal> cutout(const Device &device, const QString &connector);
 
 }  // namespace deviceinfo
