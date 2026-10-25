@@ -95,9 +95,23 @@ Window {
         message = null
         view = "read"
         threaded = (row.count || 1) > 1
+        newestOpen = threaded
         if (threaded)
             mail.loadThread(row.id)
         mail.open(row.id)
+    }
+    // the conversation's newest open, once it has come (the owner's own reply, it may be)
+    property bool newestOpen: false
+    Connections {
+        target: mail
+        function onConversationChanged() {
+            const c = mail.conversation
+            if (!win.newestOpen || !c.length)
+                return
+            win.newestOpen = false
+            if (win.item && c[c.length - 1].id !== win.item.id)
+                win.openInThread(c[c.length - 1])
+        }
     }
     // another of the conversation's messages, open instead
     function openInThread(m) {
