@@ -100,3 +100,9 @@ Android's way, in userspace:
   log turns Wi-Fi off and on (rfkill, as its switch), under a 20 s wake lock, if it was on.
   The suspend daemon applies SETSUSPENDMODE and APF again after any link change (the
   restarted chip, a new association, forgets them).
+- A link up that carries nothing (seen after a roam between a mesh network's access points):
+  `wifi-watchdog` asks for the gateway (ARP) every 10 s with the screen on, as Android's
+  IpReachabilityMonitor; no answer for 30 s: reassociate; 60 s: Wi-Fi off and on. ZeroTier
+  is restarted on a new network (address or gateway) and after a recovery.
+- Tried and rejected: `dhd_disable_l2_in_d3=1` (no PCIe L2 in D3): the chip still hung, and
+  one resume ended in a hard lockup and a kernel panic (HOST_SLEEP-EXIT TIMEOUT). Never set.

@@ -12,13 +12,22 @@ again, later and later (as long as it stays dead: 15 s, 30 s, ... 10 min).
 Times are the boot clock's (time asleep counts): a hang a night's sleep after the last
 restart is not "the same burst" because little monotonic time passed between them.
 
+And a link that is up but carries nothing, as Android's IpReachabilityMonitor sees it: with
+the screen on, the gateway is asked for (ARP) every 10 s; not answering for 30 s, Wi-Fi
+reassociates (wpa_supplicant); for 60 s, it is turned off and on. ZeroTier is restarted
+when the network changes (another address or gateway) and after a recovery: its paths
+belong to the old network, and finding new ones by itself took minutes.
+
 Run as root (mobarchy-wifi-watchdog.service).
 """
 import os
+import select
 import struct
+import subprocess
 import sys
 import time
 import tomllib
+from pathlib import Path
 
 RFKILL_TYPE_WLAN = 1
 RFKILL_OP_CHANGE_ALL = 3
@@ -26,6 +35,9 @@ SETTLE = 2.0        # s: off, before on again (the driver takes the chip down)
 QUIET = 15.0        # s: one restart for a burst of hang lines; doubled while it stays dead
 QUIET_MAX = 600.0
 WORKING = 300.0     # s: a restart this long after the last one: the chip worked in between
+PROBE = 10.0        # s: between asking for the gateway (screen on)
+REASSOCIATE = 3     # unanswered probes in a row: reassociate
+RESTART = 6         # ... and: Wi-Fi off and on
 
 
 def log(msg: str) -> None:
@@ -73,31 +85,107 @@ def stay_awake(seconds: int) -> None:
         log(f"wake lock: {e}")
 
 
-def restart() -> None:
+def restart(why: str = "the chip hung") -> None:
     if wlan_blocked():
-        log("the chip hung; Wi-Fi is off: left off")
+        log(f"{why}; Wi-Fi is off: left off")
         return
-    log("the chip hung: Wi-Fi off and on again")
+    log(f"{why}: Wi-Fi off and on again")
     stay_awake(20)
     set_wlan(True)
     time.sleep(SETTLE)
     set_wlan(False)
 
 
+def screen_on() -> bool:
+    for f in Path("/run/user").glob("[0-9]*/mobarchy/display"):
+        try:
+            return f.read_text().strip() == "on"
+        except OSError:
+            pass
+    return False
+
+
+def route() -> tuple[str, str] | None:
+    """(our address, the gateway) on Wi-Fi, if it is up and has one."""
+    try:
+        if Path("/sys/class/net/wlan0/operstate").read_text().strip() != "up":
+            return None
+        out = subprocess.run(["ip", "-4", "route", "show", "default", "dev", "wlan0"],
+                             capture_output=True, text=True, timeout=5).stdout.split()
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if "via" not in out:
+        return None
+    gateway = out[out.index("via") + 1]
+    src = out[out.index("src") + 1] if "src" in out else ""
+    return src, gateway
+
+
+def answers(gateway: str) -> bool:
+    try:
+        return subprocess.run(["arping", "-q", "-c", "2", "-w", "3", "-I", "wlan0", gateway],
+                              timeout=6).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def nudge_zerotier() -> None:
+    if subprocess.run(["systemctl", "is-active", "--quiet", "zerotier-one"]).returncode == 0:
+        log("network changed: ZeroTier restarted")
+        subprocess.run(["systemctl", "restart", "--no-block", "zerotier-one"])
+
+
+class Reachability:
+    """The gateway asked for while the screen is on; a dead link reassociated, then
+    restarted; ZeroTier nudged on a new network or after a recovery."""
+
+    def __init__(self):
+        self.misses = 0
+        self.network = None
+        self.recovered = False
+
+    def check(self) -> None:
+        r = route()
+        if r is None or not screen_on():
+            self.misses = 0
+            return
+        if answers(r[1]):
+            if (self.network and r != self.network) or self.recovered:
+                nudge_zerotier()
+            self.network, self.misses, self.recovered = r, 0, False
+            return
+        self.misses += 1
+        if self.misses == REASSOCIATE:
+            log(f"the gateway {r[1]} does not answer: reassociating")
+            subprocess.run(["wpa_cli", "-i", "wlan0", "reassociate"], capture_output=True, timeout=5)
+            self.recovered = True
+        elif self.misses >= RESTART:
+            restart(f"the gateway {r[1]} still does not answer")
+            self.misses, self.recovered = 0, True
+
+
 def main() -> int:
     patterns = hang_log()
     if not patterns:
-        log("no [wifi] hang_log in device.toml: nothing to watch")
-        return 0
+        log("no [wifi] hang_log in device.toml: only the link is watched")
     fd = os.open("/dev/kmsg", os.O_RDONLY)
     os.lseek(fd, 0, os.SEEK_END)             # (from now: not the hangs before a restart)
     last, quiet = -WORKING, QUIET
+    link, probed = Reachability(), 0.0
     while True:
+        if now() - probed >= PROBE:
+            try:
+                link.check()
+            except (OSError, subprocess.SubprocessError) as e:
+                log(f"reachability: {e}")
+            probed = now()
+        if not select.select([fd], [], [], PROBE)[0]:
+            continue
         try:
             record = os.read(fd, 8192).decode(errors="replace")
         except BrokenPipeError:              # (overwritten while read: go on)
             continue
-        if not any(p in record for p in patterns) or now() - last < quiet:
+        if not patterns or not any(p in record for p in patterns) or now() - last < quiet:
             continue
         quiet = QUIET if now() - last > WORKING else min(quiet * 2, QUIET_MAX)
         try:
@@ -105,6 +193,7 @@ def main() -> int:
         except OSError as e:
             log(f"restart: {e}")
         last = now()
+        link.recovered = True
 
 
 if __name__ == "__main__":
