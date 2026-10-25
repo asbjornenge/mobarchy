@@ -153,6 +153,25 @@ def body_of(msg: email.message.EmailMessage) -> tuple[str, str, list[dict]]:
     return (plain.strip() or text_of(rich)), rich, files
 
 
+# Where a reply's quote of what it answers begins: "On ... wrote:" (and the languages'),
+# Outlook's "From:"/"Fra:" block and separators, a run of ">" lines.
+QUOTE_START = re.compile(
+    r"^\s*(On .{0,200}wrote:|Den .{0,200}skrev[^:\n]*:|.{0,200}\bskrev\s*(følgende)?\s*:\s*$|Am .{0,200}schrieb.{0,40}:|"
+    r"Le .{0,200}a écrit\s*:|-{2,}\s*Original Message\s*-{2,}|-{2,}\s*Opprinnelig melding\s*-{2,}|_{10,}|"
+    r"(From|Fra|Von|De)\s*:\s.+)\s*$", re.I | re.M)
+
+
+def fresh_of(text: str) -> str:
+    """A reply's own words: the text up to where it quotes what it answers."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        if QUOTE_START.match(line) or (line.lstrip().startswith(">") and all(
+                ln.lstrip().startswith(">") or not ln.strip() for ln in lines[i:])):
+            head = "\n".join(lines[:i]).rstrip()
+            return head if head.strip() else text
+    return text
+
+
 def snippet_of(text: str) -> str:
     lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith(">")]
     return re.sub(r"\s+", " ", " ".join(lines))[:200]
@@ -485,7 +504,7 @@ def read(message_id: str, mark_seen: bool = True) -> dict:
             "cc": decoded(msg.get("Cc", "")), "reply_to": decoded(msg.get("Reply-To", "")),
             "subject": decoded(msg.get("Subject", "")), "date": msg.get("Date", ""),
             "message_id": (msg.get("Message-ID") or "").strip(), "references": msg.get("References", ""),
-            "text": text, "html": rich, "attachments": files}
+            "text": text, "fresh": fresh_of(text), "html": rich, "attachments": files}
 
 
 def save_attachment(message_id: str, index: int, directory: str = "") -> dict:

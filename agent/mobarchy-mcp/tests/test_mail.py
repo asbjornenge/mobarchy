@@ -108,3 +108,14 @@ def test_thread_of():
     m = email.message_from_string("Message-ID: <C@x>\nIn-Reply-To: <b@x>\nReferences: <A@x> <b@x>\n\nhi")
     assert mail.thread_of(m) == "<a@x>"
     assert mail.thread_of(email.message_from_string("Message-ID: <Solo@x>\n\nhi")) == "<solo@x>"
+
+
+def test_fresh_is_the_reply_without_its_quote():
+    reply = "Det kan vi godt gjøre!\n\nHilsen Asbjørn\n\nDen søn. 14. sep. 2026 kl. 08:44 skrev Anna <a@x>:\n> Hei!\n> Vi har mottatt"
+    assert mail.fresh_of(reply) == "Det kan vi godt gjøre!\n\nHilsen Asbjørn"
+    outlook = "Hei! Det stemmer.\n\nFra: Asbjørn Andersen <me@x>\nSendt: 14. september\nTil: Anna\n\nHei Anna"
+    assert mail.fresh_of(outlook) == "Hei! Det stemmer."
+    english = "Sounds good.\nOn Mon, Oct 5, 2026 at 9:00 Kari <k@x> wrote:\n> earlier"
+    assert mail.fresh_of(english) == "Sounds good."
+    assert mail.fresh_of("Just a message.\nFrom the heart") == "Just a message.\nFrom the heart"
+    assert mail.fresh_of("> only a quote") == "> only a quote"

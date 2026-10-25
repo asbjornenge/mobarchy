@@ -88,89 +88,49 @@ Window {
         return d.toDateString() === new Date().toDateString() ? Qt.formatTime(d, "HH:mm")
              : d.toLocaleDateString(Qt.locale(), "d MMM")
     }
-    // a conversation (more than one message): all of it, oldest first, the newest open
+    // A conversation (more than one message): one long scroll, a card for each message,
+    // oldest first; a card opens (pulled out) and closes at a tap, the newest open to begin
+    // with. A card shows its message's own words (its quote of the rest cut off).
     property bool threaded: false
+    property var threadRow: null         // the conversation's row in the list
+    property var bodies: ({})            // the opened messages, in full, by id
+    property var expanded: ({})          // the open cards, by id
     function read(row) {
         item = row
         message = null
         view = "read"
         threaded = (row.count || 1) > 1
-        newestOpen = threaded
+        threadRow = row
+        bodies = {}
+        expanded = {}
         if (threaded)
             mail.loadThread(row.id)
-        mail.open(row.id)
+        else
+            mail.open(row.id)
     }
-    // the conversation's newest open, once it has come (the owner's own reply, it may be)
-    property bool newestOpen: false
+    function toggle(m) {
+        const open = !expanded[m.id]
+        expanded = Object.assign({}, expanded, {[m.id]: open})
+        if (open && !bodies[m.id])
+            mail.open(m.id)
+    }
     Connections {
         target: mail
+        // (the newest open, once the conversation has come)
         function onConversationChanged() {
             const c = mail.conversation
-            if (!win.newestOpen || !c.length)
-                return
-            win.newestOpen = false
-            if (win.item && c[c.length - 1].id !== win.item.id)
-                win.openInThread(c[c.length - 1])
+            if (win.threaded && c.length && Object.keys(win.expanded).length === 0) {
+                win.item = c[c.length - 1]
+                win.toggle(c[c.length - 1])
+            }
         }
-    }
-    // another of the conversation's messages, open instead
-    function openInThread(m) {
-        item = m
-        message = null
-        mail.open(m.id)
-    }
-    // the conversation's messages before the open one, and after it
-    readonly property var threadBefore: {
-        const c = threaded ? mail.conversation : [], at = c.findIndex(m => item && m.id === item.id)
-        return at < 0 ? c.filter(m => !item || m.id !== item.id) : c.slice(0, at)
-    }
-    readonly property var threadAfter: {
-        const c = threaded ? mail.conversation : [], at = c.findIndex(m => item && m.id === item.id)
-        return at < 0 ? [] : c.slice(at + 1)
+        function onOpened(message) {
+            win.bodies = Object.assign({}, win.bodies, {[message.id]: message})
+        }
     }
     // what is done to a row is done to its whole conversation in the inbox
     function idsOf(row) {
         return row.thread_ids && row.thread_ids.length ? row.thread_ids : [row.id]
-    }
-
-    // One of a conversation's messages, closed: who, when, the start of it; a tap opens it.
-    component ThreadLine: Rectangle {
-        id: line
-        property var m
-        width: readColumn.width
-        height: 58
-        radius: 10
-        color: lineTap.pressed ? Theme.line : Theme.panel
-        Column {
-            anchors { left: parent.left; right: parent.right; leftMargin: 12; rightMargin: 12; verticalCenter: parent.verticalCenter }
-            spacing: 2
-            Item {
-                width: parent.width; height: lineFrom.implicitHeight
-                Text {
-                    id: lineFrom
-                    anchors { left: parent.left; right: lineWhen.left; rightMargin: 8 }
-                    elide: Text.ElideRight
-                    text: line.m.from
-                    color: Theme.fg
-                    font { family: Theme.font; pixelSize: 13; bold: !line.m.seen }
-                }
-                Text {
-                    id: lineWhen
-                    anchors.right: parent.right
-                    text: win.when(line.m.date)
-                    color: Theme.muted
-                    font { family: Theme.font; pixelSize: 11 }
-                }
-            }
-            Text {
-                width: parent.width
-                elide: Text.ElideRight
-                text: line.m.snippet
-                color: Theme.muted
-                font { family: Theme.font; pixelSize: 12 }
-            }
-        }
-        MouseArea { id: lineTap; anchors.fill: parent; onClicked: win.openInThread(line.m) }
     }
 
     // --- snoozing: when ----------------------------------------------------------------------
@@ -430,8 +390,140 @@ Window {
                 MouseArea { anchors { fill: parent; margins: -12 } onClicked: win.view = "list" }
             }
         }
+        // a conversation: its cards
+        Flickable {
+            id: threadView
+            visible: win.threaded
+            anchors { left: parent.left; right: parent.right; top: readHead.bottom; bottom: actions.top; bottomMargin: 8 }
+            contentHeight: threadColumn.height + 24
+            clip: true
+            boundsBehavior: Theme.boundsBehavior
+            flickDeceleration: Theme.flickDeceleration
+            maximumFlickVelocity: Theme.flickVelocity
+            Column {
+                id: threadColumn
+                x: 14
+                width: threadView.width - 28
+                spacing: 10
+                Text {
+                    x: 6
+                    width: parent.width - 12
+                    wrapMode: Text.Wrap
+                    text: win.threadRow ? win.threadRow.subject : ""
+                    color: Theme.fg
+                    font { family: Theme.font; pixelSize: 21; bold: true }
+                }
+                Repeater {
+                    model: win.threaded ? mail.conversation : []
+                    delegate: Rectangle {
+                        id: mcard
+                        required property var modelData
+                        readonly property bool open: !!win.expanded[modelData.id]
+                        readonly property var body: win.bodies[modelData.id] || null
+                        property bool whole: false      // its quote shown too
+                        width: threadColumn.width
+                        // (pulled out to its content, and back)
+                        height: (open ? openPart.y + openPart.height : closedSnippet.y + closedSnippet.height) + 14
+                        Behavior on height { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+                        clip: true
+                        radius: 12
+                        color: cardTap.pressed ? Theme.line : Theme.panel
+                        MouseArea { id: cardTap; anchors.fill: parent; onClicked: win.toggle(mcard.modelData) }
+                        Item {
+                            id: cardHead
+                            x: 14; y: 12
+                            width: parent.width - 28; height: cardFrom.implicitHeight
+                            Text {
+                                id: cardFrom
+                                anchors { left: parent.left; right: cardWhen.left; rightMargin: 8 }
+                                elide: Text.ElideRight
+                                text: mcard.modelData.from
+                                color: mcard.open ? Theme.accent : Theme.fg
+                                font { family: Theme.font; pixelSize: 14; bold: !mcard.modelData.seen }
+                            }
+                            Text {
+                                id: cardWhen
+                                anchors.right: parent.right
+                                text: win.when(mcard.modelData.date)
+                                color: Theme.muted
+                                font { family: Theme.font; pixelSize: 12 }
+                            }
+                        }
+                        Text {
+                            id: closedSnippet
+                            x: 14; y: cardHead.y + cardHead.height + 4
+                            width: parent.width - 28
+                            visible: !mcard.open
+                            elide: Text.ElideRight
+                            text: mcard.modelData.snippet
+                            color: Theme.muted
+                            font { family: Theme.font; pixelSize: 13 }
+                        }
+                        Column {
+                            id: openPart
+                            x: 14; y: cardHead.y + cardHead.height + 6
+                            width: parent.width - 28
+                            spacing: 10
+                            opacity: mcard.open ? 1 : 0
+                            Behavior on opacity { NumberAnimation { duration: 200 } }
+                            Text {
+                                width: parent.width
+                                wrapMode: Text.Wrap
+                                text: qsTr("To %1").arg(mcard.modelData.to)
+                                color: Theme.muted
+                                font { family: Theme.font; pixelSize: 11 }
+                            }
+                            Flow {
+                                width: parent.width
+                                spacing: 8
+                                visible: !!mcard.body && mcard.body.attachments.length > 0
+                                Repeater {
+                                    model: mcard.body ? mcard.body.attachments : []
+                                    delegate: Rectangle {
+                                        id: cfile
+                                        required property var modelData
+                                        width: cfileText.implicitWidth + 24; height: 34; radius: 17
+                                        color: cfileTap.pressed ? Theme.line : Theme.bg
+                                        Text {
+                                            id: cfileText
+                                            anchors.centerIn: parent
+                                            text: "󰏢 " + cfile.modelData.name
+                                            color: Theme.fg
+                                            font { family: Theme.font; pixelSize: 13 }
+                                        }
+                                        MouseArea { id: cfileTap; anchors.fill: parent
+                                                    onClicked: mail.saveAttachment(mcard.modelData.id, cfile.modelData.index) }
+                                    }
+                                }
+                            }
+                            TextEdit {
+                                width: parent.width
+                                readOnly: true
+                                selectByMouse: false
+                                wrapMode: TextEdit.Wrap
+                                textFormat: TextEdit.PlainText
+                                text: !mcard.body ? qsTr("Opening …") : mcard.whole ? mcard.body.text : (mcard.body.fresh || mcard.body.text)
+                                color: mcard.body ? Theme.fg : Theme.muted
+                                font { family: Theme.font; pixelSize: 15 }
+                            }
+                            // the quote cut off: shown at a tap
+                            Rectangle {
+                                visible: !!mcard.body && !!mcard.body.fresh && mcard.body.fresh !== mcard.body.text
+                                width: 44; height: 22; radius: 11
+                                color: wholeTap.pressed ? Theme.line : Theme.bg
+                                Text { anchors.centerIn: parent; text: "···"; color: Theme.muted
+                                       font { family: Theme.font; pixelSize: 14; bold: true } }
+                                MouseArea { id: wholeTap; anchors { fill: parent; margins: -8 }
+                                            onClicked: mcard.whole = !mcard.whole }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         Flickable {
             id: reader
+            visible: !win.threaded
             anchors { left: parent.left; right: parent.right; top: readHead.bottom }
             // (an HTML mail: the headers above, its own view below them)
             height: win.html ? Math.min(contentHeight, parent.height * 0.4)
@@ -450,11 +542,6 @@ Window {
                     text: win.message ? win.message.subject : win.item ? win.item.subject : ""
                     color: Theme.fg
                     font { family: Theme.font; pixelSize: 21; bold: true }
-                }
-                // the conversation's earlier messages, one line each (a tap opens one)
-                Repeater {
-                    model: win.threadBefore
-                    delegate: ThreadLine { required property var modelData; m: modelData }
                 }
                 Text {
                     width: parent.width
@@ -528,18 +615,13 @@ Window {
                     selectionColor: Theme.accent
                     font { family: Theme.font; pixelSize: 15 }
                 }
-                // and its later ones
-                Repeater {
-                    model: win.threadAfter
-                    delegate: ThreadLine { required property var modelData; m: modelData }
-                }
             }
         }
         // an HTML mail, as it was made (Chromium: no scripts; remote content only with
         // "show images"; links open in the browser)
         Loader {
             anchors { left: parent.left; right: parent.right; top: reader.bottom; bottom: actions.top; bottomMargin: 8 }
-            active: win.html && win.view === "read"
+            active: win.html && win.view === "read" && !win.threaded
             sourceComponent: WebEngineView {
                 id: htmlView
                 backgroundColor: "white"
@@ -599,7 +681,7 @@ Window {
                             switch (act.modelData.id) {
                             case "reply": compose.write(win.message, "reply"); break
                             case "forward": compose.write(win.message, "forward"); break
-                            case "archive": mail.archive(id); win.view = "list"; break
+                            case "archive": win.idsOf(win.threadRow || win.item).forEach(i => mail.archive(i)); win.view = "list"; break
                             case "snooze": win.snoozing = id; break
                             case "trash": mail.trash(id); win.view = "list"; break
                             }
