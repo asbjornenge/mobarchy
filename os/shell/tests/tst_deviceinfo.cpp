@@ -27,6 +27,7 @@ connector = "DSI-1"
 width = 2152
 scale = 2.0
 side_inset = 12
+cutout = [44, 40.5, 20]  # the camera
 
 [input]
 fold_sensor = true
@@ -42,6 +43,8 @@ fold_sensor = true
         QCOMPARE(deviceinfo::topInset(d, "HDMI-A-1"), 0);
         QCOMPARE(deviceinfo::sideInset(d, "DSI-1"), 12);
         QCOMPARE(deviceinfo::sideInset(d, "DSI-2"), 0);
+        QCOMPARE(deviceinfo::cutout(d, "DSI-1"), (QList<qreal>{44, 40.5, 20}));
+        QCOMPARE(deviceinfo::cutout(d, "DSI-2"), QList<qreal>());
     }
 
     void singleDisplayWithoutConnector()

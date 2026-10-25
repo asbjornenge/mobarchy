@@ -5,7 +5,7 @@
 # (and makepkg -c/-C would delete it).
 pkgname=mobarchy-shell
 pkgver=0.1
-pkgrel=168
+pkgrel=169
 pkgdesc='The Mobarchy phone shell: status bar, swipe-up app drawer, agent home screen'
 arch=(aarch64 x86_64)
 depends=(qt6-base grim qt6-declarative qt6-webengine qt6-wayland qt6-svg layer-shell-qt ttf-jetbrains-mono-nerd

@@ -105,9 +105,17 @@ int bottomInset(const Device &device, const QString &connector)
 
 QList<qreal> cutout(const Device &device, const QString &connector)
 {
+    // (an array: this parser keeps it as its text, "[x, y, r]")
+    QString text = display(device, connector).value(QStringLiteral("cutout")).toString().trimmed();
+    if (!text.startsWith(u'[') || !text.endsWith(u']'))
+        return {};
     QList<qreal> out;
-    for (const QVariant &v : display(device, connector).value(QStringLiteral("cutout")).toList())
-        out << v.toReal();
+    for (const QString &part : text.mid(1, text.size() - 2).split(u',')) {
+        bool ok;
+        out << part.trimmed().toDouble(&ok);
+        if (!ok)
+            return {};
+    }
     return out.size() == 3 ? out : QList<qreal>();
 }
 
