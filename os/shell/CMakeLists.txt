@@ -59,6 +59,7 @@ qt_add_qml_module(mobarchy-shell
         src/iconprovider.h
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h
+        src/switcherkeys.cpp src/switcherkeys.h
         src/clipboard.cpp src/clipboard.h
         src/contacts.cpp src/contacts.h
         src/logind.cpp src/logind.h

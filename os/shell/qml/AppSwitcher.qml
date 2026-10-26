@@ -31,7 +31,9 @@ LayerWindow {
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom
                                | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
     LayerShell.Window.exclusionZone: -1
-    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
+    // (the keyboard while chosen from with ⌘+Tab: to see ⌘ let go)
+    LayerShell.Window.keyboardInteractivity: cycling ? LayerShell.Window.KeyboardInteractivityExclusive
+                                                     : LayerShell.Window.KeyboardInteractivityNone
 
     // 0 = gone, 1 = up; while the finger holds it, it follows the finger
     property real openness: 0
@@ -128,6 +130,83 @@ LayerWindow {
     function go(index) {
         toplevels.activate(index)
         close()
+    }
+
+    // --- ⌘+Tab (a hardware keyboard: SwitcherKeys, from Hyprland's binds) ----------------
+    // Up with the app used before this one chosen; again (⌘ held), the next older one;
+    // ⌘ let go: to it. Meanwhile the switcher has the keyboard: ⌘ let go, Return, Escape and
+    // the arrows come to it.
+    property bool cycling: false
+    // the one chosen (kept here: a quick ⌘+Tab lets go before the view has caught up)
+    property int chosen: 0
+    readonly property SwitcherKeys keys: SwitcherKeys {
+        onNext: switcher.cycle(1)
+        onPrevious: switcher.cycle(-1)
+        onCommit: switcher.commit()
+        onCancel: switcher.cancel()
+    }
+    function commit() {
+        if (!cycling)
+            return
+        cycling = false
+        // (once the keyboard is let go: the compositor gives it back to the app it was taken
+        // from, and an activation before that is undone)
+        goLater.restart()
+    }
+    Timer { id: goLater; interval: 80; onTriggered: switcher.go(switcher.chosen) }
+    function cancel() {
+        if (!cycling)
+            return
+        cycling = false
+        close()
+    }
+    // (⌘ let go before the keyboard came here: no release to see; what the compositor says
+    // is held when it does)
+    onActiveChanged: if (active && cycling) {
+        keyCatcher.forceActiveFocus()
+        if (!keys.superHeld())
+            commit()
+    }
+    // (and if the keyboard never came: not left up, waiting for a ⌘ it can't see)
+    Timer {
+        interval: 800
+        running: switcher.cycling && !switcher.active
+        onTriggered: switcher.commit()
+    }
+    Item {
+        id: keyCatcher
+        Keys.onReleased: (event) => {
+            if (event.key === Qt.Key_Meta || event.key === Qt.Key_Super_L || event.key === Qt.Key_Super_R)
+                switcher.commit()
+        }
+        Keys.onPressed: (event) => {
+            switch (event.key) {
+            case Qt.Key_Escape: switcher.cancel(); break
+            case Qt.Key_Return: case Qt.Key_Enter: switcher.commit(); break
+            case Qt.Key_Left: switcher.cycle(1); break      // (older ones are to the left)
+            case Qt.Key_Right: switcher.cycle(-1); break
+            default: return
+            }
+            event.accepted = true
+        }
+    }
+    function cycle(step) {
+        const n = toplevels.count
+        if (n === 0)
+            return
+        const first = !cycling || !shown
+        // (from the app in use, one on; then on from the one chosen)
+        chosen = (((first ? 0 : chosen) + step) % n + n) % n
+        if (first) {
+            cycling = true
+            open()
+        }
+        // (after toFront's)
+        Qt.callLater(() => {
+            row.currentIndex = switcher.chosen
+            row.positionViewAtIndex(switcher.chosen, ListView.Center)
+        })
+        haptics.tick()
     }
 
     NumberAnimation {
@@ -411,6 +490,15 @@ LayerWindow {
                 color: "black"
                 visible: opacity > 0
                 opacity: 0.18 * Math.max(0, Math.min(2, card.depth))
+            }
+            // chosen with ⌘+Tab: marked (over the picture)
+            Rectangle {
+                anchors { fill: frame; margins: -3 }
+                radius: frame.radius + 3
+                color: "transparent"
+                border.color: Theme.accent
+                border.width: 3
+                visible: switcher.cycling && card.index === switcher.chosen
             }
 
             DragHandler {
