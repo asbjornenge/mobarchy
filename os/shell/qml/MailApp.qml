@@ -525,6 +525,7 @@ Window {
                             TextEdit {
                                 width: parent.width
                                 readOnly: true
+                                activeFocusOnPress: false  // (no keyboard for reading)
                                 selectByMouse: false
                                 wrapMode: TextEdit.Wrap
                                 textFormat: TextEdit.PlainText
@@ -633,6 +634,7 @@ Window {
                     visible: !win.html
                     width: parent.width
                     readOnly: true
+                    activeFocusOnPress: false  // (no keyboard for reading)
                     selectByMouse: true
                     wrapMode: TextEdit.Wrap
                     textFormat: TextEdit.PlainText
@@ -746,6 +748,8 @@ Window {
                 bodyField.forceActiveFocus()
             else
                 compose.toField.forceActiveFocus()
+            // (focus given in code doesn't ask for the keyboard; a tap does)
+            Qt.inputMethod.show()
         }
 
         Item {
