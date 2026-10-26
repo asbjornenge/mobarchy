@@ -700,6 +700,8 @@ LayerWindow {
         category: "emoji"
         property var recent: []
     }
+    // (the hardware keyboard's emoji picker shows them too, EmojiPicker.qml)
+    readonly property var recentEmoji: emojiSettings.recent
     readonly property var emojiGroups: keyboard.emojiGroups()
     readonly property var groupIcons: ["😀", "👋", "🐶", "🍎", "🚗", "⚽", "💡", "❤️", "🏳️"]
     function typeEmoji(e) {

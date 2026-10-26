@@ -145,6 +145,7 @@ qt_add_qml_module(mobarchy-shell
         qml/RecentAppsCard.qml
         qml/Store.qml
         qml/KeyboardPanel.qml
+        qml/EmojiPicker.qml
         qml/LaptopKeyboard.qml
         qml/CopyBar.qml
         qml/CameraApp.qml

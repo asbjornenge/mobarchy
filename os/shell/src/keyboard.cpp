@@ -1,6 +1,7 @@
 #include "keyboard.h"
 
 #include <QDateTime>
+#include <QDBusConnection>
 #include <QFile>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -94,10 +95,15 @@ Keyboard::Keyboard(QObject *parent)
     connect(m_vkManager, &VirtualKeyboardManager::activeChanged, this, &Keyboard::setup);
     m_imManager->bind();
     m_vkManager->bind();
+    // emojiSearch, for Hyprland's Alt+Space (on the shell's name, org.mobarchy.Shell)
+    QDBusConnection::sessionBus().registerObject(QStringLiteral("/org/mobarchy/Keyboard"),
+                                                 QStringLiteral("org.mobarchy.Keyboard"), this,
+                                                 QDBusConnection::ExportScriptableSlots);
 }
 
 Keyboard::~Keyboard()
 {
+    delete m_grab;
     delete m_im;
     if (m_vk) {
         m_vk->destroy();
@@ -129,9 +135,32 @@ void Keyboard::onDone()
         m_visible = visible;
         emit visibleChanged();
     }
+    // (the field lost focus: the keys go back with it)
+    if (!m_active && m_grab)
+        releaseKeys();
     if (m_activeChanged)
         emit activeChanged();
     emit contentChanged();
+}
+
+bool Keyboard::grabKeys()
+{
+    if (m_grab)
+        return true;
+    if (!m_active || !m_im)
+        return false;
+    m_grab = new KeyboardGrab(m_im->grab_keyboard(), this);
+    emit grabbingChanged();
+    return true;
+}
+
+void Keyboard::releaseKeys()
+{
+    if (!m_grab)
+        return;
+    delete m_grab;
+    m_grab = nullptr;
+    emit grabbingChanged();
 }
 
 void Keyboard::setVisible(bool visible)
@@ -412,4 +441,99 @@ void Keyboard::sendKeycode(uint32_t keycode, uint32_t mods)
     m_vk->key(now(), keycode, WL_KEYBOARD_KEY_STATE_RELEASED);
     if (mods)
         m_vk->modifiers(0, 0, 0, 0);
+}
+
+// --- the hardware keyboard's keys, borrowed ---------------------------------------------------
+
+KeyboardGrab::KeyboardGrab(struct ::zwp_input_method_keyboard_grab_v2 *object, Keyboard *keyboard)
+    : QtWayland::zwp_input_method_keyboard_grab_v2(object), m_keyboard(keyboard)
+{
+    m_xkb = xkb_context_new(XKB_CONTEXT_NO_FLAGS);
+    QObject::connect(&m_repeat, &QTimer::timeout, keyboard, [this] {
+        m_repeat.setInterval(m_rate > 0 ? 1000 / m_rate : 40);
+        deliver(m_repeatKey);
+    });
+}
+
+KeyboardGrab::~KeyboardGrab()
+{
+    release();
+    xkb_state_unref(m_state);
+    xkb_keymap_unref(m_keymap);
+    xkb_context_unref(m_xkb);
+}
+
+void KeyboardGrab::zwp_input_method_keyboard_grab_v2_keymap(uint32_t format, int32_t fd, uint32_t size)
+{
+    if (format == WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1) {
+        void *map = mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0);
+        if (map != MAP_FAILED) {
+            xkb_keymap *keymap = xkb_keymap_new_from_string(m_xkb, static_cast<const char *>(map),
+                                                            XKB_KEYMAP_FORMAT_TEXT_V1, XKB_KEYMAP_COMPILE_NO_FLAGS);
+            munmap(map, size);
+            if (keymap) {
+                xkb_state_unref(m_state);
+                xkb_keymap_unref(m_keymap);
+                m_keymap = keymap;
+                m_state = xkb_state_new(m_keymap);
+            }
+        }
+    }
+    close(fd);
+}
+
+void KeyboardGrab::zwp_input_method_keyboard_grab_v2_modifiers(uint32_t, uint32_t depressed, uint32_t latched,
+                                                               uint32_t locked, uint32_t group)
+{
+    if (m_state)
+        xkb_state_update_mask(m_state, depressed, latched, locked, 0, 0, group);
+}
+
+void KeyboardGrab::zwp_input_method_keyboard_grab_v2_repeat_info(int32_t rate, int32_t delay)
+{
+    m_rate = rate;
+    m_delay = delay;
+}
+
+void KeyboardGrab::zwp_input_method_keyboard_grab_v2_key(uint32_t, uint32_t, uint32_t key, uint32_t state)
+{
+    if (state != WL_KEYBOARD_KEY_STATE_PRESSED) {
+        if (key == m_repeatKey)
+            m_repeat.stop();
+        return;
+    }
+    deliver(key);
+    // (held: again, after the keyboard's delay, at its rate)
+    if (m_keymap && m_rate > 0 && xkb_keymap_key_repeats(m_keymap, key + 8)) {
+        m_repeatKey = key;
+        m_repeat.start(m_delay);
+    }
+}
+
+void KeyboardGrab::deliver(uint32_t key)
+{
+    if (!m_state)
+        return;
+    const uint32_t code = key + 8;    // (evdev to xkb)
+    static const QHash<uint32_t, QString> named = {
+        {XKB_KEY_BackSpace, QStringLiteral("BackSpace")}, {XKB_KEY_Return, QStringLiteral("Return")},
+        {XKB_KEY_KP_Enter, QStringLiteral("Return")}, {XKB_KEY_Escape, QStringLiteral("Escape")},
+        {XKB_KEY_Tab, QStringLiteral("Tab")}, {XKB_KEY_ISO_Left_Tab, QStringLiteral("Tab")},
+        {XKB_KEY_Left, QStringLiteral("Left")}, {XKB_KEY_Right, QStringLiteral("Right")},
+        {XKB_KEY_Up, QStringLiteral("Up")}, {XKB_KEY_Down, QStringLiteral("Down")}};
+    const xkb_keysym_t sym = xkb_state_key_get_one_sym(m_state, code);
+    if (named.contains(sym)) {
+        emit m_keyboard->grabbedKey(named.value(sym));
+        return;
+    }
+    // (with Ctrl or Super held it is a shortcut, not text)
+    if (xkb_state_mod_name_is_active(m_state, XKB_MOD_NAME_CTRL, XKB_STATE_MODS_EFFECTIVE) > 0
+        || xkb_state_mod_name_is_active(m_state, XKB_MOD_NAME_LOGO, XKB_STATE_MODS_EFFECTIVE) > 0)
+        return;
+    char utf8[16];
+    if (xkb_state_key_get_utf8(m_state, code, utf8, sizeof utf8) > 0) {
+        const QString text = QString::fromUtf8(utf8);
+        if (!text.isEmpty() && text.at(0).isPrint())
+            emit m_keyboard->grabbedText(text);
+    }
 }

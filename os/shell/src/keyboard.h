@@ -9,6 +9,10 @@
 //    text-input (some apps, terminals in X): those get key presses of a Norwegian keymap.
 //
 // The keyboard itself (Keyboard.qml) is QML; this is its connection to the apps.
+//
+// A hardware keyboard's keys go to the app, but the shell can borrow them while a text
+// field has focus (input-method-v2's keyboard grab): the emoji search does, from Alt+Space
+// (Hyprland's bind calls emojiSearch on D-Bus: org.mobarchy.Shell /org/mobarchy/Keyboard).
 #pragma once
 
 #include "qwayland-input-method-unstable-v2.h"
@@ -16,12 +20,14 @@
 
 #include <QObject>
 #include <QHash>
+#include <QTimer>
 #include <QPair>
 #include <QtQml/qqmlregistration.h>
 #include <QtWaylandClient/QWaylandClientExtension>
 
 struct xkb_context;
 struct xkb_keymap;
+struct xkb_state;
 
 class InputMethodManager : public QWaylandClientExtensionTemplate<InputMethodManager>,
                            public QtWayland::zwp_input_method_manager_v2
@@ -42,6 +48,7 @@ public:
 };
 
 class InputMethod;
+class KeyboardGrab;
 
 class Keyboard : public QObject
 {
@@ -62,6 +69,8 @@ class Keyboard : public QObject
     // to an app, until stopCapture().
     Q_PROPERTY(bool capturing READ capturing NOTIFY captureChanged)
     Q_PROPERTY(QString captured READ captured NOTIFY captureChanged)
+    // A hardware keyboard's keys borrowed (grabKeys): they come as grabbedText/grabbedKey
+    Q_PROPERTY(bool grabbing READ grabbing NOTIFY grabbingChanged)
 
 public:
     explicit Keyboard(QObject *parent = nullptr);
@@ -75,6 +84,12 @@ public:
     QString captured() const { return m_captured; }
     Q_INVOKABLE void startCapture();
     Q_INVOKABLE void stopCapture();
+
+    bool grabbing() const { return m_grab != nullptr; }
+    // Borrow the hardware keyboard's keys from the app with the focused field (none: false).
+    // Back to it with releaseKeys(), or when the field loses focus.
+    Q_INVOKABLE bool grabKeys();
+    Q_INVOKABLE void releaseKeys();
 
     bool active() const { return m_active; }
     QString purpose() const { return m_purpose; }
@@ -98,6 +113,10 @@ public:
     // the query: "hjer" finds ❤️, "red heart" too. The ones a word names exactly first.
     Q_INVOKABLE QStringList searchEmoji(const QString &query, int max = 80) const;
 
+public slots:
+    // (D-Bus, from Hyprland's Alt+Space bind) the emoji search, typed into from the keyboard
+    Q_SCRIPTABLE void emojiSearch() { emit emojiSearchAsked(); }
+
 signals:
     void visibleChanged();
     void activeChanged();
@@ -109,9 +128,16 @@ signals:
     void captureChanged();
     // Return while capturing
     void captureAccepted();
+    void emojiSearchAsked();
+    void grabbingChanged();
+    // while grabbing: a key that types (its text), and the others ("BackSpace", "Return",
+    // "Escape", "Tab", "Left", "Right", "Up", "Down"); held ones repeat
+    void grabbedText(const QString &text);
+    void grabbedKey(const QString &name);
 
 private:
     friend class InputMethod;
+    friend class KeyboardGrab;
     void setup();
     void onDone();
     bool ensureVirtualKeyboard();
@@ -121,6 +147,7 @@ private:
     InputMethodManager *m_imManager;
     VirtualKeyboardManager *m_vkManager;
     InputMethod *m_im = nullptr;
+    KeyboardGrab *m_grab = nullptr;
     QtWayland::zwp_virtual_keyboard_v1 *m_vk = nullptr;
 
     // input method state, applied on done
@@ -175,4 +202,28 @@ private:
     uint32_t m_pendingCursor = 0;
     uint32_t m_pendingHint = 0;
     uint32_t m_pendingPurpose = 0;
+};
+
+class KeyboardGrab : public QtWayland::zwp_input_method_keyboard_grab_v2
+{
+public:
+    KeyboardGrab(struct ::zwp_input_method_keyboard_grab_v2 *object, Keyboard *keyboard);
+    ~KeyboardGrab() override;
+
+protected:
+    void zwp_input_method_keyboard_grab_v2_keymap(uint32_t format, int32_t fd, uint32_t size) override;
+    void zwp_input_method_keyboard_grab_v2_key(uint32_t serial, uint32_t time, uint32_t key, uint32_t state) override;
+    void zwp_input_method_keyboard_grab_v2_modifiers(uint32_t serial, uint32_t depressed, uint32_t latched,
+                                                     uint32_t locked, uint32_t group) override;
+    void zwp_input_method_keyboard_grab_v2_repeat_info(int32_t rate, int32_t delay) override;
+
+private:
+    void deliver(uint32_t key);
+    Keyboard *m_keyboard;
+    xkb_context *m_xkb = nullptr;
+    xkb_keymap *m_keymap = nullptr;
+    xkb_state *m_state = nullptr;
+    QTimer m_repeat;
+    uint32_t m_repeatKey = 0;
+    int m_rate = 25, m_delay = 600;
 };

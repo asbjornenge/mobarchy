@@ -44,6 +44,11 @@ QtObject {
         sideInsets: shell.leftInset.inset + shell.rightInset.inset
         laptop: shell.laptop
     }
+    // Alt+Space on a hardware keyboard: the emoji, searched from its keys
+    readonly property EmojiPicker emojiPicker: EmojiPicker {
+        keyboard: shell.keyboard
+        panel: shell.keyboardPanel
+    }
 
     // --- laptop mode -----------------------------------------------------------------------
     // A foldable half open and turned so that its fold lies across (device.toml fold_axis):
