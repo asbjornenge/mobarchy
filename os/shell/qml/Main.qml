@@ -327,6 +327,7 @@ QtObject {
     readonly property HomeKeys homeKeys: HomeKeys {
         onLeft: shell.side(-1)
         onRight: shell.side(1)
+        onHome: if (!shell.lockScreen.shown) shell.goHome()
     }
     property int sideTo: 1      // (the side page to slide to once home is in front)
     function side(step) {
