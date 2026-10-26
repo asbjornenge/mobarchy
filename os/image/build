@@ -113,6 +113,8 @@ lines = ["# Generated from devices/$device/device.toml by os/image/build"]
 lines.append("monitor = , preferred, auto, auto")
 open("/home/mob/.config/hypr/device.conf", "w").write("\n".join(lines) + "\n")
 EOP
+    # the owner's own Hyprland settings (hyprland.conf sources it last)
+    [ -e /home/mob/.config/hypr/local.conf ] || echo "# Your own Hyprland settings: they win over Mobarchy's." > /home/mob/.config/hypr/local.conf
     if [ -n "${MOBARCHY_SSH_PUBKEY:-}" ]; then
         install -d -m700 /home/mob/.ssh && echo "$MOBARCHY_SSH_PUBKEY" > /home/mob/.ssh/authorized_keys
         chmod 600 /home/mob/.ssh/authorized_keys
