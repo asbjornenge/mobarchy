@@ -22,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import alarms, approval, bluetooth, browser, calendars, mail, themes, camera, clipboard, clock, contacts, media, network, phone, photos, power, store, webapps
+from . import alarms, approval, bluetooth, browser, calendars, mail, themes, camera, clipboard, clock, contacts, keyboard, media, network, phone, photos, power, store, webapps
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -389,6 +389,34 @@ def set_bluetooth(enabled: bool) -> dict:
 def bluetooth_forget(address: str) -> dict:
     """Unpair a device: it must be paired again (in pairing mode) to connect."""
     return {"result": _bluetooth(bluetooth.forget, address)}
+
+
+@tool(Risk.READ, "Hardware keyboard status")
+def keyboard_status() -> dict:
+    """The layout set for hardware keyboards (Bluetooth, USB) and the ones connected, with
+    the keymap each has. (The on-screen keyboard is the shell's and keeps its own.)"""
+    return keyboard.status()
+
+
+@tool(Risk.READ, "Find keyboard layouts")
+def keyboard_layouts(query: str = "") -> dict:
+    """Search the keyboard layouts, their variants and the options (e.g. "norw", "mac",
+    "dvorak", "caps", "lv3" for which key is AltGr): names and descriptions with the query
+    in them. The owner's own layouts (~/.config/xkb/symbols) are marked own. An empty query
+    lists the layouts' names."""
+    return keyboard.search(query)
+
+
+@tool(Risk.ACT, "Set the hardware keyboard layout")
+def set_keyboard_layout(layout: str, variant: str = "", options: list[str] | None = None) -> dict:
+    """Set the layout of hardware keyboards (all of them): a layout, a variant of it ("" for
+    the plain one) and xkb options (e.g. ["lv3:rwin_switch"] for the right Win/Command key
+    as AltGr, ["caps:ctrl_modifier"]). It is checked first and applies at once. layout ""
+    goes back to Mobarchy's default (us). Find names with keyboard_layouts."""
+    try:
+        return keyboard.reset() if not layout else keyboard.set_layout(layout, variant, options)
+    except ValueError as e:
+        raise ToolError(str(e)) from e
 
 
 def _media(fn, *args):
