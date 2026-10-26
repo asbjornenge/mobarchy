@@ -28,7 +28,10 @@ LayerWindow {
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom
                                | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
     LayerShell.Window.exclusionZone: 0
-    LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
+    // (in text: the keyboard, for a hardware one's keys, FriggView.key)
+    LayerShell.Window.keyboardInteractivity: view.keysWanted ? LayerShell.Window.KeyboardInteractivityExclusive
+                                                             : LayerShell.Window.KeyboardInteractivityNone
+    onActiveChanged: if (active) view.takeKeys()
 
     // "Hei Frigg" (or Frigg started from elsewhere): open, live
     Connections {

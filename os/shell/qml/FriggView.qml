@@ -10,7 +10,9 @@ import Mobarchy.Shell
 // the top in both. Swiped down (or ✕) it closes, and a live conversation ends.
 //
 // The field is typed into by the shell's own keyboard (Keyboard's capture, as the apps page's
-// search): Hyprland gives no text input to a layer surface (ADR 0006).
+// search): Hyprland gives no text input to a layer surface (ADR 0006). A hardware keyboard
+// types into it too: in text the overlay takes the keyboard (TalkOverlay), and its keys come
+// here (keysWanted).
 //
 // Which agent answers is the owner's choice (ADR 0010): "Choose your agent" until one is
 // set up, then a chip at the top shows the active one and switches between them.
@@ -82,6 +84,36 @@ Item {
         keyboard.stopCapture()
         keyboard.visible = false
     }
+    // A hardware keyboard: in text, typing goes into the field (no on-screen keyboard for it),
+    // Return sends, Backspace rubs out; Escape ends the typing, then closes.
+    readonly property bool keysWanted: open > 0 && mode === "text" && !locked
+    function key(event) {
+        if (event.key === Qt.Key_Escape) {
+            if (typing) endTyping(); else collapse()
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (typing) submit()
+        } else if (event.key === Qt.Key_Backspace) {
+            if (typing) keyboard.backspace()
+        } else if (event.text !== "" && event.text.charCodeAt(0) >= 32
+                   && !(event.modifiers & (Qt.ControlModifier | Qt.MetaModifier))) {
+            if (!typing) {
+                typingHere = true
+                keyboard.startCapture()
+            }
+            keyboard.type(event.text)
+        } else {
+            return
+        }
+        event.accepted = true
+    }
+    Item {
+        id: keyCatcher
+        focus: view.keysWanted
+        Keys.onPressed: (event) => view.key(event)
+    }
+    function takeKeys() { if (keysWanted) keyCatcher.forceActiveFocus() }
+    onKeysWantedChanged: takeKeys()
+
     Connections {
         target: view.keyboard
         function onCaptureAccepted() { if (view.typing) view.submit() }
