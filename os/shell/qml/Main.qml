@@ -302,7 +302,7 @@ QtObject {
             lockTimeout.restart()
     }
 
-    // ⌘+← and ⌘+→ (a hardware keyboard: HomeKeys, from Hyprland's binds): three places
+    // ⌘+Option+← and ⌘+Option+→ (a hardware keyboard: HomeKeys, from Hyprland's binds): three places
     // side by side, the notifications, what is open in the middle (the app in front, or the
     // widgets), the apps. From an app, home's side page comes up, and back is to the app.
     property bool sideFromApp: false
