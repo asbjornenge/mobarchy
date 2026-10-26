@@ -57,6 +57,7 @@ qt_add_qml_module(mobarchy-shell
         src/torch.cpp src/torch.h
         src/fingerprint.cpp src/fingerprint.h
         src/iconprovider.h
+        src/hyprland.cpp src/hyprland.h
         src/inhibit.cpp src/inhibit.h
         src/keyboard.cpp src/keyboard.h
         src/switcherkeys.cpp src/switcherkeys.h

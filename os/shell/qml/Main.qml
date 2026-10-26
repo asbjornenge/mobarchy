@@ -51,6 +51,23 @@ QtObject {
     }
 
     // --- laptop mode -----------------------------------------------------------------------
+    // An app gone fullscreen (a film) keeps to the upper half: the window maximized there, the
+    // app told it is fullscreen (Hyprland's fullscreenstate: internal 1, client 2). Out of
+    // laptop mode, the one in front fullscreen again.
+    readonly property Hyprland hyprland: Hyprland {
+        onFullscreenEvent: shell.fitFullscreen()
+    }
+    onLaptopChanged: fitFullscreen()
+    function fitFullscreen() {
+        const w = hyprland.query("activewindow")
+        if (!w || !w.address)
+            return
+        if (laptop && w.fullscreen === 2)
+            hyprland.dispatch("fullscreenstate 1 2")
+        else if (!laptop && w.fullscreen === 1 && w.fullscreenClient === 2)
+            hyprland.dispatch("fullscreenstate 2 2")
+    }
+
     // A foldable half open and turned so that its fold lies across (device.toml fold_axis):
     // the lower half is a keyboard (LaptopKeyboard, always up), the upper half the screen,
     // the lock screen too. From the hinge's angle (with some slack, so that it doesn't
@@ -650,6 +667,7 @@ QtObject {
         apps: shell.apps
         haptics: shell.haptics
         insetBottom: shell.edge.inset
+        laptop: shell.laptop
     }
     readonly property Edge edge: Edge {
         switcher: shell.switcher

@@ -30,7 +30,10 @@ LayerWindow {
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop | LayerShell.Window.AnchorBottom
                                | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
-    LayerShell.Window.exclusionZone: -1
+    // Over everything (the bars too); in laptop mode the upper half only, above its keyboard
+    // (the zones of the others kept)
+    property bool laptop: false
+    LayerShell.Window.exclusionZone: laptop ? 0 : -1
     // (the keyboard while chosen from with ⌘+Tab: to see ⌘ let go)
     LayerShell.Window.keyboardInteractivity: cycling ? LayerShell.Window.KeyboardInteractivityExclusive
                                                      : LayerShell.Window.KeyboardInteractivityNone
