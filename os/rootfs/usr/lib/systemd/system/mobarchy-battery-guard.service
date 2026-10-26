@@ -1,0 +1,10 @@
+[Unit]
+Description=Power off cleanly before the battery runs out (ADR 0043)
+
+[Service]
+ExecStart=/usr/lib/mobarchy/battery-guard
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

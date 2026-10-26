@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""The phone shut down cleanly before its battery runs out (ADR 0043): at CRITICAL percent or
+below while it discharges, a power off (everything written to disk), not a dead battery.
+
+It follows the battery's power-supply events (udev): the fuel gauge sends one as the charge
+changes, and wakes the phone from deep sleep to do it, so nothing is polled. (The warnings
+before, at 15 % and 5 %, are the shell's.)
+
+Run as root (mobarchy-battery-guard.service).
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+CRITICAL = 2
+POWER = Path("/sys/class/power_supply")
+
+
+def log(msg: str) -> None:
+    print(f"battery-guard: {msg}", flush=True)
+
+
+def battery() -> Path | None:
+    for p in sorted(POWER.glob("*")):
+        try:
+            if (p / "type").read_text().strip() == "Battery" and (p / "capacity").exists():
+                return p
+        except OSError:
+            pass
+    return None
+
+
+def check(bat: Path) -> None:
+    try:
+        level = int((bat / "capacity").read_text())
+        status = (bat / "status").read_text().strip()
+    except (OSError, ValueError):
+        return
+    if level <= CRITICAL and status == "Discharging":
+        log(f"{level} %, discharging: powering off")
+        subprocess.run(["systemctl", "poweroff"])
+        sys.exit(0)
+
+
+def main() -> int:
+    bat = battery()
+    if bat is None:
+        log("no battery")
+        return 0
+    check(bat)
+    mon = subprocess.Popen(["udevadm", "monitor", "--kernel", "--subsystem-match=power_supply"],
+                           stdout=subprocess.PIPE, text=True)
+    # (the battery's own events: the chargers' and the gauges' are many more)
+    for line in mon.stdout:
+        if "change" in line and f"/power_supply/{bat.name} " in line:
+            check(bat)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

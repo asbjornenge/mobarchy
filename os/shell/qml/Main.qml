@@ -100,6 +100,27 @@ QtObject {
     }
     // (followed while the screen is on: its reads woke a sleeping phone)
     readonly property SystemStatus system: SystemStatus { active: shell.screen.on }
+    // The battery low: a word at 15 % and at 5 %, once each while it discharges (the power
+    // off at 2 % is battery-guard's, which works with the screen off too).
+    property int batteryWarnedAt: 101
+    readonly property Connections batteryWatch: Connections {
+        target: shell.system
+        function onChanged() {
+            const level = shell.system.battery
+            if (level < 0 || shell.system.charging) {
+                shell.batteryWarnedAt = 101
+                return
+            }
+            for (const mark of [5, 15]) {
+                if (level <= mark && shell.batteryWarnedAt > mark) {
+                    shell.batteryWarnedAt = mark
+                    shell.notifications.post(qsTr("Battery at %1 %").arg(level),
+                        mark === 5 ? qsTr("The phone powers off at 2 %. Plug it in.") : qsTr("Plug it in soon."))
+                    break
+                }
+            }
+        }
+    }
     readonly property Brightness brightness: Brightness {}
     readonly property Power power: Power {}
     readonly property Device device: Device {}
