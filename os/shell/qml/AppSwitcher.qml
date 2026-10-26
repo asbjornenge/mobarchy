@@ -198,6 +198,8 @@ LayerWindow {
         // (from the app in use, one on; then on from the one chosen)
         chosen = (((first ? 0 : chosen) + step) % n + n) % n
         if (first) {
+            // (the screen as it is, blurred behind the cards: as from the edge)
+            prepare(switcher)
             cycling = true
             open()
         }
