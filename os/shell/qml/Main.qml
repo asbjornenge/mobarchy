@@ -319,7 +319,7 @@ QtObject {
             const front = toplevels.active()[0]
             if (!front)
                 return
-            switcher.picture()      // (a fresh one)
+            switcher.pictureOf(front.appId, front.title)    // (a fresh one, of it alone)
             home.appPicture = "image://windows/" + encodeURIComponent(front.appId) + "/" + encodeURIComponent(front.title)
             sideTo = step < 0 ? 0 : 2
             bringHome(1)
@@ -330,8 +330,9 @@ QtObject {
         if (to >= 0 && to <= 2)
             home.showPage(to, true)
     }
-    // (home in front, the app's picture where the app was: then the slide)
-    readonly property Timer slideAway: Timer { interval: 120; onTriggered: shell.home.showPage(shell.sideTo, true) }
+    // (home in front, the app's picture where the app was: then the slide, as soon as home
+    // has the front; this if that is slow to come)
+    readonly property Timer slideAway: Timer { interval: 150; onTriggered: shell.home.showPage(shell.sideTo, true) }
     // (back at the app's picture: the app, once the slide is over)
     readonly property Timer backToApp: Timer { interval: 260; onTriggered: shell.toplevels.activate(0) }
     readonly property Connections homeSides: Connections {
@@ -339,6 +340,10 @@ QtObject {
         function onAppReached() { shell.backToApp.restart() }
         // (home left, however: the middle is the widgets again)
         function onActiveChanged() {
+            if (shell.home.active && shell.slideAway.running) {
+                shell.slideAway.stop()
+                shell.home.showPage(shell.sideTo, true)
+            }
             if (!shell.home.active && !shell.slideAway.running) {
                 shell.home.appPicture = ""
                 shell.home.showWidgets()
