@@ -154,7 +154,8 @@ Window {
     Item {
         id: listPage
         anchors.fill: parent
-        visible: win.view === "list"
+        // (under the message as it slides in and out)
+        visible: win.view === "list" || readPage.visible
 
         Text {
             id: heading
@@ -258,8 +259,24 @@ Window {
                 id: row
                 required property var modelData
                 width: ListView.view.width
-                height: 82
+                height: leaving ? 0 : 82
                 clip: true
+                // Done or snoozed: out of the list the way it was swiped, then the gap closes,
+                // and then it is done (snoozed: once when is chosen; back if not)
+                property bool leaving: false
+                function leave(toRight, then) {
+                    outAnim.to = toRight ? width : -width
+                    outAnim.then = then
+                    leaveAnim.restart()
+                }
+                SequentialAnimation {
+                    id: leaveAnim
+                    NumberAnimation { id: outAnim; property var then; target: card; property: "x"; duration: 160; easing.type: Easing.InCubic }
+                    ScriptAction { script: row.leaving = true }
+                    PauseAnimation { duration: 210 }
+                    ScriptAction { script: outAnim.then() }
+                }
+                Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
 
                 // What a swipe does, by how far it has come (a fifth of the row before
                 // anything): to the right, read or unread (as it is not), and from half way,
@@ -361,11 +378,11 @@ Window {
                                 return
                             const id = row.modelData.id, ids = win.idsOf(row.modelData)
                             switch (row.action) {
-                            case "done": ids.forEach(i => mail.archive(i)); break
-                            case "inbox": mail.unsnooze(id); break
+                            case "done": row.leave(true, () => ids.forEach(i => mail.archive(i))); return
+                            case "inbox": row.leave(true, () => mail.unsnooze(id)); return
+                            case "snooze": row.leave(false, () => { win.snoozing = id }); return
                             case "read": ids.forEach(i => mail.setSeen(i, true)); break
                             case "unread": ids.forEach(i => mail.setSeen(i, false)); break
-                            case "snooze": win.snoozing = id; break
                             }
                             card.x = 0
                         }
@@ -376,9 +393,18 @@ Window {
     }
 
     // --- reading ---------------------------------------------------------------------------
+    // Over the list, in from the right as a message opens, out to the right again as it closes.
     Item {
-        anchors.fill: parent
-        visible: win.view === "read"
+        id: readPage
+        width: parent.width; height: parent.height
+        x: win.view === "read" ? 0 : width
+        Behavior on x { NumberAnimation { duration: 260; easing.type: Easing.OutCubic } }
+        visible: x < width
+        Rectangle {
+            anchors.fill: parent
+            color: Theme.bg
+            MouseArea { anchors.fill: parent }    // (the list under it takes nothing)
+        }
 
         Item {
             id: readHead
@@ -837,7 +863,8 @@ Window {
         Rectangle {
             anchors.fill: parent
             color: Qt.alpha(Theme.bgDark, 0.7)
-            MouseArea { anchors.fill: parent; onClicked: win.snoozing = "" }
+            // (not snoozed after all: the list as it is, the message back in it)
+            MouseArea { anchors.fill: parent; onClicked: { win.snoozing = ""; mail.refresh() } }
         }
         Rectangle {
             anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
