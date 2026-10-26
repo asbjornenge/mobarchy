@@ -158,8 +158,18 @@ void Keyboard::releaseKeys()
 {
     if (!m_grab)
         return;
-    delete m_grab;
+    // (often from one of its own keys, Return: deleted once that is delivered)
+    KeyboardGrab *grab = m_grab;
     m_grab = nullptr;
+    grab->stop();
+    QTimer::singleShot(0, this, [grab] { delete grab; });
+    // The modifiers held when the keys were borrowed (the Alt of Alt+Space) were let go while
+    // they were ours: the app still thinks them held (Backspace came to it as Alt+Backspace).
+    // It is told none are, through the virtual keyboard (a change, or nothing is sent).
+    if (ensureVirtualKeyboard()) {
+        m_vk->modifiers(m_altMask, 0, 0, 0);
+        m_vk->modifiers(0, 0, 0, 0);
+    }
     emit grabbingChanged();
 }
 
@@ -504,7 +514,7 @@ void KeyboardGrab::zwp_input_method_keyboard_grab_v2_key(uint32_t, uint32_t, uin
     }
     deliver(key);
     // (held: again, after the keyboard's delay, at its rate)
-    if (m_keymap && m_rate > 0 && xkb_keymap_key_repeats(m_keymap, key + 8)) {
+    if (!m_stopped && m_keymap && m_rate > 0 && xkb_keymap_key_repeats(m_keymap, key + 8)) {
         m_repeatKey = key;
         m_repeat.start(m_delay);
     }
@@ -512,7 +522,7 @@ void KeyboardGrab::zwp_input_method_keyboard_grab_v2_key(uint32_t, uint32_t, uin
 
 void KeyboardGrab::deliver(uint32_t key)
 {
-    if (!m_state)
+    if (!m_state || m_stopped)
         return;
     const uint32_t code = key + 8;    // (evdev to xkb)
     static const QHash<uint32_t, QString> named = {

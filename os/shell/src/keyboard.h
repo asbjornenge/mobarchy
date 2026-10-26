@@ -209,6 +209,8 @@ class KeyboardGrab : public QtWayland::zwp_input_method_keyboard_grab_v2
 public:
     KeyboardGrab(struct ::zwp_input_method_keyboard_grab_v2 *object, Keyboard *keyboard);
     ~KeyboardGrab() override;
+    // let go (deleted a moment later: it may be in the middle of delivering a key)
+    void stop() { m_stopped = true; m_repeat.stop(); }
 
 protected:
     void zwp_input_method_keyboard_grab_v2_keymap(uint32_t format, int32_t fd, uint32_t size) override;
@@ -226,4 +228,5 @@ private:
     QTimer m_repeat;
     uint32_t m_repeatKey = 0;
     int m_rate = 25, m_delay = 600;
+    bool m_stopped = false;
 };
