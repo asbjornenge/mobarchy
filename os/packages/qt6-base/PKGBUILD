@@ -1,0 +1,190 @@
+# Arch Linux ARM's qt6-base PKGBUILD (6.11.2-3) plus three Qt commits picked for 6.11 but
+# not in a 6.11 release yet (QTBUG-146211): text input follows the focused item, not the
+# window. Without them a Qt app's text-input-v3 is enabled as soon as its window has the
+# keyboard focus and stays enabled until another window has it: the on-screen keyboard
+# comes up with no text field focused, stays up when the field loses focus, and a field
+# focused again gives it nothing new to come up on. And one of Mobarchy's on top (0103:
+# with those, a field focused a second time sent nothing on its enable, and the enable was
+# never committed). Drop this package once a Qt release has all four (0103 is not upstream).
+#
+# Built natively, in the Arch Linux ARM container: tools/pkg-build qt6-base (about two
+# hours under qemu-user). Not cross-compiled: a cross-built Qt installs a cross build's CMake
+# and qmake files (its sysroot's paths, Qt's host tools required, clang's mkspec), and
+# everything built against the device's Qt reads those.
+
+# Maintainer: Antonio Rojas <arojas@archlinux.org>
+# Maintainer: Felix Yan <felixonmars@archlinux.org>
+# Contributor: Andrea Scarpino <andrea@archlinux.org>
+
+# ALARM: Kevin Mihelich <kevin@archlinuxarm.org>
+#  - disable ibase for now, FTBFS
+#  - removed -DFEATURE_no_direct_extern_access=ON
+#  - switch source to github
+
+# ALARM: John <therealgraysky AT proton DOT me>
+#  - add libQt6Core.so.6 as a provides to allow users to select either this
+#    package or qt6-base-headless
+
+pkgbase=qt6-base
+pkgname=(qt6-base
+         qt6-xcb-private-headers)
+_pkgver=6.11.2
+pkgver=${_pkgver/-/}
+pkgrel=3.2
+arch=(aarch64)
+url='https://www.qt.io'
+license=(GPL-3.0-only
+         LGPL-3.0-only
+         LicenseRef-Qt-Commercial
+         Qt-GPL-exception-1.0)
+pkgdesc='A cross-platform application and UI framework (Mobarchy: text input follows the focused item)'
+depends=(brotli
+         dbus
+         double-conversion
+         fontconfig
+         freetype2
+         glib2
+         glibc
+         harfbuzz
+         icu
+         krb5
+         libb2
+         libcups
+         libdrm
+         libgcc
+         libgl
+         libice
+         libinput
+         libjpeg-turbo
+         libpng
+         libproxy
+         libsm
+         libstdc++
+         liburing
+         libx11
+         libxcb
+         libxkbcommon
+         libxkbcommon-x11
+         md4c
+         mesa
+         mtdev
+         openssl
+         pcre2
+         shared-mime-info
+         sqlite
+         systemd-libs
+         tslib
+         wayland
+         xcb-util-cursor
+         xcb-util-image
+         xcb-util-keysyms
+         xcb-util-renderutil
+         xcb-util-wm
+         xdg-utils
+         zlib
+         zstd)
+makedepends=(alsa-lib
+             cmake
+             cups
+             freetds
+             git
+             gst-plugins-base-libs
+             gtk3
+             jemalloc
+             libfbclient
+             libpulse
+             mariadb-libs
+             ninja
+             postgresql
+             renderdoc
+             unixodbc
+             vulkan-headers
+             xmlstarlet)
+optdepends=('freetds: MS SQL driver'
+            'gdk-pixbuf2: GTK platform plugin'
+            'gtk3: GTK platform plugin'
+            'libfbclient: Firebird/iBase driver'
+            'mariadb-libs: MariaDB driver'
+            'pango: GTK platform plugin'
+            'perl: for syncqt'
+            'postgresql-libs: PostgreSQL driver'
+            'unixodbc: ODBC driver')
+groups=(qt6)
+_pkgfn=${pkgbase/6-/}
+source=(git+https://github.com/qt/$_pkgfn#tag=v$_pkgver
+        qt6-base-cflags.patch
+        qt6-base-nostrip.patch
+        0100-qpa-wayland-enable-disable-text-input-based-on-focusObject.patch
+        0101-wayland-Avoid-TextInput-using-a-dangling-raw-pointer.patch
+        0102-qpa-wayland-Only-enable-text-input-v3-surfaces-when-needed.patch
+        0103-qpa-wayland-text-input-v3-send-the-whole-state-again-on-enable.patch)
+sha256sums=('c27a588094ea6d47f294539dbab00a7222d9f56e2d44ac00287bb44b5eed612a'
+            '5411edbe215c24b30448fac69bd0ba7c882f545e8cf05027b2b6e2227abc5e78'
+            '4b93f6a79039e676a56f9d6990a324a64a36f143916065973ded89adc621e094'
+            'e92c52ae68f16f40d32b9d2e6648180acefe72c449ecbc9996a7357bc12a6fcb'
+            '86277d9cec24ce18a82e8d17ffbaf84131e159470dd3c072355c17debbddc8cf'
+            '0c83c278b152aee9db14b1796c03ed832ece48901c860ae1dc34820eda72eb78'
+            'a58c06eadd5444dfa7d3766bd0e37cbf669e743b85da6fbab57834eb96137664')
+
+prepare() {
+  patch -d $_pkgfn -p1 < qt6-base-cflags.patch # Use system CFLAGS
+  patch -d $_pkgfn -p1 < qt6-base-nostrip.patch # Don't strip binaries with qmake
+
+  git -C $_pkgfn cherry-pick -n e80e3f0cebae9c3a45a1b7ce81d6454c699d89c6 # Fix icon theming regression
+  # Mobarchy: Arch Linux ARM's md4c is 0.6 now (6.11.2-3 was built before it)
+  git -C $_pkgfn cherry-pick -n 032643f99e090e0304ef935c2ee11c109d55c8a1 # Fix build with md4c 0.6
+
+  # Mobarchy: text input follows the focused item (QTBUG-146211; picked for 6.11)
+  patch -d $_pkgfn -p1 < 0100-qpa-wayland-enable-disable-text-input-based-on-focusObject.patch
+  patch -d $_pkgfn -p1 < 0101-wayland-Avoid-TextInput-using-a-dangling-raw-pointer.patch
+  patch -d $_pkgfn -p1 < 0102-qpa-wayland-Only-enable-text-input-v3-surfaces-when-needed.patch
+  # Mobarchy's own (not upstream yet): a field focused again gets the keyboard again
+  patch -d $_pkgfn -p1 < 0103-qpa-wayland-text-input-v3-send-the-whole-state-again-on-enable.patch
+}
+
+build() {
+  cmake -B build -S $_pkgfn -G Ninja \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DINSTALL_BINDIR=lib/qt6/bin \
+    -DINSTALL_PUBLICBINDIR=bin \
+    -DINSTALL_LIBEXECDIR=lib/qt6 \
+    -DINSTALL_DOCDIR=share/doc/qt6 \
+    -DINSTALL_ARCHDATADIR=lib/qt6 \
+    -DINSTALL_DATADIR=share/qt6 \
+    -DINSTALL_INCLUDEDIR=include/qt6 \
+    -DINSTALL_MKSPECSDIR=lib/qt6/mkspecs \
+    -DINSTALL_EXAMPLESDIR=share/doc/qt6/examples \
+    -DFEATURE_journald=ON \
+    -DFEATURE_libproxy=ON \
+    -DFEATURE_openssl_linked=ON \
+    -DFEATURE_system_sqlite=ON \
+    -DFEATURE_system_xcb_xinput=ON \
+    -DFEATURE_mimetype_database=OFF \
+    -DFEATURE_openssl_hash=ON \
+    -DQT_FEATURE_sql_ibase=OFF \
+    -DCMAKE_MESSAGE_LOG_LEVEL=STATUS
+  cmake --build build
+}
+
+package_qt6-base() {
+  pkgdesc='A cross-platform application and UI framework'
+  depends+=(qt6-translations)
+  provides=(libQt6Core.so.6)
+  DESTDIR="$pkgdir" cmake --install build
+
+  install -Dm644 $_pkgfn/LICENSES/* -t "$pkgdir"/usr/share/licenses/$pkgbase
+}
+
+package_qt6-xcb-private-headers() {
+  pkgdesc='Private headers for Qt6 Xcb'
+
+  depends=("qt6-base=$pkgver")
+  optdepends=()
+  groups=()
+
+  cd $_pkgfn
+  install -d -m755 "$pkgdir"/usr/include/qt6xcb-private/gl_integrations
+  cp -r src/plugins/platforms/xcb/*.h "$pkgdir"/usr/include/qt6xcb-private/
+  cp -r src/plugins/platforms/xcb/gl_integrations/*.h "$pkgdir"/usr/include/qt6xcb-private/gl_integrations/
+}

@@ -62,6 +62,18 @@ The shell is already Qt Quick (ADR 0009), in Mobarchy's theme.
 
 - **Chromium** speaks text-input-v3 only with `--enable-wayland-ime
   --wayland-text-input-version=3`, so `/etc/chromium-flags.conf` sets both.
+- **Qt 6.11.2** enables text-input-v3 for the whole window, not for the focused field
+  (QTBUG-146211). So the keyboard came up with no field focused and stayed up after the
+  field lost focus, and a field focused again didn't bring it back. Mobarchy carries
+  `os/packages/qt6-base`, which is Arch Linux ARM's package plus these patches:
+  - the upstream fixes, picked for 6.11 but not released;
+  - one of its own (0103), so that an enable is always committed with the field's whole
+    state.
+
+  The package is built natively in the Arch Linux ARM container (`tools/pkg-build
+  qt6-base`), because a cross-built Qt installs a cross build's CMake and qmake files. It
+  is dropped once a Qt release has all of the patches. In the apps, a view that goes out of view is not `enabled`, so its focused field
+  lets go and the keyboard goes down.
 - **Room to grow:** the top strip is where word suggestions (a Norwegian dictionary, later
   the local model), dictation (the Whisper setup) and agent help will go.
 - **Shell restarts:** the keyboard lives in the shell process, so a restart of the shell

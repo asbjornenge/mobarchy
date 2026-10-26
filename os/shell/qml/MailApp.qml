@@ -725,6 +725,9 @@ Window {
         id: compose
         anchors.fill: parent
         visible: win.view === "compose"
+        // (out of view: not enabled, so its fields let go of focus, and the app's text input
+        // with it: the keyboard goes)
+        enabled: visible
         property string account: ""
         property string replyTo: ""
 
@@ -745,13 +748,8 @@ Window {
             bodyField.cursorPosition = 0
             compose.back = win.view
             win.view = "compose"
-            // (once it is in view: focus given away and taken again, so the field is told it
-            // has it; and focus given in code doesn't ask for the keyboard, a tap does)
-            win.contentItem.forceActiveFocus()
-            Qt.callLater(() => {
-                (how === "reply" ? bodyField : compose.toField).forceActiveFocus()
-                Qt.inputMethod.show()
-            })
+            // (once it is in view and enabled; the focused field brings the keyboard)
+            Qt.callLater(() => (how === "reply" ? bodyField : compose.toField).forceActiveFocus())
         }
         // where Back (or sending) goes: the view it was written from
         property string back: "list"

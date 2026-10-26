@@ -35,7 +35,10 @@ image=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep -m1 '^mobarchy-
 # Bounded: compilers under qemu-user use several times their native memory, and an
 # unbounded build ran the host out of memory (the OOM killer took the owner's browser).
 # Ninja (os/shell) reads no MAKEFLAGS: CMAKE_BUILD_PARALLEL_LEVEL bounds cmake --build.
-docker run --rm --platform linux/arm64 --memory 20g --cpus 8 -e MAKEFLAGS=-j6 -e CMAKE_BUILD_PARALLEL_LEVEL=6 \
+# JOBS and MEMORY for a big one (qt6-base: JOBS=14 MEMORY=32g).
+jobs=${JOBS:-6} memory=${MEMORY:-20g}
+docker run --rm --platform linux/arm64 --memory "$memory" --cpus $(( jobs + 2 )) -e MAKEFLAGS=-j$jobs \
+    -e CMAKE_BUILD_PARALLEL_LEVEL=$jobs \
     -v "$pkgdir:/pkg:ro" -v "$out:/out" "$image" bash -euo pipefail -c '
     pacman-key --init >/dev/null 2>&1 && pacman-key --populate archlinuxarm >/dev/null 2>&1
     # Packages built earlier into --out (e.g. libmce-glib for oFono) can be dependencies:

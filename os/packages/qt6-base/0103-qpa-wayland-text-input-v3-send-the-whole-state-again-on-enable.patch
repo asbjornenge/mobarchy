@@ -1,0 +1,52 @@
+From 9ce05b629de3c572a1eaff8ae36e3d482538491d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Asbj=C3=B8rn=20Enge?= <asbjorn@hanafjedle.net>
+Date: Mon, 26 Oct 2026 09:36:04 +0100
+Subject: [PATCH] qpa/wayland: text-input-v3: send the whole state again on
+ enable, and commit it
+
+Enabling a text-input-v3 resets its state in the compositor (the
+protocol's enable request), but enableSurface() kept the state last
+sent before the disable and only committed what differed from it: a
+field focused again (the same content type, the same cursor rectangle)
+sent nothing, and the enable was never committed, so the input method
+was never activated.
+
+Clear the sent state on enable, as the enter event does, and commit
+after an enable whether or not anything changed.
+---
+ .../platforms/wayland/qwaylandtextinputv3.cpp        | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/src/plugins/platforms/wayland/qwaylandtextinputv3.cpp b/src/plugins/platforms/wayland/qwaylandtextinputv3.cpp
+index 73549084..02c45e24 100644
+--- a/src/plugins/platforms/wayland/qwaylandtextinputv3.cpp
++++ b/src/plugins/platforms/wayland/qwaylandtextinputv3.cpp
+@@ -53,6 +53,15 @@ void QWaylandTextInputv3::enableSurface(struct ::wl_surface *surface)
+     m_focusedSurface = surface;
+ 
+     if (m_enteredSurface == surface) {
++        // (enabling resets the text input's state in the compositor: all of it is sent again)
++        m_surroundingText.clear();
++        m_cursor = 0;
++        m_cursorPos = 0;
++        m_anchorPos = 0;
++        m_contentHint = 0;
++        m_contentPurpose = 0;
++        m_cursorRect = QRect();
++
+         enable();
+         m_enabledSurface = surface;
+ 
+@@ -294,7 +303,8 @@ void QWaylandTextInputv3::updateState(Qt::InputMethodQueries queries, uint32_t f
+         return;
+ 
+     queries &= supportedQueries3;
+-    bool needsCommit = false;
++    // (an enable takes effect on the commit after it, changed state or not)
++    bool needsCommit = flags == update_state_enter;
+ 
+     QInputMethodQueryEvent event(queries);
+     QCoreApplication::sendEvent(QGuiApplication::focusObject(), &event);
+-- 
+2.53.0
+
