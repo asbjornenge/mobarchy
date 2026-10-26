@@ -59,6 +59,8 @@ LayerWindow {
 
     // Pictures: of the windows in front now, and of any not pictured yet (the others keep
     // the one from when they left the front: see WindowCapture.capture).
+    // (the pictures' generation, for others showing them: Home's app in the middle)
+    readonly property int pictureGeneration: capture.generation
     function picture() {
         for (const w of toplevels.active())
             capture.capture(w.appId, w.title)
