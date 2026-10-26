@@ -1,6 +1,6 @@
 # 0044: Home as pages: notifications, widgets, apps
 
-- Status: accepted (trial; the owner's choice, 2026-10-26)
+- Status: accepted (tried and kept, 2026-10-26)
 - Date: 2026-10-26
 
 ## Context
