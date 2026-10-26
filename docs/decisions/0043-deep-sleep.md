@@ -106,3 +106,9 @@ Android's way, in userspace:
   is restarted on a new network (address or gateway) and after a recovery.
 - Tried and rejected: `dhd_disable_l2_in_d3=1` (no PCIe L2 in D3): the chip still hung, and
   one resume ended in a hard lockup and a kernel panic (HOST_SLEEP-EXIT TIMEOUT). Never set.
+- No deep sleep at all after some boots (2026-10-25/26): the debug initramfs forces the USB
+  controller's B-session valid (comet's usb_post_bind, so a host reaches its shell). Left set,
+  the Exynos DWC3 glue holds its `dwc3-otg` wakeup source until a data host is unplugged; a
+  charger never clears it. `mobarchy-usb-release` (comet) gives the session back to the
+  Type-C port 15 s after boot when no host is using it; from then on the TCPC sets and
+  clears it as on Android.

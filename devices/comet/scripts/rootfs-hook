@@ -62,6 +62,8 @@ fi
 # Mark healthy boots successful in devinfo, or the bootloader stops in fastboot once the
 # slot's tries run out (see /usr/lib/mobarchy/mark-boot-successful).
 systemctl enable mobarchy-boot-success.timer mobarchy-audio.service mobarchy-bluetooth.service >/dev/null
+# The USB session the debug initramfs forced, back to the Type-C port (else no deep sleep).
+systemctl enable mobarchy-usb-release.service >/dev/null
 # Telephony (ADR 0014): the Android container (rild and the modem's daemons) and oFono.
 systemctl enable mobarchy-android.service ofono.service >/dev/null
 # Its stand-ins for the Android services the vendor HALs wait for (os/android-services).

@@ -1,0 +1,10 @@
+[Unit]
+Description=comet: the USB session back to the Type-C port after boot (else no deep sleep)
+After=mobarchy-usb-gadget.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/mobarchy/usb-release
+
+[Install]
+WantedBy=multi-user.target

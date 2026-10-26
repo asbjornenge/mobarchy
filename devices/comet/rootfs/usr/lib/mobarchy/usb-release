@@ -1,0 +1,14 @@
+#!/bin/sh
+# comet: give the USB controller's session back to the Type-C port after boot.
+# The debug initramfs sets B-session valid by hand (devices/comet/initramfs.conf,
+# usb_post_bind) so a host can reach its shell. Left set, the Exynos DWC3 glue holds its
+# wakeup source ("dwc3-otg") for good, and the phone never deep-sleeps. Only a data host
+# plugged in and out again clears it; a charger doesn't.
+# So: no host using it a little after boot, B-session goes back to 0. From then on the port
+# (max77759 TCPC) sets and clears it as hosts come and go, as on Android.
+dwc=/sys/devices/platform/11210000.usb
+udc=/sys/class/udc/11210000.dwc3
+sleep 15
+[ "$(cat $udc/state 2>/dev/null)" = configured ] && exit 0
+[ "$(cat $dwc/dwc3_exynos_otg_b_sess 2>/dev/null)" = 1 ] || exit 0
+echo 0 > $dwc/dwc3_exynos_otg_b_sess && echo "usb-release: B-session given back to the Type-C port"
