@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Mobarchy.Shell
 
-// Home's second page, a swipe left from the widgets: the notifications, newest first, each a
+// Home's first page, a swipe right from the widgets: the notifications, newest first, each a
 // card (a tap opens it, ✕ dismisses it), and "Clear all".
 Flickable {
     id: page

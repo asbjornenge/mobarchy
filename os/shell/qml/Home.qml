@@ -5,8 +5,8 @@ import QtQuick.Window
 import QtQml.Models
 import Mobarchy.Shell
 
-// Home: two pages side by side, the widgets (HomeBoard) and, a swipe left, the notifications
-// (NotificationsPage). The Frigg card opens the conversation with the agent, which is a layer
+// Home: two pages side by side, the notifications (NotificationsPage) and, where home opens,
+// the widgets (HomeBoard): the notifications are a swipe right from the widgets. The Frigg card opens the conversation with the agent, which is a layer
 // of its own over everything (TalkOverlay, ADR 0037).
 Window {
     id: home
@@ -25,7 +25,7 @@ Window {
     signal friggAsked()
 
     // back to the widgets (going home from elsewhere comes to them)
-    function showWidgets() { pages.currentIndex = 0; pages.positionViewAtIndex(0, ListView.Beginning) }
+    function showWidgets() { pages.currentIndex = 1; pages.positionViewAtIndex(1, ListView.Beginning) }
 
     title: "Mobarchy"
     color: Theme.bg
@@ -59,7 +59,15 @@ Window {
         boundsBehavior: Flickable.StopAtBounds
         // (not while cards are moved about)
         interactive: !board.editing
+        currentIndex: 1
+        Component.onCompleted: positionViewAtIndex(1, ListView.Beginning)
         model: ObjectModel {
+            NotificationsPage {
+                width: pages.width
+                height: pages.height
+                notifications: home.notifications
+                bottomInset: 8
+            }
             HomeBoard {
                 id: board
                 width: pages.width
@@ -76,16 +84,10 @@ Window {
                 bottomInset: 8
                 onFriggAsked: home.friggAsked()
             }
-            NotificationsPage {
-                width: pages.width
-                height: pages.height
-                notifications: home.notifications
-                bottomInset: 8
-            }
         }
     }
 
-    // which page: two dots at the bottom (the second one lit while there are notifications)
+    // which page: two dots at the bottom (the notifications' lit while there are any)
     Row {
         anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 10 }
         visible: !board.editing
@@ -96,7 +98,7 @@ Window {
                 required property int index
                 width: 6; height: 6; radius: 3
                 color: pages.currentIndex === index ? Theme.fg
-                     : index === 1 && home.notifications.count > 0 ? Theme.accent : Theme.muted
+                     : index === 0 && home.notifications.count > 0 ? Theme.accent : Theme.muted
                 opacity: pages.currentIndex === index ? 0.9 : 0.5
             }
         }
