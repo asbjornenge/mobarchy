@@ -790,6 +790,9 @@ Window {
             id: line
             property string label
             property alias input: field
+            // Tab and Shift+Tab (a hardware keyboard): the next field, the one before
+            property Item next: null
+            property Item previous: null
             width: parent ? parent.width : 0
             height: 46
             Text {
@@ -806,6 +809,8 @@ Window {
                 clip: true
                 color: Theme.fg
                 font { family: Theme.font; pixelSize: 15 }
+                KeyNavigation.tab: line.next
+                KeyNavigation.backtab: line.previous
             }
             Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.line; opacity: 0.5 }
         }
@@ -831,9 +836,9 @@ Window {
                     }
                 }
             }
-            Line { id: toLine; label: qsTr("To") }
-            Line { id: ccLine; label: qsTr("Cc") }
-            Line { id: subjectLine; label: qsTr("Subject") }
+            Line { id: toLine; label: qsTr("To"); next: ccLine.input }
+            Line { id: ccLine; label: qsTr("Cc"); next: subjectLine.input; previous: toLine.input }
+            Line { id: subjectLine; label: qsTr("Subject"); next: bodyField; previous: ccLine.input }
         }
         readonly property alias toField: toLine.input
         readonly property alias ccField: ccLine.input
@@ -851,6 +856,8 @@ Window {
                 color: Theme.fg
                 selectionColor: Theme.accent
                 font { family: Theme.font; pixelSize: 15 }
+                // (Tab types a tab here; Shift+Tab goes back to the subject)
+                KeyNavigation.backtab: subjectLine.input
                 Text {
                     visible: bodyField.text === "" && !bodyField.activeFocus
                     text: qsTr("Write …")
