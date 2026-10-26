@@ -9,7 +9,7 @@ import Mobarchy.Shell
 // live to text, the small orb back to live; the conversations (earlier ones, a new one) are at
 // the top in both. Swiped down (or ✕) it closes, and a live conversation ends.
 //
-// The field is typed into by the shell's own keyboard (Keyboard's capture, as the drawer's
+// The field is typed into by the shell's own keyboard (Keyboard's capture, as the apps page's
 // search): Hyprland gives no text input to a layer surface (ADR 0006).
 //
 // Which agent answers is the owner's choice (ADR 0010): "Choose your agent" until one is

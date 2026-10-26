@@ -1,9 +1,9 @@
 import QtQuick
 import QtQuick.Window
 
-// A layer surface that slides in and out under the finger: the app drawer and quick
-// settings. It is only mapped while (partly) open. Subclasses lay out their content from
-// `openness` and set the layer-shell properties.
+// A layer surface that slides in and out under the finger: quick settings. It is only
+// mapped while (partly) open. Subclasses lay out their content from `openness` and set the
+// layer-shell properties.
 LayerWindow {
     id: sheet
 

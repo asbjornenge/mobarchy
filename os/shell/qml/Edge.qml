@@ -3,16 +3,15 @@ import QtQuick.Window
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
-// The bottom edge: swipe up for the app drawer, swipe up and hold for the open apps (the
-// switcher), tap for home, and a keyboard toggle. While
-// the on-screen keyboard is up (always, in laptop mode), a tap is taken for a space bar that
-// was missed: it doesn't go home, two taps do (a swipe up still opens the drawer).
+// The bottom edge: swipe up for the open apps (the switcher), tap for home, and a keyboard
+// toggle. (The installed apps are a page of home's, a swipe left from the widgets.) While the
+// on-screen keyboard is up (always, in laptop mode), a tap is taken for a space bar that was
+// missed: it doesn't go home, two taps do (a swipe up still opens the switcher).
 LayerWindow {
     id: edge
 
     property real lastTap: 0    // (two taps go home while the keyboard is up)
 
-    required property Drawer drawer
     required property AppSwitcher switcher
     required property Keyboard keyboard
     // The strip below it that the panel's bezel hides (device.toml bottom_inset): the edge
@@ -37,54 +36,32 @@ LayerWindow {
         anchors { horizontalCenter: parent.horizontalCenter; verticalCenter: parent.top; verticalCenterOffset: 16 }
         width: 140; height: 5; radius: 2.5
         color: gesture.pressed ? Theme.accent : Theme.muted
-        // (picked up: the drawer's handle and the switcher carry it under the finger)
-        visible: !edge.drawer.shown && !edge.switcher.shown
+        // (picked up: the switcher carries it under the finger)
+        visible: !edge.switcher.shown
     }
 
-    // The finger keeps its grab on this surface while it moves up over the drawer.
-    // A finger that stops a little way up (and stays a moment) asks for the switcher; one
-    // that goes on, or flicks, for the drawer.
-    property real distance: 0
+    // The finger keeps its grab on this surface while it moves up over the switcher, which
+    // follows it from the first few pixels up; let go, it stays or goes (AppSwitcher.release).
     property bool switching: false
-    Timer {
-        id: hold
-        interval: 220
-        onTriggered: {
-            // (against the drawer's height, which is up under the finger: Screen.height can be
-            // a placeholder's, left from an output change, a fold)
-            if (edge.distance < 70 || edge.distance > 0.45 * edge.drawer.height)
-                return
-            edge.switching = true
-            edge.switcher.begin(edge.distance)
-        }
-    }
     EdgeGesture {
         id: gesture
         anchors.fill: parent
         onBegan: {
             edge.switching = false
-            edge.distance = 0
             edge.switcher.prepare(edge)
-            edge.drawer.beginDrag()
         }
         onMoved: (distance) => {
-            // (the drawer stays under the finger, behind the switcher, until it lets go)
-            edge.drawer.dragTo(distance)
-            if (edge.switching) {
+            if (edge.switching)
                 edge.switcher.follow(distance)
-                return
+            else if (distance > 12) {
+                edge.switching = true
+                edge.switcher.begin(distance)
             }
-            if (Math.abs(distance - edge.distance) > 6)
-                hold.restart()
-            edge.distance = distance
         }
         onEnded: (velocity) => {
-            hold.stop()
-            if (edge.switching) {
+            if (edge.switching)
                 edge.switcher.release(velocity)
-                edge.drawer.snap(false)
-            } else
-                edge.drawer.endDrag(velocity)
+            edge.switching = false
         }
         onTapped: {
             const now = Date.now()

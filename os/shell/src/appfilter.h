@@ -1,4 +1,4 @@
-// The app drawer's search: the apps whose name has the query in it (any case), the ones
+// The apps page's search: the apps whose name has the query in it (any case), the ones
 // where a word of the name starts with it first ("cam" finds Camera before "Webcam"), else
 // in the apps' own order.
 #pragma once

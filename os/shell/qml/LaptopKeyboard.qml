@@ -10,7 +10,7 @@ import Mobarchy.Shell
 // lower half from the apps (an exclusive zone). Modifiers latch with a tap (two taps lock
 // them) and hold while a finger is on them. Text goes through Keyboard as the on-screen
 // keyboard's does; keys with Ctrl, Alt or Super, and the keys that aren't text, are key
-// presses (Keyboard.press). Super alone (pressed and let go) opens the app drawer; with
+// presses (Keyboard.press). Super alone (pressed and let go) searches home's apps; with
 // another key it is held down.
 LayerWindow {
     id: kb
@@ -325,7 +325,7 @@ LayerWindow {
                     delete h[t.spec.m]
                     // held and used for a key: it was a hold, not a tap
                     if (usedWhileHeld[t.spec.m]) setMod("latched", t.spec.m, false)
-                    // Super alone: the app drawer
+                    // Super alone: home's apps, searching
                     else if (t.spec.m === "super") superTapped()
                 }
                 held = h

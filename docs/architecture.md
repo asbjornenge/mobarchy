@@ -32,12 +32,11 @@ Mobarchy's own value lives in the top two layers. Everything below is reused, an
 `mobarchy-shell` (`os/shell`, Qt Quick, [ADR 0009](decisions/0009-shell-qt-quick.md)) is the phone UI:
 
 - a status bar (layer surface, top);
-- the bottom edge (layer surface): swipe up for the app drawer, tap for home, and a keyboard toggle;
-- the app drawer (layer surface, mapped only while open): open apps from wlr-foreign-toplevel-management, installed apps from desktop entries, each started in its own systemd scope;
-- quick settings (layer surface, from the status bar): brightness, Wi-Fi (wpa_supplicant), flight mode (rfkill), notifications, restart / power off;
+- the bottom edge (layer surface): swipe up for the open apps (the switcher, from wlr-foreign-toplevel-management), tap for home, and a keyboard toggle;
+- quick settings (layer surface, from the status bar): brightness, Wi-Fi (wpa_supplicant), flight mode (rfkill), restart / power off;
 - the lock screen and the power key (screen power and idle through standard Wayland protocols);
 - the notification server (org.freedesktop.Notifications);
-- home (a normal window, so text input works, [ADR 0006](decisions/0006-assistant-bar-and-keyboard.md)): the agent's feed and an Ask field. Asking runs `mobarchy-agent --json`, and the agent talks to `mobarchy-mcp`.
+- home (a normal window, so text input works, [ADR 0006](decisions/0006-assistant-bar-and-keyboard.md)): three pages side by side ([ADR 0044](decisions/0044-home-pages.md)): the notifications, the widgets (where home opens), and the installed apps (desktop entries, each started in its own systemd scope). The Frigg card opens the conversation with the agent; asking runs `mobarchy-agent --json`, and the agent talks to `mobarchy-mcp`.
 
 The on-screen keyboard is the shell's own: the shell is the session's input method ([ADR 0016](decisions/0016-own-keyboard.md)).
 

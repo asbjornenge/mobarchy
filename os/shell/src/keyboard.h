@@ -58,7 +58,7 @@ class Keyboard : public QObject
     // The text before the cursor, as far as the field shares it.
     Q_PROPERTY(QString textBefore READ textBefore NOTIFY contentChanged)
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
-    // Typing into the shell itself (the drawer's search): the keys go to `captured`, not
+    // Typing into the shell itself (the apps page's search): the keys go to `captured`, not
     // to an app, until stopCapture().
     Q_PROPERTY(bool capturing READ capturing NOTIFY captureChanged)
     Q_PROPERTY(QString captured READ captured NOTIFY captureChanged)

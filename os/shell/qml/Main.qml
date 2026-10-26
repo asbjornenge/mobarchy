@@ -86,15 +86,15 @@ QtObject {
         wanted: shell.laptop
         wantedHeight: Math.max(200, shell.laptopBottom - shell.edge.height)
         sideInsets: shell.leftInset.inset + shell.rightInset.inset
-        // the app drawer, searching (type its name, Enter starts it); again: closed
+        // home's apps, searching (type its name, Enter starts it); again: back to the widgets
         onSuperTapped: {
             if (shell.lockScreen.shown)
                 return
-            if (shell.drawer.shown) {
-                shell.drawer.close()
+            if (shell.home.searchingApps) {
+                shell.home.showWidgets()
             } else {
-                shell.drawer.open()
-                shell.drawer.startSearch()
+                shell.goHome()
+                shell.home.searchApps()
             }
         }
     }
@@ -275,7 +275,6 @@ QtObject {
     Component.onCompleted: lockAtStart()
 
     function lock() {
-        drawer.close()
         quick.close()
         keyboard.visible = false
         lockScreen.shown = true
@@ -299,7 +298,6 @@ QtObject {
     }
 
     function goHome() {
-        drawer.close()
         switcher.close()
         quick.close()
         keyboard.visible = false
@@ -527,14 +525,9 @@ QtObject {
         apps: shell.apps
         toplevels: shell.toplevels
         notifications: shell.notifications
+        keyboard: shell.keyboard
         screenOn: shell.screen.on
         onFriggAsked: shell.talkOverlay.openFrigg("live")
-    }
-    readonly property Drawer drawer: Drawer {
-        apps: shell.apps
-        toplevels: shell.toplevels
-        keyboard: shell.keyboard
-        onHome: shell.goHome()
     }
     readonly property QuickSettings quick: QuickSettings {
         brightness: shell.brightness
@@ -573,15 +566,6 @@ QtObject {
         polkit: shell.polkit
         haptics: shell.haptics
     }
-    // One sheet at a time.
-    readonly property Connections drawerOpens: Connections {
-        target: shell.drawer
-        function onOpening() { shell.quick.close() }
-    }
-    readonly property Connections quickOpens: Connections {
-        target: shell.quick
-        function onOpening() { shell.drawer.close() }
-    }
     // The screen in use (the status bar follows it) and its insets at the other edges, as
     // it is turned. The strips are arranged first (bottom layer), so the bars and windows
     // all sit inside them.
@@ -602,7 +586,6 @@ QtObject {
         insetBottom: shell.edge.inset
     }
     readonly property Edge edge: Edge {
-        drawer: shell.drawer
         switcher: shell.switcher
         keyboard: shell.keyboard
         laptop: shell.laptop

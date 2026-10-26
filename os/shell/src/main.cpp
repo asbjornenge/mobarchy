@@ -1,4 +1,4 @@
-// mobarchy-shell: status bar, bottom edge with swipe-up app drawer, and the agent home
+// mobarchy-shell: status bar, bottom edge with swipe-up app switcher, and the agent home
 // screen. See ADR 0009.
 //   mobarchy-shell --store    the app store (ADR 0012), an app of its own
 //   mobarchy-shell --camera   the camera (ADR 0018), an app of its own
@@ -16,7 +16,7 @@ int main(int argc, char *argv[])
 {
     // Deliver touch moves as they come instead of batching them to the next frame. The
     // batching schedules a frame on the window that has the touch (the bottom edge) for
-    // every move; with the drawer animating in its own window at the same time, the two
+    // every move; with the switcher animating in its own window at the same time, the two
     // windows' frames alternate and both drop to half the refresh rate.
     if (!qEnvironmentVariableIsSet("QML_NO_TOUCH_COMPRESSION"))
         qputenv("QML_NO_TOUCH_COMPRESSION", "1");

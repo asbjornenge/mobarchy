@@ -3,7 +3,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Mobarchy.Shell
 
-// The apps used last, newest first: a quicker way back than the drawer or the switcher. An
+// The apps used last, newest first: a quicker way back than the apps page or the switcher. An
 // app counts as used when it leaves the front; the list (app IDs) is kept in home.json
 // ("recent"), so it outlives restarts and closed apps stay in it.
 BoardCard {

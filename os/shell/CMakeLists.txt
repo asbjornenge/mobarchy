@@ -91,7 +91,7 @@ qt_add_qml_module(mobarchy-shell
         qml/StatusBar.qml
         qml/SideInset.qml
         qml/Edge.qml
-        qml/Drawer.qml
+        qml/AppsPage.qml
         qml/QuickSettings.qml
         qml/LockScreen.qml
         qml/Banner.qml

@@ -812,7 +812,7 @@ Sheet {
                                        font { family: Theme.font; pixelSize: 15; bold: true } }
                             }
                             // the name: a tap to type a new one (the shell's keyboard, as the
-                            // drawer's search: quick settings take no text input); Return keeps it
+                            // apps' search: quick settings take no text input); Return keeps it
                             Item {
                                 width: parent.width
                                 height: nameFact.height
