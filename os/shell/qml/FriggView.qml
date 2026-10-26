@@ -93,7 +93,12 @@ Item {
         if (event.key === Qt.Key_Escape) {
             if (typing) endTyping(); else collapse()
         } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
-            if (typing) submit()
+            if (typing) {
+                submit()
+                // (on in the conversation: the field is still the one typed into)
+                typingHere = true
+                keyboard.startCapture()
+            }
         } else if (event.key === Qt.Key_Backspace) {
             if (typing) keyboard.backspace()
         } else if (event.text !== "" && event.text.charCodeAt(0) >= 32
@@ -112,6 +117,8 @@ Item {
         id: keyCatcher
         focus: view.keysWanted
         Keys.onPressed: (event) => view.key(event)
+        // (an answer coming in took it: back, there is nothing else here to type into)
+        onActiveFocusChanged: if (!activeFocus && view.keysWanted) Qt.callLater(view.takeKeys)
     }
     function takeKeys() { if (keysWanted) keyCatcher.forceActiveFocus() }
     onKeysWantedChanged: takeKeys()
