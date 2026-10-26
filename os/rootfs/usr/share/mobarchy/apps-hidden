@@ -1,4 +1,4 @@
-# Apps the drawer doesn't list (desktop IDs; AppModel; a trailing * hides every ID that
+# Apps the apps page doesn't list (desktop IDs; AppModel; a trailing * hides every ID that
 # begins so). The owner may add their own in ~/.config/mobarchy/apps-hidden.
 
 # Android (Waydroid, ADR 0029) is parked (2026-10-21): the apps that matter (BankID, Vipps,
