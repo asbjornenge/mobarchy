@@ -40,7 +40,7 @@ Window {
         onSent: (ok, error) => {
             win.sending = false
             if (ok) {
-                win.view = win.message ? "read" : "list"
+                win.view = compose.back
                 win.toast(qsTr("Sent"))
             } else {
                 win.toast(error)
@@ -743,14 +743,18 @@ Window {
                                                   + "\n" + qsTr("Subject: %1").arg(subject) + "\n\n" + original.text
                            : quoted
             bodyField.cursorPosition = 0
+            compose.back = win.view
             win.view = "compose"
-            if (how === "reply")
-                bodyField.forceActiveFocus()
-            else
-                compose.toField.forceActiveFocus()
-            // (focus given in code doesn't ask for the keyboard; a tap does)
-            Qt.inputMethod.show()
+            // (once it is in view: focus given away and taken again, so the field is told it
+            // has it; and focus given in code doesn't ask for the keyboard, a tap does)
+            win.contentItem.forceActiveFocus()
+            Qt.callLater(() => {
+                (how === "reply" ? bodyField : compose.toField).forceActiveFocus()
+                Qt.inputMethod.show()
+            })
         }
+        // where Back (or sending) goes: the view it was written from
+        property string back: "list"
 
         Item {
             id: composeHead
@@ -759,7 +763,7 @@ Window {
             Text {
                 anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
                 text: "‹"; color: Theme.accent; font { family: Theme.font; pixelSize: 34 }
-                MouseArea { anchors { fill: parent; margins: -12 } onClicked: win.view = win.message ? "read" : "list" }
+                MouseArea { anchors { fill: parent; margins: -12 } onClicked: win.view = compose.back }
             }
             Rectangle {
                 anchors { right: parent.right; rightMargin: 14; verticalCenter: parent.verticalCenter }
