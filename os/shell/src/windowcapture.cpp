@@ -126,8 +126,12 @@ private:
             if (ok) {
                 const QImage raw(static_cast<const uchar *>(m_data), m_width, m_height, stride,
                                  m_format == WL_SHM_FORMAT_ARGB8888 ? QImage::Format_ARGB32 : QImage::Format_RGB32);
-                image = untransformed(raw.scaledToWidth(qMin(m_pictureWidth, m_width),
-                                                        m_fast ? Qt::FastTransformation : Qt::SmoothTransformation),
+                // (raw is the shared buffer, gone with the job: a picture at full size is a
+                // copy, not raw itself, which scaledToWidth at the same width would return)
+                image = untransformed(m_width > m_pictureWidth
+                                          ? raw.scaledToWidth(m_pictureWidth, m_fast ? Qt::FastTransformation
+                                                                                     : Qt::SmoothTransformation)
+                                          : raw.copy(),
                                       m_frame->transform);
             }
             m_owner->finished(this, m_key, image);
