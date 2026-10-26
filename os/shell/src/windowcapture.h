@@ -119,6 +119,10 @@ public:
     Q_INVOKABLE void capture(const QString &appId, const QString &title);
     // ... of every window there is no picture of yet
     Q_INVOKABLE void captureMissing();
+    // ... of a window at its full size (image://windows/full/<app ID>/<title>): one kept, the
+    // latest (Home's app in the middle, as it slides; the cards' are smaller)
+    Q_INVOKABLE void captureFull(const QString &appId, const QString &title);
+    static QString fullKey(const QString &key) { return QStringLiteral("full\n") + key; }
     // Takes a picture of the screen the window is on (smaller: it is for a blurred
     // background).
     Q_INVOKABLE void captureScreen(QWindow *window);
@@ -146,7 +150,7 @@ private:
     wl_shm *m_shm = nullptr;
     QList<CaptureJob *> m_jobs;
     QSet<QString> m_busy;        // windows a picture is being taken of
-    void start(ExtToplevel *t);
+    void start(ExtToplevel *t, bool full = false);
     mutable QMutex m_lock;      // (the image provider asks from QML's image thread)
     QHash<QString, QImage> m_pictures;
     int m_generation = 0;

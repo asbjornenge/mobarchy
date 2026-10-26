@@ -21,7 +21,8 @@ Window {
     required property ToplevelModel toplevels
     required property Notifications notifications
     required property Keyboard keyboard
-    // An app's picture in the middle in place of the widgets (image://windows/<app>/<title>):
+    // An app's picture in the middle in place of the widgets (<app>/<title>, for
+    // image://windows/: its full-size one over its card's, until that comes):
     // the app in front, as home's side pages come up over it with ⌘+←/→, so it seems to slide
     // away; and back. "" the widgets. (generation: a new picture of it, Main's)
     property string appPicture: ""
@@ -121,13 +122,18 @@ Window {
                     onFriggAsked: home.friggAsked()
                     visible: home.appPicture === ""
                 }
-                Image {
-                    anchors.fill: parent
-                    visible: home.appPicture !== ""
-                    source: home.appPicture !== "" ? home.appPicture + "?" + home.pictureGeneration : ""
-                    fillMode: Image.PreserveAspectCrop
-                    asynchronous: false
-                    cache: false
+                Repeater {
+                    model: ["", "full/"]
+                    delegate: Image {
+                        required property string modelData
+                        anchors.fill: parent
+                        visible: home.appPicture !== ""
+                        source: home.appPicture !== ""
+                                ? "image://windows/" + modelData + home.appPicture + "?" + home.pictureGeneration : ""
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: false
+                        cache: false
+                    }
                 }
             }
             AppsPage {

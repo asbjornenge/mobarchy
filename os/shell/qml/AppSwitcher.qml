@@ -63,6 +63,7 @@ LayerWindow {
     // picture of one window, for them)
     readonly property int pictureGeneration: capture.generation
     function pictureOf(appId, title) { capture.capture(appId, title) }
+    function fullPictureOf(appId, title) { capture.captureFull(appId, title) }
     function picture() {
         for (const w of toplevels.active())
             capture.capture(w.appId, w.title)

@@ -319,8 +319,9 @@ QtObject {
             const front = toplevels.active()[0]
             if (!front)
                 return
-            switcher.pictureOf(front.appId, front.title)    // (a fresh one, of it alone)
-            home.appPicture = "image://windows/" + encodeURIComponent(front.appId) + "/" + encodeURIComponent(front.title)
+            // (a fresh one of it alone, at full size; the card's meanwhile)
+            switcher.fullPictureOf(front.appId, front.title)
+            home.appPicture = encodeURIComponent(front.appId) + "/" + encodeURIComponent(front.title)
             sideTo = step < 0 ? 0 : 2
             bringHome(1)
             shell.slideAway.restart()
