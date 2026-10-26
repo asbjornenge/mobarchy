@@ -2,10 +2,12 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Window
+import QtQml.Models
 import Mobarchy.Shell
 
-// Home: the widgets (HomeBoard). The Frigg card opens the conversation with the agent, which
-// is a layer of its own over everything (TalkOverlay, ADR 0037).
+// Home: two pages side by side, the widgets (HomeBoard) and, a swipe left, the notifications
+// (NotificationsPage). The Frigg card opens the conversation with the agent, which is a layer
+// of its own over everything (TalkOverlay, ADR 0037).
 Window {
     id: home
 
@@ -16,10 +18,14 @@ Window {
     required property SystemStatus system
     required property AppModel apps
     required property ToplevelModel toplevels
+    required property Notifications notifications
     // (dark: nothing on it moves, the orb and the weather stand still)
     property bool screenOn: true
     // the Frigg card tapped
     signal friggAsked()
+
+    // back to the widgets (going home from elsewhere comes to them)
+    function showWidgets() { pages.currentIndex = 0; pages.positionViewAtIndex(0, ListView.Beginning) }
 
     title: "Mobarchy"
     color: Theme.bg
@@ -43,19 +49,56 @@ Window {
 
     HomeConfig { id: homeConfig }
 
-    HomeBoard {
-        id: board
+    ListView {
+        id: pages
         anchors.fill: parent
-        screenOn: home.screenOn
-        config: homeConfig
-        media: home.media
-        alarms: home.alarms
-        telephony: home.telephony
-        system: home.system
-        apps: home.apps
-        toplevels: home.toplevels
-        talk: home.talk
-        bottomInset: 8
-        onFriggAsked: home.friggAsked()
+        orientation: ListView.Horizontal
+        snapMode: ListView.SnapOneItem
+        highlightRangeMode: ListView.StrictlyEnforceRange
+        highlightMoveDuration: 250
+        boundsBehavior: Flickable.StopAtBounds
+        // (not while cards are moved about)
+        interactive: !board.editing
+        model: ObjectModel {
+            HomeBoard {
+                id: board
+                width: pages.width
+                height: pages.height
+                screenOn: home.screenOn
+                config: homeConfig
+                media: home.media
+                alarms: home.alarms
+                telephony: home.telephony
+                system: home.system
+                apps: home.apps
+                toplevels: home.toplevels
+                talk: home.talk
+                bottomInset: 8
+                onFriggAsked: home.friggAsked()
+            }
+            NotificationsPage {
+                width: pages.width
+                height: pages.height
+                notifications: home.notifications
+                bottomInset: 8
+            }
+        }
+    }
+
+    // which page: two dots at the bottom (the second one lit while there are notifications)
+    Row {
+        anchors { horizontalCenter: parent.horizontalCenter; bottom: parent.bottom; bottomMargin: 10 }
+        visible: !board.editing
+        spacing: 8
+        Repeater {
+            model: 2
+            delegate: Rectangle {
+                required property int index
+                width: 6; height: 6; radius: 3
+                color: pages.currentIndex === index ? Theme.fg
+                     : index === 1 && home.notifications.count > 0 ? Theme.accent : Theme.muted
+                opacity: pages.currentIndex === index ? 0.9 : 0.5
+            }
+        }
     }
 }

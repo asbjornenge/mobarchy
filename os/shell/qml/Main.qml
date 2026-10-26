@@ -304,6 +304,7 @@ QtObject {
         quick.close()
         keyboard.visible = false
         talkOverlay.close()     // home is the widgets: the conversation closes
+        home.showWidgets()
         if (!home.visible)
             home.show()
         toplevels.activateOwn(home.title)
@@ -525,6 +526,7 @@ QtObject {
         system: shell.system
         apps: shell.apps
         toplevels: shell.toplevels
+        notifications: shell.notifications
         screenOn: shell.screen.on
         onFriggAsked: shell.talkOverlay.openFrigg("live")
     }
@@ -547,7 +549,6 @@ QtObject {
         bluetooth: shell.bluetooth
         media: shell.media
         pinLock: shell.pinLock
-        notifications: shell.notifications
         volume: shell.volume
         apps: shell.apps
         rotation: shell.rotation

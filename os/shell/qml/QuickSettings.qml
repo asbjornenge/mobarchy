@@ -23,7 +23,6 @@ Sheet {
     required property Bluetooth bluetooth
     required property MediaPlayers media
     required property PinLock pinLock
-    required property Notifications notifications
     required property Volume volume
     required property AppModel apps
     required property Torch torch
@@ -43,7 +42,7 @@ Sheet {
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityNone
 
     property int page: 0  // 0: overview, 1: Wi-Fi, 2: Bluetooth, 3: screen lock (PIN, fingers),
-                          // 4: notifications, 5: hotspot, 6: settings
+                          // 4: hotspot, 5: settings
     // sharing the internet over Wi-Fi (ADR 0039): followed while the panel is open
     readonly property Hotspot hotspot: Hotspot { watching: quick.shown }
     property bool renamingHotspot: false
@@ -326,7 +325,7 @@ Sheet {
             }
             RoundButton {
                 icon: "󰒓"
-                onClicked: quick.page = 6
+                onClicked: quick.page = 5
             }
         }
         Row {
@@ -392,7 +391,7 @@ Sheet {
         id: panel
         width: parent.width
         // as tall as the page, up to the screen (the pages scroll beyond that)
-        height: Math.min([overview, wifiPage, bluetoothPage, lockPage, notesPage, hotspotPage, settingsPage][quick.page].implicitHeight + 28 + handle.height,
+        height: Math.min([overview, wifiPage, bluetoothPage, lockPage, hotspotPage, settingsPage][quick.page].implicitHeight + 28 + handle.height,
                          quick.height)
         Behavior on height { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
         y: -(1 - quick.openness) * height
@@ -643,29 +642,6 @@ Sheet {
                             }
                         }
 
-                        // Notifications: a box with how many; a tap shows them (a page of their own)
-                        Rectangle {
-                            width: parent.width
-                            height: 56
-                            visible: quick.notifications.count > 0
-                            radius: 14
-                            color: notesTap.pressed ? Theme.line : Theme.panel
-                            Text {
-                                anchors { left: parent.left; leftMargin: 16; verticalCenter: parent.verticalCenter }
-                                text: "󰂚  " + (quick.notifications.count === 1 ? qsTr("1 notification")
-                                                                                 : qsTr("%1 notifications").arg(quick.notifications.count))
-                                color: Theme.fg
-                                font { family: Theme.font; pixelSize: 15 }
-                            }
-                            Text {
-                                anchors { right: parent.right; rightMargin: 16; verticalCenter: parent.verticalCenter }
-                                text: "\uf054"     // nf-fa-chevron_right
-                                color: Theme.muted
-                                font { family: Theme.font; pixelSize: 14 }
-                            }
-                            MouseArea { id: notesTap; anchors.fill: parent; onClicked: quick.page = 4 }
-                        }
-
                         ActionsRow {
                             width: parent.width
                             visible: !quick.twoColumns
@@ -676,7 +652,7 @@ Sheet {
 
             // --- settings: the smaller ones ----------------------------------------------
             Flickable {
-                x: 6 * pages.width
+                x: 5 * pages.width
                 width: pages.width
                 height: pages.height
                 contentHeight: settingsPage.implicitHeight
@@ -765,7 +741,7 @@ Sheet {
 
             // --- the hotspot ---------------------------------------------------------------
             Flickable {
-                x: 5 * pages.width
+                x: 4 * pages.width
                 width: pages.width
                 height: pages.height
                 contentHeight: hotspotPage.implicitHeight
@@ -885,83 +861,6 @@ Sheet {
                         }
                     }
                 }
-            }
-
-            // --- notifications --------------------------------------------------------------
-            Flickable {
-                x: 4 * pages.width
-                width: pages.width
-                height: pages.height
-                contentHeight: notesPage.implicitHeight
-                clip: true
-                interactive: contentHeight > height
-                boundsBehavior: Flickable.StopAtBounds
-                maximumFlickVelocity: Theme.flickVelocity
-                flickDeceleration: Theme.flickDeceleration
-
-                Column {
-                    id: notesPage
-                    x: 20
-                    width: pages.width - 40
-                    spacing: 10
-
-                    Item {
-                        width: parent.width
-                        height: 40
-                        MouseArea {
-                            anchors { left: parent.left; top: parent.top; bottom: parent.bottom }
-                            width: notesBackRow.implicitWidth + 16
-                            onClicked: quick.page = 0
-                            Row {
-                                id: notesBackRow
-                                anchors.verticalCenter: parent.verticalCenter
-                                spacing: 10
-                                Text { text: "\uf053"; color: Theme.muted;  // nf-fa-chevron_left
-                                       font { family: Theme.font; pixelSize: 16 }
-                                       anchors.verticalCenter: parent.verticalCenter }
-                                Text { text: qsTr("Notifications"); color: Theme.fg
-                                       font { family: Theme.font; pixelSize: 18; bold: true } }
-                            }
-                        }
-                        Text {
-                            anchors { right: parent.right; verticalCenter: parent.verticalCenter }
-                            visible: quick.notifications.count > 0
-                            text: qsTr("Clear all")
-                            color: Theme.accent
-                            font { family: Theme.font; pixelSize: 13 }
-                            MouseArea {
-                                anchors { fill: parent; margins: -10 }
-                                onClicked: {
-                                    quick.notifications.clear()
-                                    quick.page = 0
-                                }
-                            }
-                        }
-                    }
-                    Text {
-                        visible: quick.notifications.count === 0
-                        text: qsTr("No notifications")
-                        color: Theme.muted
-                        font { family: Theme.font; pixelSize: 14 }
-                    }
-                    Repeater {
-                        model: quick.notifications
-                        delegate: NotificationCard {
-                            width: notesPage.width
-                            onActivated: {
-                                quick.notifications.invoke(notificationId, "default")
-                                quick.close()
-                            }
-                            onDismissed: quick.notifications.dismiss(notificationId)
-                            onAction: (key) => quick.notifications.invoke(notificationId, key)
-                        }
-                    }
-                }
-            }
-            // (none left: back to the overview)
-            Connections {
-                target: quick.notifications
-                function onCountChanged() { if (quick.notifications.count === 0 && quick.page === 4) quick.page = 0 }
             }
 
             // --- Wi-Fi ------------------------------------------------------------------
@@ -1179,7 +1078,7 @@ Sheet {
                             color: Theme.muted
                             font { family: Theme.font; pixelSize: 14 }
                         }
-                        MouseArea { id: hotspotTap; anchors.fill: parent; onClicked: quick.page = 5 }
+                        MouseArea { id: hotspotTap; anchors.fill: parent; onClicked: quick.page = 4 }
                     }
                 }
             }
