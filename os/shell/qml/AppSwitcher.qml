@@ -121,6 +121,8 @@ LayerWindow {
         glide.restart()
     }
     function close() {
+        // (the keyboard let go of before the surface goes: see FriggView.keysWanted)
+        cycling = false
         settle.to = 0
         settle.restart()
         if (following || away !== 0) {

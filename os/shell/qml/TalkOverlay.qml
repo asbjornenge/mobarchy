@@ -21,7 +21,20 @@ LayerWindow {
     function close() { if (view.open > 0) view.collapse() }
 
     // (not while Frigg uses the screen: she would see and tap her own overlay)
-    shown: (view.open > 0 || talk.talking) && !talk.usingScreen
+    readonly property bool wanted: (view.open > 0 || talk.talking) && !talk.usingScreen
+    // Gone a moment after it is no longer wanted, the keyboard let go of first: Hyprland
+    // crashed (refocusing) when a surface with the keyboard went.
+    shown: false
+    onWantedChanged: {
+        if (wanted) {
+            hideLater.stop()
+            shown = true
+        } else {
+            hideLater.restart()
+        }
+    }
+    Component.onCompleted: shown = wanted
+    Timer { id: hideLater; interval: 120; onTriggered: overlay.shown = overlay.wanted }
     color: "transparent"
     LayerShell.Window.scope: "mobarchy-talk"
     LayerShell.Window.layer: LayerShell.Window.LayerOverlay
@@ -29,7 +42,7 @@ LayerWindow {
                                | LayerShell.Window.AnchorLeft | LayerShell.Window.AnchorRight
     LayerShell.Window.exclusionZone: 0
     // (in text: the keyboard, for a hardware one's keys, FriggView.key)
-    LayerShell.Window.keyboardInteractivity: view.keysWanted ? LayerShell.Window.KeyboardInteractivityExclusive
+    LayerShell.Window.keyboardInteractivity: view.keysWanted && wanted ? LayerShell.Window.KeyboardInteractivityExclusive
                                                              : LayerShell.Window.KeyboardInteractivityNone
     onActiveChanged: if (active) view.takeKeys()
 

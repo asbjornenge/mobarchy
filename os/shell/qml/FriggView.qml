@@ -86,7 +86,9 @@ Item {
     }
     // A hardware keyboard: in text, typing goes into the field (no on-screen keyboard for it),
     // Return sends, Backspace rubs out; Escape ends the typing, then closes.
-    readonly property bool keysWanted: open > 0 && mode === "text" && !locked
+    // (only while fully open: the keyboard let go of as soon as it starts to close, before the
+    // overlay's surface goes; Hyprland crashed refocusing when a surface went with it)
+    readonly property bool keysWanted: open >= 0.999 && mode === "text" && !locked
     function key(event) {
         if (event.key === Qt.Key_Escape) {
             if (typing) endTyping(); else collapse()
