@@ -43,3 +43,8 @@ has it as `android.sensor.hinge_angle` (type 36, "Hinge Angle", 0Â° closed, 180Â
   restarts (its /system/bin is an overlay that doesn't see a replaced file before then).
 - Gestures stay at the bottom edge, under the keyboard.
 - No touchpad (the owner's choice): the screen is touched.
+- Fullscreen keeps to the upper half as well. An app that goes fullscreen (a film) has its
+  window maximized there and is told it is fullscreen (Hyprland's `fullscreenstate 1 2`).
+  The shell does this, listening to Hyprland's events (`Hyprland` in os/shell). Out of
+  laptop mode, the app in front goes fullscreen again. The app switcher keeps to the upper
+  half too.
