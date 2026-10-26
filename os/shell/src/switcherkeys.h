@@ -31,3 +31,23 @@ signals:
     void commit();
     void cancel();
 };
+
+// ⌘+← and ⌘+→ from a hardware keyboard (Hyprland's binds, on D-Bus: org.mobarchy.Shell
+// /org/mobarchy/Home, org.mobarchy.Home): the notifications to the left of what is open (the
+// app in front, or home's widgets), the apps to the right (Main.qml's side()).
+class HomeKeys : public QObject
+{
+    Q_OBJECT
+    QML_ELEMENT
+
+public:
+    explicit HomeKeys(QObject *parent = nullptr);
+
+public slots:
+    Q_SCRIPTABLE void Left() { emit left(); }
+    Q_SCRIPTABLE void Right() { emit right(); }
+
+signals:
+    void left();
+    void right();
+};

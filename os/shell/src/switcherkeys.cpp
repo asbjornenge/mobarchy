@@ -16,3 +16,10 @@ bool SwitcherKeys::superHeld() const
 {
     return QGuiApplication::queryKeyboardModifiers() & Qt::MetaModifier;
 }
+
+HomeKeys::HomeKeys(QObject *parent)
+    : QObject(parent)
+{
+    QDBusConnection::sessionBus().registerObject(QStringLiteral("/org/mobarchy/Home"), QStringLiteral("org.mobarchy.Home"),
+                                                 this, QDBusConnection::ExportScriptableSlots);
+}

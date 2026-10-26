@@ -302,6 +302,50 @@ QtObject {
             lockTimeout.restart()
     }
 
+    // ⌘+← and ⌘+→ (a hardware keyboard: HomeKeys, from Hyprland's binds): three places
+    // side by side, the notifications, what is open in the middle (the app in front, or the
+    // widgets), the apps. From an app, home's side page comes up, and back is to the app.
+    property bool sideFromApp: false
+    readonly property HomeKeys homeKeys: HomeKeys {
+        onLeft: shell.side(-1)
+        onRight: shell.side(1)
+    }
+    function side(step) {
+        if (lockScreen.shown)
+            return
+        if (!home.active && toplevels.count > 0) {
+            sideFromApp = true
+            bringHome(step < 0 ? 0 : 2)
+            return
+        }
+        const to = home.page + step
+        if (to < 0 || to > 2)
+            return
+        if (sideFromApp && to === 1) {
+            // (back to the app; home's widgets in the middle again, for the next time)
+            sideFromApp = false
+            toplevels.activate(0)
+            home.showWidgets()
+            return
+        }
+        home.showPage(to, true)
+    }
+    readonly property Connections homeLeft: Connections {
+        target: shell.home
+        // (left otherwise: an app opened from the apps, the edge: the middle is home's again)
+        function onActiveChanged() { if (!shell.home.active) shell.sideFromApp = false }
+    }
+    // Home up on one of its pages, as it was left otherwise (not back to the widgets)
+    function bringHome(page) {
+        switcher.close()
+        quick.close()
+        talkOverlay.close()
+        home.showPage(page, false)
+        if (!home.visible)
+            home.show()
+        toplevels.activateOwn(home.title)
+    }
+
     function goHome() {
         switcher.close()
         quick.close()

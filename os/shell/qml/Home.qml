@@ -27,7 +27,14 @@ Window {
     signal friggAsked()
 
     // back to the widgets (going home from elsewhere comes to them)
-    function showWidgets() { pages.currentIndex = 1; pages.positionViewAtIndex(1, ListView.Beginning) }
+    function showWidgets() { showPage(1, false) }
+    // 0 the notifications, 1 the widgets, 2 the apps; moved to (animated) or put there
+    readonly property int page: pages.currentIndex
+    function showPage(i, animated) {
+        pages.currentIndex = i
+        if (!animated)
+            pages.positionViewAtIndex(i, ListView.Beginning)
+    }
     // the apps, searching (laptop mode's Super key)
     function searchApps() {
         pages.currentIndex = 2
