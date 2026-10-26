@@ -22,6 +22,24 @@ Item {
         keyboard.startCapture()
         keyboard.visible = true
     }
+    // A hardware keyboard: typing on the page searches (no on-screen keyboard for it), Return
+    // starts the first match, Escape ends the search. (Home is a window with the keyboard's
+    // focus; Home gives the page its focus while it is the page in view.)
+    Keys.onPressed: (event) => {
+        if (event.key === Qt.Key_Escape) {
+            if (searching) { endSearch(); event.accepted = true }
+        } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+            if (searching) { keyboard.key("Return"); event.accepted = true }
+        } else if (event.key === Qt.Key_Backspace) {
+            if (searching) { keyboard.backspace(); event.accepted = true }
+        } else if (event.text !== "" && event.text.charCodeAt(0) >= 32
+                   && !(event.modifiers & (Qt.ControlModifier | Qt.MetaModifier))) {
+            if (!searching)
+                keyboard.startCapture()
+            keyboard.type(event.text)
+            event.accepted = true
+        }
+    }
     function endSearch() {
         newWindow.visible = false
         if (keyboard.capturing) {

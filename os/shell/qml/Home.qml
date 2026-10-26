@@ -37,6 +37,9 @@ Window {
 
     title: "Mobarchy"
     color: Theme.bg
+    // Home left (an app in front, however it got there): the apps' search is over, or the
+    // on-screen keyboard went on typing into it and not into the app.
+    onActiveChanged: if (!active) appsPage.endSearch()
     Component.onCompleted: show()
 
     // The theme's wallpaper (ADR 0025), behind the widgets dimmed a little.
@@ -69,8 +72,13 @@ Window {
         interactive: !board.editing
         currentIndex: 1
         Component.onCompleted: positionViewAtIndex(1, ListView.Beginning)
-        // (away from the apps: their search is over)
-        onCurrentIndexChanged: if (currentIndex !== 2) appsPage.endSearch()
+        // (away from the apps: their search is over; on them: the keys are theirs)
+        onCurrentIndexChanged: {
+            if (currentIndex !== 2)
+                appsPage.endSearch()
+            else
+                appsPage.forceActiveFocus()
+        }
         model: ObjectModel {
             NotificationsPage {
                 width: pages.width
