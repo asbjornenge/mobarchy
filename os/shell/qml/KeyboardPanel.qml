@@ -334,9 +334,10 @@ LayerWindow {
                 elide: Text.ElideRight
                 color: Theme.fg
                 font { family: Theme.font; pixelSize: 14 }
-                // the first line, short
-                text: "󰅌  " + (kb.mode === "clipboard" ? qsTr("Utklipp")
-                       : kb.clipboard.text !== "" ? kb.clipboard.text.split("\n")[0] : qsTr("Utklipp"))
+                // the first line, short; a secret (a password manager's) not shown
+                text: kb.mode === "clipboard" ? "󰅌  " + qsTr("Utklipp")
+                    : kb.clipboard.secret ? "󰌾  ••••••••"
+                    : "󰅌  " + (kb.clipboard.text !== "" ? kb.clipboard.text.split("\n")[0] : qsTr("Utklipp"))
             }
             TapHandler {
                 id: pasteTap

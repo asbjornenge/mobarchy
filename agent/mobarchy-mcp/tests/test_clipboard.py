@@ -35,3 +35,16 @@ def test_set_does_not_hold_pipes(monkeypatch):
     cmd, kw = calls[0]
     assert cmd[0] == "wl-copy" and kw["input"] == b"kode 1234"
     assert kw["stdout"] is subprocess.DEVNULL and kw["start_new_session"]
+
+
+def test_a_secret_is_not_read(monkeypatch):
+    calls = []
+
+    def run(cmd, **kw):
+        calls.append(cmd)
+        out = b"text/plain\nx-kde-passwordManagerHint\n" if "--list-types" in cmd else b"hunter2"
+        return subprocess.CompletedProcess(cmd, 0, out, b"")
+    monkeypatch.setattr(subprocess, "run", run)
+    out = clipboard.get()
+    assert out["secret"] and out["text"] == ""
+    assert not any("--type" in c for c in calls)

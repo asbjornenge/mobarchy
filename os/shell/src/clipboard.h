@@ -1,7 +1,9 @@
 // The clipboard, for the keyboard's paste button and its history (ADR 0016), over
 // wlr-data-control: the shell sees every copy in the session (text only) and can set the
 // clipboard itself. The history is kept in memory only: copies are often passwords and
-// codes. Copies a password manager marks as secret are offered once but not kept.
+// codes. Copies a password manager marks as secret (1Password, KeePassXC) are not kept, not
+// shown (the paste button says it is a secret, not what), and let go of after a minute; a
+// clipboard emptied (a password manager does) empties the button too.
 #pragma once
 
 #include "qwayland-wlr-data-control-unstable-v1.h"
@@ -11,6 +13,7 @@
 #include <QPointer>
 #include <QSocketNotifier>
 #include <QStringList>
+#include <QTimer>
 #include <QtQml/qqmlregistration.h>
 #include <QtWaylandClient/QWaylandClientExtension>
 
@@ -79,6 +82,8 @@ class Clipboard : public QObject
     QML_ELEMENT
     // What is on the clipboard now ("" if no text).
     Q_PROPERTY(QString text READ text NOTIFY changed)
+    // ... marked secret by a password manager: not to be shown
+    Q_PROPERTY(bool secret READ secret NOTIFY changed)
     // Earlier copies, newest first (text includes the current one).
     Q_PROPERTY(QStringList history READ history NOTIFY changed)
     Q_PROPERTY(bool supported READ supported NOTIFY supportedChanged)
@@ -90,6 +95,7 @@ public:
     ~Clipboard() override;
 
     QString text() const { return m_text; }
+    bool secret() const { return m_secret; }
     QString selected() const { return m_selected; }
     // Copy what is selected to the clipboard.
     Q_INVOKABLE void copySelection() { setText(m_selected); }
@@ -102,6 +108,7 @@ public:
 
     static constexpr int HistorySize = 20;
     static constexpr int MaxBytes = 1 << 20;
+    static constexpr int SecretSeconds = 60;
 
 signals:
     void changed();
@@ -123,6 +130,9 @@ private:
     ClipboardSource *m_source = nullptr;
     QPointer<QSocketNotifier> m_reading, m_readingPrimary;
     QString m_text;
+    bool m_secret = false;
+    QTimer m_forget;            // a secret let go of
+    void forget();
     QString m_selected;
     bool m_primarySeen = false;
     QStringList m_history;

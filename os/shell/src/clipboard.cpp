@@ -79,6 +79,9 @@ Clipboard::Clipboard(QObject *parent)
     , m_manager(new DataControlManager)
 {
     m_manager->setParent(this);
+    m_forget.setSingleShot(true);
+    m_forget.setInterval(SecretSeconds * 1000);
+    connect(&m_forget, &QTimer::timeout, this, &Clipboard::forget);
     connect(m_manager, &DataControlManager::activeChanged, this, &Clipboard::setup);
     m_manager->bind();
 }
@@ -100,7 +103,20 @@ void Clipboard::setup()
 
 void Clipboard::onSelection(ClipboardOffer *offer)
 {
+    // (emptied: a password manager clearing what it put there, or its owner gone)
+    if (!offer)
+        forget();
     read(offer, m_reading, [this](const QString &text, bool keep) { received(text, keep); });
+}
+
+void Clipboard::forget()
+{
+    m_forget.stop();
+    if (m_text.isEmpty() && !m_secret)
+        return;
+    m_text.clear();
+    m_secret = false;
+    emit changed();
 }
 
 void Clipboard::onPrimarySelection(ClipboardOffer *offer)
@@ -174,9 +190,16 @@ void Clipboard::read(ClipboardOffer *offer, QPointer<QSocketNotifier> &reading,
 
 void Clipboard::received(const QString &text, bool keep)
 {
-    if (text.isEmpty())
+    if (text.isEmpty()) {
+        forget();
         return;
+    }
     m_text = text;
+    m_secret = !keep;
+    if (m_secret)
+        m_forget.start();
+    else
+        m_forget.stop();
     if (keep) {
         m_history.removeAll(text);
         m_history.prepend(text);
@@ -197,6 +220,8 @@ void Clipboard::setText(const QString &text)
     m_source->offer(OwnType);
     m_device->set_selection(m_source->object());
     m_text = text;
+    m_secret = false;
+    m_forget.stop();
     m_history.removeAll(text);
     m_history.prepend(text);
     emit changed();
