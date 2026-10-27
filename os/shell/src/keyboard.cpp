@@ -95,6 +95,15 @@ Keyboard::Keyboard(QObject *parent)
     connect(m_vkManager, &VirtualKeyboardManager::activeChanged, this, &Keyboard::setup);
     m_imManager->bind();
     m_vkManager->bind();
+    m_hideLater.setSingleShot(true);
+    m_hideLater.setInterval(200);
+    connect(&m_hideLater, &QTimer::timeout, this, [this] {
+        const bool visible = m_active ? !m_hiddenByHand : m_manual;
+        if (visible != m_visible) {
+            m_visible = visible;
+            emit visibleChanged();
+        }
+    });
     // emojiSearch, for Hyprland's Alt+Space (on the shell's name, org.mobarchy.Shell)
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/org/mobarchy/Keyboard"),
                                                  QStringLiteral("org.mobarchy.Keyboard"), this,
@@ -131,9 +140,17 @@ void Keyboard::onDone()
     m_purpose = m_purposeValue < std::size(Purposes) ? QString::fromLatin1(Purposes[m_purposeValue])
                                                      : QStringLiteral("text");
     const bool visible = m_active ? !m_hiddenByHand : m_manual;
-    if (visible != m_visible) {
-        m_visible = visible;
-        emit visibleChanged();
+    if (!visible && m_visible && m_activeChanged) {
+        // A field let go of: down a moment later, unless one has it again by then (Chromium
+        // lets go and takes it back as a page's script, or a password manager's menu, moves
+        // the focus about; the keyboard went down and up, or stayed down).
+        m_hideLater.start();
+    } else {
+        m_hideLater.stop();
+        if (visible != m_visible) {
+            m_visible = visible;
+            emit visibleChanged();
+        }
     }
     // (the field lost focus: the keys go back with it)
     if (!m_active && m_grab)
@@ -175,6 +192,7 @@ void Keyboard::releaseKeys()
 
 void Keyboard::setVisible(bool visible)
 {
+    m_hideLater.stop();
     if (visible == m_visible)
         return;
     m_visible = visible;

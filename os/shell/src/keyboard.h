@@ -146,6 +146,7 @@ private:
 
     InputMethodManager *m_imManager;
     VirtualKeyboardManager *m_vkManager;
+    QTimer m_hideLater;     // (a field let go of: down after a moment, not at once)
     InputMethod *m_im = nullptr;
     KeyboardGrab *m_grab = nullptr;
     QtWayland::zwp_virtual_keyboard_v1 *m_vk = nullptr;
