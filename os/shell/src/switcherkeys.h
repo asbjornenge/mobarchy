@@ -34,7 +34,7 @@ signals:
 
 // ⌘+← and ⌘+→ from a hardware keyboard (Hyprland's binds, on D-Bus: org.mobarchy.Shell
 // /org/mobarchy/Home, org.mobarchy.Home): the notifications to the left of what is open (the
-// app in front, or home's widgets), the apps to the right (Main.qml's side()). And ⌘+H:
+// app in front, or home's widgets), the apps to the right (Main.qml's side()). And ⌘+↓:
 // home, its widgets (Home).
 class HomeKeys : public QObject
 {

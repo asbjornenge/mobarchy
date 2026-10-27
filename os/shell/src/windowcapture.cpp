@@ -7,7 +7,6 @@
 #include <QWindow>
 
 #include <sys/mman.h>
-#include <limits>
 #include <unistd.h>
 #include <wayland-client.h>
 
@@ -126,8 +125,8 @@ private:
             if (ok) {
                 const QImage raw(static_cast<const uchar *>(m_data), m_width, m_height, stride,
                                  m_format == WL_SHM_FORMAT_ARGB8888 ? QImage::Format_ARGB32 : QImage::Format_RGB32);
-                // (raw is the shared buffer, gone with the job: a picture at full size is a
-                // copy, not raw itself, which scaledToWidth at the same width would return)
+                // (raw is the shared buffer, gone with the job: a window no wider than a picture
+                // is a copy, not raw itself, which scaledToWidth at the same width would return)
                 image = untransformed(m_width > m_pictureWidth
                                           ? raw.scaledToWidth(m_pictureWidth, m_fast ? Qt::FastTransformation
                                                                                      : Qt::SmoothTransformation)
@@ -205,25 +204,13 @@ bool WindowCapture::supported() const
     return m_list->isActive() && m_sources->isActive() && m_copy->isActive();
 }
 
-void WindowCapture::start(ExtToplevel *t, bool full)
+void WindowCapture::start(ExtToplevel *t)
 {
-    const QString key = full ? fullKey(t->key()) : t->key();
-    if (m_busy.contains(key))
+    if (m_busy.contains(t->key()))
         return;
-    m_busy.insert(key);
+    m_busy.insert(t->key());
     auto *source = m_sources->create_source(t->object());
-    m_jobs << new CaptureJob(this, key, m_copy->create_session(source, 0), source,
-                             full ? std::numeric_limits<int>::max() : PictureWidth);
-}
-
-void WindowCapture::captureFull(const QString &appId, const QString &title)
-{
-    if (!supported())
-        return;
-    const QString key = appId + QLatin1Char('\n') + title;
-    for (ExtToplevel *t : std::as_const(m_list->toplevels))
-        if (t->key() == key)
-            start(t, true);
+    m_jobs << new CaptureJob(this, t->key(), m_copy->create_session(source, 0), source);
 }
 
 void WindowCapture::capture(const QString &appId, const QString &title)
@@ -275,9 +262,6 @@ void WindowCapture::finished(CaptureJob *job, const QString &key, const QImage &
         return;
     {
         QMutexLocker locker(&m_lock);
-        // (one full-size picture kept: the latest)
-        if (key.startsWith(fullKey(QString())))
-            m_pictures.removeIf([](const auto &it) { return it.key().startsWith(fullKey(QString())); });
         m_pictures.insert(key, image);
     }
     if (screen) {
@@ -297,15 +281,10 @@ QImage WindowCapture::picture(const QString &key) const
 
 QImage WindowImages::requestImage(const QString &id, QSize *size, const QSize &requested)
 {
-    // <app ID>/<title>?<generation>, each part percent-encoded; full/<app ID>/<title> at full size
-    QString path = id.section(QLatin1Char('?'), 0, 0);
-    const bool full = path.startsWith(QLatin1String("full/"));
-    if (full)
-        path = path.mid(5);
-    QString key = path == WindowCapture::screenKey() ? path : QUrl::fromPercentEncoding(path.section(QLatin1Char('/'), 0, 0).toUtf8())
-                  + QLatin1Char('\n') + QUrl::fromPercentEncoding(path.section(QLatin1Char('/'), 1).toUtf8());
-    if (full)
-        key = WindowCapture::fullKey(key);
+    // <app ID>/<title>?<generation>, each part percent-encoded
+    const QString path = id.section(QLatin1Char('?'), 0, 0);
+    const QString key = path == WindowCapture::screenKey() ? path : QUrl::fromPercentEncoding(path.section(QLatin1Char('/'), 0, 0).toUtf8())
+                        + QLatin1Char('\n') + QUrl::fromPercentEncoding(path.section(QLatin1Char('/'), 1).toUtf8());
     QImage image = WindowCapture::instance() ? WindowCapture::instance()->picture(key) : QImage();
     if (image.isNull())
         image = QImage(1, 1, QImage::Format_ARGB32_Premultiplied), image.fill(Qt::transparent);

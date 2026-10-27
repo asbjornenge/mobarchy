@@ -104,7 +104,7 @@ Keyboard::Keyboard(QObject *parent)
             emit visibleChanged();
         }
     });
-    // emojiSearch, for Hyprland's Alt+Space (on the shell's name, org.mobarchy.Shell)
+    // emojiSearch, for Hyprland's ⌘+Space (on the shell's name, org.mobarchy.Shell)
     QDBusConnection::sessionBus().registerObject(QStringLiteral("/org/mobarchy/Keyboard"),
                                                  QStringLiteral("org.mobarchy.Keyboard"), this,
                                                  QDBusConnection::ExportScriptableSlots);
@@ -180,7 +180,7 @@ void Keyboard::releaseKeys()
     m_grab = nullptr;
     grab->stop();
     QTimer::singleShot(0, this, [grab] { delete grab; });
-    // The modifiers held when the keys were borrowed (the Alt of Alt+Space) were let go while
+    // The modifiers held when the keys were borrowed (the ⌘ of ⌘+Space) were let go while
     // they were ours: the app still thinks them held (Backspace came to it as Alt+Backspace).
     // It is told none are, through the virtual keyboard (a change, or nothing is sent).
     if (ensureVirtualKeyboard()) {

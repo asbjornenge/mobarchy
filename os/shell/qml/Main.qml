@@ -44,7 +44,7 @@ QtObject {
         sideInsets: shell.leftInset.inset + shell.rightInset.inset
         laptop: shell.laptop
     }
-    // Alt+Space on a hardware keyboard: the emoji, searched from its keys
+    // ⌘+Space on a hardware keyboard: the emoji, searched from its keys
     readonly property EmojiPicker emojiPicker: EmojiPicker {
         keyboard: shell.keyboard
         panel: shell.keyboardPanel
@@ -319,65 +319,19 @@ QtObject {
             lockTimeout.restart()
     }
 
-    // ⌘+← and ⌘+→ (a hardware keyboard: HomeKeys, from Hyprland's binds): three places
-    // side by side, the notifications, what is open in the middle (the app in front, or the
-    // widgets), the apps. From an app, home comes up with the app's picture in the middle and
-    // slides to the side page, as from the widgets; back slides to the picture, then to the
-    // app itself.
+    // ⌘+← and ⌘+→ (a hardware keyboard: HomeKeys, from Hyprland's binds): home's pages, the
+    // notifications, the widgets, the apps, while home is in front; ⌘+↓: home, its widgets.
     readonly property HomeKeys homeKeys: HomeKeys {
         onLeft: shell.side(-1)
         onRight: shell.side(1)
         onHome: if (!shell.lockScreen.shown) shell.goHome()
     }
-    property int sideTo: 1      // (the side page to slide to once home is in front)
     function side(step) {
-        if (lockScreen.shown)
+        if (lockScreen.shown || !home.active)
             return
-        if (!home.active && toplevels.count > 0) {
-            const front = toplevels.active()[0]
-            if (!front)
-                return
-            // (a fresh one of it alone, at full size; the card's meanwhile)
-            switcher.fullPictureOf(front.appId, front.title)
-            home.appPicture = encodeURIComponent(front.appId) + "/" + encodeURIComponent(front.title)
-            sideTo = step < 0 ? 0 : 2
-            bringHome(1)
-            shell.slideAway.restart()
-            return
-        }
         const to = home.page + step
         if (to >= 0 && to <= 2)
             home.showPage(to, true)
-    }
-    // (home in front, the app's picture where the app was: then the slide, as soon as home
-    // has the front; this if that is slow to come)
-    readonly property Timer slideAway: Timer { interval: 150; onTriggered: shell.home.showPage(shell.sideTo, true) }
-    // (back at the app's picture: the app, once the slide is over)
-    readonly property Timer backToApp: Timer { interval: 260; onTriggered: shell.toplevels.activate(0) }
-    readonly property Connections homeSides: Connections {
-        target: shell.home
-        function onAppReached() { shell.backToApp.restart() }
-        // (home left, however: the middle is the widgets again)
-        function onActiveChanged() {
-            if (shell.home.active && shell.slideAway.running) {
-                shell.slideAway.stop()
-                shell.home.showPage(shell.sideTo, true)
-            }
-            if (!shell.home.active && !shell.slideAway.running) {
-                shell.home.appPicture = ""
-                shell.home.showWidgets()
-            }
-        }
-    }
-    // Home up on one of its pages, as it was left otherwise (not back to the widgets)
-    function bringHome(page) {
-        switcher.close()
-        quick.close()
-        talkOverlay.close()
-        home.showPage(page, false)
-        if (!home.visible)
-            home.show()
-        toplevels.activateOwn(home.title)
     }
 
     function goHome() {
@@ -609,7 +563,6 @@ QtObject {
         toplevels: shell.toplevels
         notifications: shell.notifications
         keyboard: shell.keyboard
-        pictureGeneration: shell.switcher.pictureGeneration
         screenOn: shell.screen.on
         onFriggAsked: shell.talkOverlay.openFrigg("live")
     }

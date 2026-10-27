@@ -21,14 +21,6 @@ Window {
     required property ToplevelModel toplevels
     required property Notifications notifications
     required property Keyboard keyboard
-    // An app's picture in the middle in place of the widgets (<app>/<title>, for
-    // image://windows/: its full-size one over its card's, until that comes):
-    // the app in front, as home's side pages come up over it with ⌘+←/→, so it seems to slide
-    // away; and back. "" the widgets. (generation: a new picture of it, Main's)
-    property string appPicture: ""
-    property int pictureGeneration: 0
-    // the middle reached (a slide, a swipe) while it is the app's picture: back to the app
-    signal appReached()
     // (dark: nothing on it moves, the orb and the weather stand still)
     property bool screenOn: true
     // the Frigg card tapped
@@ -93,8 +85,6 @@ Window {
                 appsPage.endSearch()
             else
                 appsPage.forceActiveFocus()
-            if (currentIndex === 1 && home.appPicture !== "")
-                home.appReached()
         }
         model: ObjectModel {
             NotificationsPage {
@@ -103,38 +93,21 @@ Window {
                 notifications: home.notifications
                 bottomInset: 8
             }
-            Item {
+            HomeBoard {
+                id: board
                 width: pages.width
                 height: pages.height
-                HomeBoard {
-                    id: board
-                    anchors.fill: parent
-                    screenOn: home.screenOn
-                    config: homeConfig
-                    media: home.media
-                    alarms: home.alarms
-                    telephony: home.telephony
-                    system: home.system
-                    apps: home.apps
-                    toplevels: home.toplevels
-                    talk: home.talk
-                    bottomInset: 8
-                    onFriggAsked: home.friggAsked()
-                    visible: home.appPicture === ""
-                }
-                Repeater {
-                    model: ["", "full/"]
-                    delegate: Image {
-                        required property string modelData
-                        anchors.fill: parent
-                        visible: home.appPicture !== ""
-                        source: home.appPicture !== ""
-                                ? "image://windows/" + modelData + home.appPicture + "?" + home.pictureGeneration : ""
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: false
-                        cache: false
-                    }
-                }
+                screenOn: home.screenOn
+                config: homeConfig
+                media: home.media
+                alarms: home.alarms
+                telephony: home.telephony
+                system: home.system
+                apps: home.apps
+                toplevels: home.toplevels
+                talk: home.talk
+                bottomInset: 8
+                onFriggAsked: home.friggAsked()
             }
             AppsPage {
                 id: appsPage

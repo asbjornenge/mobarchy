@@ -11,7 +11,7 @@
 // The keyboard itself (Keyboard.qml) is QML; this is its connection to the apps.
 //
 // A hardware keyboard's keys go to the app, but the shell can borrow them while a text
-// field has focus (input-method-v2's keyboard grab): the emoji search does, from Alt+Space
+// field has focus (input-method-v2's keyboard grab): the emoji search does, from ⌘+Space
 // (Hyprland's bind calls emojiSearch on D-Bus: org.mobarchy.Shell /org/mobarchy/Keyboard).
 #pragma once
 
@@ -114,7 +114,7 @@ public:
     Q_INVOKABLE QStringList searchEmoji(const QString &query, int max = 80) const;
 
 public slots:
-    // (D-Bus, from Hyprland's Alt+Space bind) the emoji search, typed into from the keyboard
+    // (D-Bus, from Hyprland's ⌘+Space bind) the emoji search, typed into from the keyboard
     Q_SCRIPTABLE void emojiSearch() { emit emojiSearchAsked(); }
 
 signals:

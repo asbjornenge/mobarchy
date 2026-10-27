@@ -4,7 +4,7 @@ import QtQuick
 import org.kde.layershell as LayerShell
 import Mobarchy.Shell
 
-// The emoji, from a hardware keyboard: Alt+Space (Hyprland's bind, Keyboard.emojiSearch) puts
+// The emoji, from a hardware keyboard: ⌘+Space (Hyprland's bind, Keyboard.emojiSearch) puts
 // this up over the bottom of the screen and borrows the keyboard's keys (Keyboard.grabKeys)
 // from the app with the focused field. Typing searches (the on-screen keyboard's emoji
 // search: CLDR's names, Norwegian and English), the arrows and Tab choose, Return types the
