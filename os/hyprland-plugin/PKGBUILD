@@ -1,0 +1,29 @@
+# Mobarchy's Hyprland plugin (ADR 0045), built from this directory:
+#   tools/cross-cmake os/hyprland-plugin --work <dir> --device <user@host>
+# against the device's own Hyprland headers: a plugin loads only into the Hyprland it was built
+# for, so the package depends on exactly that version.
+pkgname=mobarchy-hyprland
+pkgver=0.1
+pkgrel=2
+_hyprland=0.56.2
+pkgdesc="Mobarchy's Hyprland plugin: the screen turns as the device does"
+arch=(aarch64 x86_64)
+depends=("hyprland=$_hyprland" pango cairo libdrm libinput pixman wayland libxkbcommon)
+makedepends=(cmake ninja pkgconf)
+options=(!debug)
+
+prepare() {
+    if [[ $srcdir == "$startdir/src" ]]; then
+        echo "set BUILDDIR: ./src is the plugin's source tree, not makepkg's work directory" >&2
+        return 1
+    fi
+}
+
+build() {
+    cmake -S "$startdir" -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+    cmake --build build
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}

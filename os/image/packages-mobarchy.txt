@@ -7,6 +7,8 @@ mobarchy-browser
 mobarchy-agent
 # Patched: a fix for a hang on ARM (os/packages/hyprgraphics)
 hyprgraphics
+# Mobarchy's Hyprland plugin (ADR 0045): the screen turns as the device does
+mobarchy-hyprland
 # The local agent's model server and speech to text (models are downloaded on the phone)
 mobarchy-llama-cpp
 mobarchy-whisper-cpp

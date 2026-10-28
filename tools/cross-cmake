@@ -107,6 +107,9 @@ if [ $fresh = 1 ] || [ "$(cat "$work/sysroot.deps" 2>/dev/null)" != "$sysroot_ke
     rm -rf "$build"
 fi
 target_qt=$(grep -m1 -A1 '^%VERSION%' "$sysroot"/var/lib/pacman/local/qt6-base-*/desc | tail -1)
+# (Mobarchy's own build of a distribution package has a sub-release, 6.11.2-3.2
+# (os/packages/qt6-base): the host's tools are those of the release it patches, 6.11.2-3)
+target_qt=$(sed -E 's/^([^-]+-[0-9]+)\.[0-9]+$/\1/' <<<"$target_qt")
 
 # --- the host: the same Qt for its tools, and clang -------------------------------------
 # Arch Linux x86_64 as it was while it had the target's Qt (Arch Linux ARM follows Arch
