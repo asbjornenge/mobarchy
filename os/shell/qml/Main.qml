@@ -301,10 +301,32 @@ QtObject {
         keyboard.visible = false
         lockScreen.shown = true
     }
+    // The lock screen drawn before the screen goes off: the screen shows its last frame when
+    // it comes on again, and that was the app in use (a glimpse of it before the lock screen).
     function screenOff() {
+        const drawn = lockScreen.visible
         lock()
+        if (drawn) {
+            screen.on = false
+            return
+        }
+        offWhenDrawn = true
+        offFallback.restart()
+    }
+    property bool offWhenDrawn: false
+    function offNow() {
+        offFallback.stop()
+        offWhenDrawn = false
         screen.on = false
     }
+    readonly property Connections lockDrawn: Connections {
+        target: shell.lockScreen
+        // (a frame of it drawn: once the compositor has shown it too, off)
+        function onFrameSwapped() { if (shell.offWhenDrawn) shell.offAfterFrame.restart() }
+    }
+    readonly property Timer offAfterFrame: Timer { interval: 60; onTriggered: if (shell.offWhenDrawn) shell.offNow() }
+    // (and if it never draws: off all the same)
+    readonly property Timer offFallback: Timer { interval: 400; onTriggered: if (shell.offWhenDrawn) shell.offNow() }
     // Touch points whose "up" got lost would make the shell ignore every tap and swipe.
     readonly property TouchGuard touchGuard: TouchGuard {}
 
@@ -312,6 +334,10 @@ QtObject {
         // No finger is on the glass while the screen is dark: anything Qt still holds is stale.
         if (!screen.on)
             touchGuard.reset("wake")
+        // (woken before it went off: it stays on)
+        offWhenDrawn = false
+        offFallback.stop()
+        offAfterFrame.stop()
         screen.on = true
         // Only the lock screen goes dark again by itself. (A fold wakes an unlocked phone
         // too: restarting the timer then turned the screen off 10 s later, video or not.)
