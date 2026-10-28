@@ -20,9 +20,24 @@ TouchGuard::TouchGuard(QObject *parent)
     // (only while points are down)
     m_stale.setInterval(5000);
     connect(&m_stale, &QTimer::timeout, this, [this] {
-        if (m_clock.elapsed() - m_lastEvent > StaleMs)
+        const qint64 now = m_clock.elapsed();
+        if (now - m_lastEvent > StaleMs) {
             reset(QStringLiteral("no touch event for %1 s").arg(StaleMs / 1000));
+            return;
+        }
+        // (other fingers touching meanwhile: a point that hasn't moved in all that time is
+        // a lost one, kept by Qt as stationary in every event since)
+        for (const Point &p : std::as_const(m_down)) {
+            if (now - p.lastMoved > StaleMs) {
+                reset(QStringLiteral("a point still for %1 s").arg(StaleMs / 1000));
+                return;
+            }
+        }
     });
+    // A fold or an output change takes the shell's surfaces away with any finger on them:
+    // no finger can be down across it.
+    connect(qGuiApp, &QGuiApplication::screenAdded, this, [this] { reset(QStringLiteral("a screen added")); });
+    connect(qGuiApp, &QGuiApplication::screenRemoved, this, [this] { reset(QStringLiteral("a screen removed")); });
 }
 
 bool TouchGuard::eventFilter(QObject *watched, QEvent *event)

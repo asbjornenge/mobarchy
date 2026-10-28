@@ -2,9 +2,10 @@
 // touched went away), Qt keeps that point down for good, and Qt Quick then stops turning
 // new touches into presses for MouseAreas: the whole shell ignores taps and swipes. The
 // guard follows the points the shell's windows see; reset() cancels any still down, at
-// moments when no finger can be (the screen just woke up), and points no event has
-// mentioned for a while are cancelled by themselves (a finger on glass is never that still:
-// it jitters, and each jitter is an event).
+// moments when no finger can be (the screen just woke up, a screen came or went: a fold),
+// and points that haven't moved for a while are cancelled by themselves (a finger on glass is
+// never that still: it jitters, and each jitter is an event), whether or not other fingers
+// touch meanwhile.
 #pragma once
 
 #include <QElapsedTimer>
