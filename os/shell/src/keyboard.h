@@ -156,6 +156,7 @@ private:
     bool m_activeChanged = false;
     bool m_visible = false;
     bool m_hiddenByHand = false;   // the owner hid it while a field had focus
+    qint64 m_deactivatedAt = 0;    // (ms: when a field last let go)
     bool m_manual = false;         // the owner showed it with no field focused
     QString m_surrounding;
     bool m_capturing = false;

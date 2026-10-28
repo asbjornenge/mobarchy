@@ -60,6 +60,7 @@ void InputMethod::zwp_input_method_v2_done()
                         << "cursor" << m_pendingCursor;
     m_keyboard->m_serial++;
     const bool activated = m_pendingActive && !m_keyboard->m_active;
+    const bool deactivated = !m_pendingActive && m_keyboard->m_active;
     m_keyboard->m_activeChanged = m_pendingActive != m_keyboard->m_active;
     m_keyboard->m_active = m_pendingActive;
     const QPair<QString, int> reported(m_pendingText, int(m_pendingCursor));
@@ -71,7 +72,13 @@ void InputMethod::zwp_input_method_v2_done()
     }
     m_keyboard->m_hint = m_pendingHint;
     m_keyboard->m_purposeValue = m_pendingPurpose;
-    if (activated)
+    // A field newly focused brings the keyboard back, even after it was put away; not one
+    // let go of and taken back within a second (a page relaid out as the keyboard went:
+    // Chromium blurs and refocuses its field, and the keyboard came straight back up).
+    const qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    if (deactivated)
+        m_keyboard->m_deactivatedAt = nowMs;
+    if (activated && nowMs - m_keyboard->m_deactivatedAt > 1000)
         m_keyboard->m_hiddenByHand = false;
     m_keyboard->onDone();
 }
