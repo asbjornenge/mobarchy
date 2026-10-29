@@ -15,12 +15,10 @@ Arch Linux · Hyprland · Qt Quick · inspired by [Omarchy](https://omarchy.org)
 > **Status:** early development, in daily use on a Pixel 9 Pro Fold. Expect rough edges,
 > and use a phone you are willing to experiment on.
 
-| | | | |
-|:-:|:-:|:-:|:-:|
-| ![Boot](docs/screenshots/boot.png) | ![Lock screen](docs/screenshots/lock.png) | ![Home](docs/screenshots/home.png) | ![Notifications](docs/screenshots/notifications.png) |
-| Boot | Lock screen | Home | Notifications |
-| ![Apps](docs/screenshots/apps.png) | ![Quick settings](docs/screenshots/quick.png) | ![Weather forecast](docs/screenshots/forecast.png) | ![Themes](docs/screenshots/themes.png) |
-| Apps | Quick settings | Weather | Themes |
+<table align="center">
+<tr><td align="center"><img src="docs/screenshots/boot.png" width="190" alt="Boot"><br><sub>Boot</sub></td><td align="center"><img src="docs/screenshots/lock.png" width="190" alt="Lock screen"><br><sub>Lock screen</sub></td><td align="center"><img src="docs/screenshots/home.png" width="190" alt="Home"><br><sub>Home</sub></td><td align="center"><img src="docs/screenshots/notifications.png" width="190" alt="Notifications"><br><sub>Notifications</sub></td></tr>
+<tr><td align="center"><img src="docs/screenshots/apps.png" width="190" alt="Apps"><br><sub>Apps</sub></td><td align="center"><img src="docs/screenshots/quick.png" width="190" alt="Quick settings"><br><sub>Quick settings</sub></td><td align="center"><img src="docs/screenshots/forecast.png" width="190" alt="Weather"><br><sub>Weather</sub></td><td align="center"><img src="docs/screenshots/themes.png" width="190" alt="Themes"><br><sub>Themes</sub></td></tr>
+</table>
 
 <sub>Screenshots from the simulator, with made-up data; the boot screen is the splash as the phone draws it.</sub>
 
@@ -78,38 +76,10 @@ Waydroid are an experiment, parked for now.
 
 | Phone | Codename | Status |
 |---|---|---|
-| Google Pixel 9 Pro Fold | [`comet`](devices/comet/) | 🟢 Daily driver (with rough edges) |
+| Google Pixel 9 Pro Fold | [`comet`](devices/comet/) | 🟢 Daily driver (with rough edges): [what works](devices/comet/README.md#what-works) |
 | *Simulator (QEMU/KVM, x86_64)* | [`sim-x86_64`](devices/sim-x86_64/) | 🟢 For development |
 
 Want to bring Mobarchy to another phone? See [devices/README.md](devices/README.md).
-
-### Google Pixel 9 Pro Fold (`comet`)
-
-✅ works · 🟡 works, with limits · ❌ not yet
-
-| | Feature | Notes |
-|:-:|---|---|
-| ✅ | Boot, kernel | Our own build of Google's kernel; Arch Linux ARM on the userdata partition |
-| ✅ | Displays | Both panels; rotation and fold animated |
-| ✅ | Touch | Both screens; tap to wake |
-| ✅ | GPU | Mali-G715 on Panthor (backported) and Mesa |
-| ✅ | Fold sensor, laptop mode | The phone follows the fold; half open, a laptop |
-| ✅ | Calls and SMS | In and out, with call audio; through oFono and the vendor's radio stack |
-| 🟡 | In-call microphone, VoLTE | Not verified yet |
-| ✅ | Mobile data | LTE (tested on Telenor) |
-| 🟡 | Wi-Fi | Works; resuming from deep sleep can hang it, and a watchdog recovers it |
-| ✅ | Wi-Fi hotspot | |
-| 🟡 | Bluetooth | Works (audio, keyboards, calls); the chip's low-power mode not yet |
-| ✅ | Audio | Speakers, earpiece, Bluetooth headsets |
-| ✅ | Haptics | |
-| ✅ | Cameras | Both, with preview and photos |
-| ✅ | Fingerprint | Unlock and approvals, through the TEE |
-| ✅ | GNSS (location) | Through GeoClue |
-| ✅ | Sensors, rotation | Accelerometer, light, proximity, hinge angle |
-| ✅ | Battery, charging, thermal | Pixel's thermal service keeps charging cool |
-| 🟡 | Deep sleep | Wakes for alarms; calls while asleep not verified yet |
-| ❌ | NFC, tap to pay | Not on the phone; see ADR 0030 |
-| ❌ | Installer | Flashing is manual for now (see [devices/comet](devices/comet/)) |
 
 ## Layout
 

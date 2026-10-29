@@ -1,9 +1,49 @@
 # comet: Google Pixel 9 Pro Fold
 
-Status: **v0.2 boots to Arch Linux + systemd + Hyprland** (2026-09-30), with ssh over USB.
-The outer panel shows a terminal (foot), the Mobarchy bar and the on-screen keyboard
-(squeekboard), and the panel in use follows the fold.
-**v0.1 boots** (2026-09-30). Our init runs as PID 1 on the stock kernel and loads all vendor modules. It shows its log on both panels via KMS and exposes USB NCM and ACM. The host gets 172.16.42.2 over DHCP, and `telnet 172.16.42.1` gives a root shell. This is the porting notebook, and it records what we know.
+Mobarchy's first phone, and its daily driver (with rough edges). Device code: this directory
+(`devices/comet/`); everything else in Mobarchy is generic.
+
+## What works
+
+✅ works · 🟡 works, with limits · ❌ not yet
+
+| | Feature | Notes |
+|:-:|---|---|
+| ✅ | Boot, kernel | Our own build of Google's kernel; Arch Linux ARM on the userdata partition |
+| ✅ | Displays | Both panels; rotation and fold animated |
+| ✅ | Touch | Both screens; tap to wake |
+| ✅ | GPU | Mali-G715 on Panthor (backported) and Mesa |
+| ✅ | Fold sensor, laptop mode | The phone follows the fold; half open, a laptop |
+| ✅ | Calls and SMS | In and out, with call audio; through oFono and the vendor's radio stack |
+| 🟡 | In-call microphone, VoLTE | Not verified yet |
+| ✅ | Mobile data | LTE (tested on Telenor) |
+| 🟡 | Wi-Fi | Works; resuming from deep sleep can hang it, and a watchdog recovers it |
+| ✅ | Wi-Fi hotspot | |
+| 🟡 | Bluetooth | Works (audio, keyboards, calls); the chip's low-power mode not yet |
+| ✅ | Audio | Speakers, earpiece, Bluetooth headsets |
+| ✅ | Haptics | |
+| ✅ | Cameras | Both, with preview and photos |
+| ✅ | Fingerprint | Unlock and approvals, through the TEE |
+| ✅ | GNSS (location) | Through GeoClue |
+| ✅ | Sensors, rotation | Accelerometer, light, proximity, hinge angle |
+| ✅ | Battery, charging, thermal | Pixel's thermal service keeps charging cool |
+| 🟡 | Deep sleep | Wakes for alarms; calls while asleep not verified yet |
+| ❌ | NFC, tap to pay | Not on the phone; see ADR 0030 |
+| ❌ | Installer | Flashing is manual for now (below) |
+
+Installing is by hand for now: an unlocked bootloader, our kernel, and Arch Linux ARM on the
+userdata partition (see [v0.2](#v02-mobarchy-on-the-phone-kernel--rootfs) below). Flashing
+can wipe the phone or leave it unbootable: only with a backup, and at your own risk.
+
+## Porting notebook
+
+The rest of this page is how the port was made, and what we learned on the way.
+
+First boots (2026-09-30):
+- **v0.1:** our init runs as PID 1 on the stock kernel and loads all vendor modules. It shows
+  its log on both panels via KMS and exposes USB NCM and ACM. The host gets 172.16.42.2 over
+  DHCP, and `telnet 172.16.42.1` gives a root shell.
+- **v0.2:** Arch Linux, systemd and Hyprland, with ssh over USB.
 
 Analysis source: factory image `cp3a.260905.009` (Android 17, September 2026 patch, bootloader `ripcurrentpro-17.0`), unpacked with `tools/android-images/unpack`. There are no binaries in this repo. Everything is reproducible from Google's download.
 
