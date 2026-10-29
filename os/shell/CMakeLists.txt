@@ -139,6 +139,7 @@ qt_add_qml_module(mobarchy-shell
         qml/FriggCard.qml
         qml/BoardCard.qml
         qml/WidgetCard.qml
+        qml/ForecastView.qml
         qml/WeatherCard.qml
         qml/WeatherScene.qml
         qml/MediaCard.qml

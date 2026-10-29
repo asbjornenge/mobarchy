@@ -33,6 +33,10 @@ Rectangle {
     property string icon
     // tapping the card (not its own controls)
     signal tapped()
+    // holding it edits the board; a card with a use of its own for a hold says so (it can be
+    // moved still, from the board's editing started on another card)
+    property bool holdToEdit: true
+    signal longPressed()
     // an app, to the front if it is open, else started (the board's: one window per app)
     property var openApp: null
     default property alias content: body.data
@@ -68,7 +72,7 @@ Rectangle {
         id: tap
         anchors.fill: parent
         onClicked: if (!card.editing) card.tapped()
-        onPressAndHold: card.held()
+        onPressAndHold: card.holdToEdit ? card.held() : card.longPressed()
     }
 
     Row {

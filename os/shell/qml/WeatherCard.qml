@@ -1,10 +1,12 @@
 import QtQuick
+import QtQuick.Window
 import Mobarchy.Shell
 
 // The weather where the owner is: by default where the phone is (GeoClue: the phone's GNSS,
 // ADR 0033), or a place the owner chose (home.json "weather": {name, latitude, longitude}).
 // Open-Meteo has the weather (free, no key) and OpenStreetMap's Nominatim the place's name;
-// both are told only the place, to about a kilometre. Tapped, the card offers to choose.
+// both are told only the place, to about a kilometre. Tapped, the card shows the forecast
+// there (ForecastView); held, it offers to choose the place (as it does with none yet).
 BoardCard {
     id: card
 
@@ -51,12 +53,33 @@ BoardCard {
     // where the phone is, again: when the board comes into sight and the last fix is old
     property real locatedAt: 0
     onLiveChanged: if (live && !chosen && Date.now() - locatedAt > 15 * 60 * 1000) geo.refresh(here ? 120 : 600)
+    Connections {
+        target: card
+        function onLiveChanged() { if (!card.live) forecast.close() }
+    }
     function useHere() {
         config.set("weather", null)
         asking = false
         geo.refresh(card.here ? 120 : 600)
     }
-    onTapped: asking = !asking
+    holdToEdit: false
+    onLongPressed: asking = !asking
+    onTapped: {
+        if (asking || !place)
+            asking = !asking || !place
+        else
+            forecast.open()
+    }
+    // the forecast, over home (its window's), while the board is in sight
+    ForecastView {
+        id: forecast
+        parent: card.Window.contentItem
+        anchors.fill: parent
+        z: 100
+        place: card.place
+        here: !card.chosen
+        look: card.look
+    }
 
     title: place ? (chosen ? "" : "󰍎 ") + place.name : qsTr("Weather")
     icon: now ? look(now.code, now.day)[0] : "󰖐"
@@ -136,7 +159,7 @@ BoardCard {
     // --- the weather ---
     Text {
         id: temp
-        visible: card.now !== null
+        visible: card.now !== null && !card.asking
         anchors { left: parent.left; top: parent.top; topMargin: -4 }
         text: card.now ? card.now.temp + "°" : ""
         color: Theme.fg
