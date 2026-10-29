@@ -1,4 +1,5 @@
-// Mobarchy's Hyprland plugin (ADR 0045): the screen turns as the device does.
+// Mobarchy's Hyprland plugin (ADR 0045): the screen turns as the device does, and what is in
+// view stays in view when the monitor showing it goes (a fold).
 //
 // A turn is a change of a monitor's transform (the device's rotation hook rewrites the monitor
 // rules and reloads them, ADR 0020). Hyprland applies it at once: the apps then draw at the new
@@ -16,11 +17,16 @@
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopTimer.hpp>
 #include <hyprland/src/config/values/types/IntValue.hpp>
+#include <hyprland/src/desktop/Workspace.hpp>
+#include <hyprland/src/desktop/state/FocusState.hpp>
+#include <hyprland/src/state/WorkspaceState.hpp>
+#include <hyprland/src/state/WorkspacePlacementController.hpp>
 
 #include <chrono>
 #include <cmath>
 #include <map>
 #include <numbers>
+#include <optional>
 #include <string>
 
 using namespace Render;
@@ -37,6 +43,11 @@ struct Turn {
 };
 std::map<std::string, wl_output_transform> g_before;    // transforms as they were before a reload
 std::map<std::string, Turn> g_turns;                     // monitors turning now
+struct Shown {
+    std::string monitor;
+    WORKSPACEID workspace;
+};
+std::optional<Shown> g_shown;                            // in view before a reload
 std::vector<CHyprSignalListener> g_listeners;
 SP<CEventLoopTimer>              g_tick;                 // asks for the turning monitors' frames
 
@@ -123,6 +134,47 @@ void remember()
     g_before.clear();
     for (const auto& m : State::monitorState()->monitors())
         g_before[m->m_name] = m->m_transform;
+    if (const auto mon = Desktop::focusState()->monitor(); mon && mon->m_activeWorkspace)
+        g_shown = Shown{mon->m_name, mon->m_activeWorkspace->m_id};
+}
+
+// After a reload took away the monitor in view (a fold: one panel off, the other on, in one
+// step), what it showed is shown on the one left, before a frame is drawn. Hyprland shows
+// the workspace a monitor last had when it comes back, as for a screen plugged in again: on
+// a fold, an app from the time before, then a jump.
+void follow()
+{
+    if (!g_shown)
+        return;
+    const auto& mons = State::monitorState()->monitors();
+    // (the reload's monitor rules are applied after it, and the layout may change in between)
+    if (std::ranges::any_of(mons, [](const auto& m) { return m->m_name == g_shown->monitor; }))
+        return;
+    const auto ws = State::workspaceState()->query().id(g_shown->workspace).run();
+    g_shown.reset();
+    auto target = Desktop::focusState()->monitor();
+    if (!target || !target->m_enabled)
+        target = mons.empty() ? nullptr : mons.front();
+    if (!ws || !target)
+        return;
+    // (the other workspaces too: a monitor turned off before the other was on has no monitor
+    // to hand them to, and they stay with it, out of reach)
+    for (const auto& w : State::workspaceState()->workspacesCopy()) {
+        const auto on = w->m_monitor.lock();
+        if (!w->m_isSpecialWorkspace && (!on || !on->m_enabled))
+            State::workspacePlacementController()->moveWorkspaceToMonitor(w, target, true);
+    }
+    State::workspacePlacementController()->moveWorkspaceToMonitor(ws, target, true);
+    Desktop::focusState()->rawMonitorFocus(target);
+    target->changeWorkspace(ws, false, true, false);
+    // (and its window has the focus: shown already, the change of workspace is nothing and
+    // gives none, and the focus stays where moving the workspaces left it, with a window not
+    // in view, which a request to activate it then takes as done: home stayed away)
+    auto window = ws->getLastFocusedWindow();
+    if (!window)
+        window = ws->getFocusCandidate();
+    if (window && Desktop::focusState()->window() != window)
+        Desktop::focusState()->fullWindowFocus(window, Desktop::FOCUS_REASON_WORKSPACE_CHANGE);
 }
 
 // After a reload: the monitors whose transform changed start turning.
@@ -193,13 +245,16 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle)
 
     g_listeners = {
         Event::bus()->m_events.config.preReload.listen([] { remember(); }),
-        Event::bus()->m_events.monitor.layoutChanged.listen([] { compare(); }),
+        Event::bus()->m_events.monitor.layoutChanged.listen([] {
+            follow();
+            compare();
+        }),
         Event::bus()->m_events.config.reloaded.listen([] { compare(); }),
         Event::bus()->m_events.render.stage.listen([](eRenderStage s) { stage(s); }),
         Event::bus()->m_events.render.pre.listen([](PHLMONITOR m) { pre(m); }),
     };
 
-    return {"mobarchy", "Mobarchy: the screen turns as the device does", "Mobarchy", "0.1"};
+    return {"mobarchy", "Mobarchy: the screen turns as the device does, and stays on what it showed", "Mobarchy", "0.1"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT()
@@ -209,5 +264,6 @@ APICALL EXPORT void PLUGIN_EXIT()
     g_pEventLoopManager->removeTimer(g_tick);
     g_tick.reset();
     g_turns.clear();
+    g_shown.reset();
     g_pHyprRenderer->m_directScanoutBlocked = false;
 }

@@ -1,4 +1,4 @@
-# 0045: A Hyprland plugin: the screen turns as the device does
+# 0045: A Hyprland plugin: the screen turns as the device does, and a fold keeps what is in view
 
 - Status: accepted (tried and kept, 2026-10-28)
 - Date: 2026-10-28
@@ -38,6 +38,13 @@ The owner chose the second.
 - The plugin is built against one Hyprland version (`depends=("hyprland=<version>")`)
   and refuses to load against another. A Hyprland update means rebuilding it.
 - The shell's curtain (`Curtain.qml`) is gone.
+- **A fold** (a reload that turns one panel off and the other on, in one step inside
+  Hyprland): before the first frame after it, the plugin shows the workspace that was in
+  view on the monitor left, moves there the workspaces still with a monitor that is off,
+  and gives the focus to the window shown. Hyprland alone shows the workspace the monitor
+  had when it was last on (an app from before, then a jump when the fold script moved
+  them), and with the inner panel off before the outer was on it left workspaces on the
+  panel that was off. The fold script only writes the rules and reloads.
 
 ## Consequences
 

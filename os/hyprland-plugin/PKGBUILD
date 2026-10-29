@@ -4,7 +4,7 @@
 # for, so the package depends on exactly that version.
 pkgname=mobarchy-hyprland
 pkgver=0.1
-pkgrel=2
+pkgrel=5
 _hyprland=0.56.2
 pkgdesc="Mobarchy's Hyprland plugin: the screen turns as the device does"
 arch=(aarch64 x86_64)

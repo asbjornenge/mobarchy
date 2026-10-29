@@ -66,18 +66,6 @@ def hyprjson(what: str) -> list:
     return json.loads(out or "[]")
 
 
-def gather_workspaces(monitor: str, show: int | None) -> None:
-    """Move every workspace to monitor and show `show` (the one in use before the fold),
-    or the lowest one, so windows follow the fold."""
-    ids = sorted(w["id"] for w in hyprjson("workspaces") if w["id"] > 0)
-    for ws in ids:
-        hyprctl("dispatch", "moveworkspacetomonitor", str(ws), monitor)
-    if show in ids:
-        hyprctl("dispatch", "workspace", str(show))
-    elif ids:
-        hyprctl("dispatch", "workspace", str(ids[0]))
-
-
 def write_rules(folded: bool, turns: int) -> None:
     """Monitor rules go through a config file and a reload, not `hyprctl keyword monitor`:
     rules set by keyword pile up, and after a while (or a reload) Hyprland stops applying
@@ -110,25 +98,17 @@ def rotate(orientation: str) -> None:
 
 def apply(folded: bool) -> None:
     on, off = (OUTER, INNER) if folded else (INNER, OUTER)
-    # The workspace in use now (on the panel being switched away from) stays in view.
-    current = (subprocess.run(["hyprctl", "-j", "activeworkspace"], capture_output=True,
-                              text=True).stdout or "{}")
-    show = json.loads(current).get("id")
-    # The reload is applied asynchronously, and Hyprland reshuffles workspaces itself
-    # when a monitor goes away: wait for the new layout before gathering them. A reload
-    # that did not take (one of several in a burst) is done again.
+    # The app in view stays in view, on the panel now in use: Mobarchy's Hyprland plugin
+    # (ADR 0045) shows it there as the panels change, before a frame is drawn.
+    # The reload is applied asynchronously: a reload that did not take (one of several in a
+    # burst) is done again.
     for attempt in range(3):
         write_rules(folded, 0)
         for _ in range(30):
             names = [m["name"] for m in hyprjson("monitors")]
             if on[0] in names and off[0] not in names:
-                break
+                return
             time.sleep(0.1)
-        else:
-            continue
-        break
-    hyprctl("dispatch", "focusmonitor", on[0])
-    gather_workspaces(on[0], show)
 
 
 if __name__ == "__main__":
