@@ -3,7 +3,54 @@
 An AI-first mobile Linux OS. The OS itself is exposed to AI agents as tools (MCP), so an agent can see and do everything a user can do on the phone.
 Inspired by [Omarchy](https://omarchy.org).
 
-Status: early development. The Pixel 9 Pro Fold (`devices/comet`) boots Mobarchy to a Hyprland session with a terminal and on-screen keyboard.
+Status: early development, in daily use on a Pixel 9 Pro Fold (`devices/comet`). Expect rough
+edges, and a phone you are willing to experiment on.
+
+| | | | |
+|:-:|:-:|:-:|:-:|
+| ![Lock screen](docs/screenshots/lock.png) | ![Home](docs/screenshots/home.png) | ![Notifications](docs/screenshots/notifications.png) | ![Apps](docs/screenshots/apps.png) |
+| Lock screen | Home: widgets | Notifications | Apps |
+| ![Quick settings](docs/screenshots/quick.png) | ![Weather forecast](docs/screenshots/forecast.png) | ![Themes](docs/screenshots/themes.png) | ![App switcher](docs/screenshots/switcher.png) |
+| Quick settings | Weather | Themes | App switcher |
+
+(Screenshots from the simulator, with made-up data.)
+
+## Features
+
+**AI-first**
+- The whole phone as MCP tools (85 of them): the screen, apps, calls and messages, mail,
+  calendar, contacts, settings, themes, widgets and more. Each tool has a risk level; risky
+  steps and root are approved by the owner on the screen.
+- **Frigg**, the phone's agent: talk to it ("Hei Frigg", a live voice conversation that
+  knows the owner's voice) or type. It runs on the owner's own Claude or OpenAI account, a
+  local model, or an API key.
+- The agent makes things for the owner: themes (colours, fonts, wallpapers) and home screen
+  widgets (news, prices, quotes, ...) as descriptions the shell draws, never as code.
+
+**The shell** (Qt Quick on Hyprland)
+- Home as pages: notifications, a board of widgets to arrange, and the apps.
+- Lock screen with the owner's PIN (their password) and the fingerprint sensor.
+- Its own on-screen keyboard (with emoji search), and hardware keyboards with shortcuts.
+- Foldables: the screen follows the fold and turns with the device (a Hyprland plugin of
+  its own), and a half-open phone becomes a laptop.
+
+**Apps**
+- Phone and messages, contacts and calendar (iCloud and Google), mail, clock with alarms and
+  timers, camera and photos.
+- Bifrost, the browser (with DRM video, 1Password and web apps on the home screen); Chromium
+  for sites that need extensions.
+- Spotify, a curated app store on top of Arch Linux, and Android apps through Waydroid
+  (experimental).
+
+**On the Pixel 9 Pro Fold**
+- Arch Linux ARM on its own build of Google's kernel: the GPU (Panthor and Mesa), both
+  displays and touchscreens, the fold sensor, rotation, GNSS, fingerprint, cameras, deep sleep.
+- Calls, SMS and mobile data through the phone's own modem (the vendor's radio stack in a
+  small Android container), and a Wi-Fi hotspot.
+
+**For developers**
+- A QEMU simulator that behaves as a device, driven through the same MCP tools.
+- Device-specific code kept to `devices/<codename>/`: a new phone is a new directory.
 
 ## Layout
 
