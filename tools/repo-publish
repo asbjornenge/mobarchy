@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Publish Mobarchy's package repository (tools/repo-build's directory) to where phones get it:
-# a server's /srv/mobarchy-repo, served (internal, ZeroTier, with basic auth) at
-# https://repo.example.com/mobarchy/<arch>/ by the swarm stack mobarchy-repo
-# (a web server's stack).
+# a directory on a web server, over ssh (rsync), given as MOBARCHY_REPO_DEST=host:/path; the
+# phones' pacman.conf points at the URL that serves it.
 #
-#   tools/repo-publish --repo <dir>        e.g. <T7>/mobarchy/repo/aarch64
+#   MOBARCHY_REPO_DEST=host:/srv/mobarchy-repo tools/repo-publish --repo <dir>
+#                                                  e.g. <T7>/mobarchy/repo/aarch64
 #
 # Only packages and the database go (not makepkg's logs); what was removed here goes there too.
 set -euo pipefail
@@ -14,7 +14,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$repo" ] && [ -f "$repo/mobarchy.db" ] || { echo "usage: $0 --repo <dir with mobarchy.db>" >&2; exit 2; }
 arch=$(basename "$repo")
-dest=${MOBARCHY_REPO_DEST:-host:/srv/mobarchy-repo}
+dest=${MOBARCHY_REPO_DEST:?set MOBARCHY_REPO_DEST=host:/path (where the repository is served from)}
 ssh "${dest%%:*}" "mkdir -p '${dest#*:}/$arch'"
 rsync -a --delete --copy-links --include='*.pkg.tar.zst' --include='*.pkg.tar.zst.sig' \
     --include='mobarchy.db*' --include='mobarchy.files*' --exclude='*' "$repo/" "$dest/$arch/"

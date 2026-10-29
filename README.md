@@ -45,3 +45,17 @@ See [sim/README.md](sim/README.md) for all commands.
 - [Architecture](docs/architecture.md)
 - [Decision records](docs/decisions/)
 - [Research notes](docs/research/)
+
+## License
+
+Mobarchy is free software: you can redistribute it and/or modify it under the terms of the
+GNU General Public License as published by the Free Software Foundation, either version 3 of
+the License, or (at your option) any later version ([GPL-3.0-or-later](LICENSE)).
+
+Some parts keep the licenses of the projects they come from or change:
+- the kernel patches (`devices/*/kernel/`): GPL-2.0, as the Linux kernel;
+- the patches and build files for other projects' packages (`os/packages/`): those projects'
+  licenses (the packages for proprietary software, 1Password and Widevine, contain only the
+  build files that fetch it);
+- the Caveat font (`os/shell/data/fonts/`): SIL Open Font License 1.1;
+- the emoji data (`os/shell/data/emoji.json`): the Unicode License.
