@@ -1,0 +1,43 @@
+#!/bin/sh
+# The Mobarchy session as another user until the next boot: a demo profile, a guest. The
+# owner's session ends (their user services with it) and the other user's starts; a reboot,
+# or --owner, gives the phone back to the owner. (As root.)
+#
+#   mobarchy-session-user USER      the session restarts as USER
+#   mobarchy-session-user --owner   back to the owner (the session unit's own User=)
+#   mobarchy-session-user           who the session is for now
+#
+# A runtime drop-in (/run): nothing on the disk changes.
+set -eu
+unit=mobarchy-session.service
+dropin=/run/systemd/system/$unit.d/user.conf
+
+current=$(systemctl show -p User --value "$unit")
+case "${1:-}" in
+"")
+    echo "$current"
+    exit 0
+    ;;
+-h|--help)
+    sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+    ;;
+--owner)
+    rm -f "$dropin"
+    ;;
+*)
+    id -u "$1" >/dev/null 2>&1 || { echo "mobarchy-session-user: no user $1" >&2; exit 2; }
+    mkdir -p "$(dirname "$dropin")"
+    printf '[Service]\nUser=%s\n' "$1" > "$dropin"
+    ;;
+esac
+systemctl daemon-reload
+next=$(systemctl show -p User --value "$unit")
+[ "$next" = "$current" ] && { echo "the session is already $next's"; exit 0; }
+
+systemctl stop "$unit"
+# (the previous user's services too: the agent's MCP server listens on a fixed port, and an
+# ssh login would keep their user manager running)
+systemctl stop "user@$(id -u "$current").service" 2>/dev/null || true
+systemctl start "$unit"
+echo "the session is $next's"
