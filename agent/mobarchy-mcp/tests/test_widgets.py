@@ -51,7 +51,7 @@ def test_json_sources():
     src = {"items": "data.children", "fields": {"title": "t", "url": "u"}}
     assert widgets.from_json(doc, src, "list") == {"items": [{"title": "A", "subtitle": "", "url": "https://a", "image": ""}]}
     assert widgets.from_json(doc, {"value": "list.0.main.temp"}, "value") == {"value": "3.5", "caption": ""}
-    assert widgets.from_json(doc, {"text": "note"}, "text") == {"text": "**hi**"}
+    assert widgets.from_json(doc, {"text": "note"}, "text") == {"text": "**hi**", "caption": ""}
     with pytest.raises(widgets.WidgetError):
         widgets.from_json(doc, {"items": "note"}, "list")
 
@@ -131,3 +131,26 @@ def test_due():
     assert widgets.due("n", spec)
     widgets.refresh_one("n", spec)
     assert not widgets.due("n", spec)
+
+
+def test_style(monkeypatch):
+    monkeypatch.setattr(widgets, "installed_fonts", lambda: {"Noto Serif", "JetBrains Mono"})
+    spec = widgets.check({"title": "q", "template": "text", "source": {"type": "static", "content": {"text": "x"}},
+                          "style": {"font": "Noto Serif", "size": 22, "italic": True, "align": "center"}})
+    assert spec["style"] == {"font": "Noto Serif", "size": 22, "italic": True, "align": "center"}
+    # (left, the default, is not kept; nothing set: no style)
+    assert "style" not in widgets.check({"title": "q", "source": {"type": "static", "content": {}},
+                                         "style": {"align": "left"}})
+    for bad in ({"font": "Comic Sans"}, {"size": 99}, {"align": "justify"}):
+        with pytest.raises(widgets.WidgetError):
+            widgets.check({"title": "q", "source": {"type": "static", "content": {}}, "style": bad})
+    widgets.create({"title": "Stoic", "template": "text", "source": {"type": "static", "content": {"text": "x"}},
+                    "style": {"font": "Noto Serif", "size": 22}})
+    widgets.update("stoic", {"style": {"size": 0, "italic": True}})
+    assert widgets.load_home()["widgets"]["stoic"]["style"] == {"font": "Noto Serif", "italic": True}
+
+
+def test_text_caption():
+    doc = json.dumps({"text": "He who is content.", "author": "Epictetus"}).encode()
+    assert widgets.from_json(doc, {"text": "text", "caption": "author"}, "text") == \
+        {"text": "He who is content.", "caption": "Epictetus"}

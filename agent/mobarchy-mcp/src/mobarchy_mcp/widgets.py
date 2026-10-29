@@ -15,13 +15,17 @@ A spec:
   {"title": "NRK", "icon": "󰎕", "template": "list",
    "source": {"type": "feed", "url": "https://www.nrk.no/toppsaker.rss"},
    "refresh_minutes": 30,
-   "board": {"cols": 4, "rows": 2, "screens": "wide"}}
+   "board": {"cols": 4, "rows": 2, "screens": "wide"},
+   "style": {"font": "Noto Serif", "size": 20, "italic": true, "align": "center"}}
+
+The style (optional) is the widget's own look for its text: a font family installed on the
+phone, a size, italics and alignment (a quote, a big clock-like value).
 
 Sources:
   feed    RSS or Atom: {"url", "limit"}                      → items
   json    any JSON: {"url", "items": "a.b", "fields": {"title": "x", ...}}   → items
           or {"url", "value": "a.b", "caption": "c"}          → value
-          or {"url", "text": "a.b"}                            → text
+          or {"url", "text": "a.b", "caption": "c"}            → text (and who said it)
   image   an image's URL: {"url", "caption"}                  → image
   static  the content in the spec itself: {"content": {...}}  (a note, a number)
 """
@@ -61,6 +65,8 @@ DEFAULT_BOARD = [
     {"kind": "messages", "cols": 4, "rows": 2}, {"kind": "battery", "cols": 2, "rows": 1}]
 OWN_KINDS = {e["kind"] for e in DEFAULT_BOARD}
 SCREENS = {"all", "wide", "narrow"}
+ALIGN = {"left", "center", "right"}
+SIZES = (10, 48)            # a style's font size, logical px
 MIN_REFRESH = 5             # minutes
 MAX_BYTES = 4 * 1024 * 1024
 MAX_IMAGE = 2 * 1024 * 1024
@@ -146,9 +152,46 @@ def check(spec: dict) -> dict:
     if screens not in SCREENS:
         raise WidgetError("board.screens: all, wide (a wide screen only: a fold's inner one, a "
                           "tablet) or narrow (a phone-sized screen only)")
-    return {"title": title, "icon": str(spec.get("icon", "")), "template": template, "source": source,
-            "refresh_minutes": max(MIN_REFRESH, refresh),
-            "board": {"cols": cols, "rows": rows, "screens": screens}}
+    out = {"title": title, "icon": str(spec.get("icon", "")), "template": template, "source": source,
+           "refresh_minutes": max(MIN_REFRESH, refresh),
+           "board": {"cols": cols, "rows": rows, "screens": screens}}
+    style = check_style(spec.get("style") or {})
+    if style:
+        out["style"] = style
+    return out
+
+
+def installed_fonts() -> set[str]:
+    from .themes import installed_fonts as fonts
+    return fonts()
+
+
+def check_style(style: dict) -> dict:
+    """A widget's own look for its text: only what is set (the theme's for the rest)."""
+    if not isinstance(style, dict):
+        raise WidgetError("style: an object, {font, size, italic, align}")
+    out = {}
+    font = str(style.get("font") or "").strip()
+    if font:
+        fonts = installed_fonts()
+        if fonts and font not in fonts:
+            near = sorted(f for f in fonts if font.lower().split()[0] in f.lower())[:8]
+            raise WidgetError(f"style.font: {font!r} is not installed"
+                              + (f" (near it: {', '.join(near)})" if near else " (widget_fonts lists them)"))
+        out["font"] = font
+    if style.get("size"):
+        size = int(style["size"])
+        if not SIZES[0] <= size <= SIZES[1]:
+            raise WidgetError(f"style.size: {SIZES[0]} to {SIZES[1]} (px)")
+        out["size"] = size
+    if style.get("italic"):
+        out["italic"] = True
+    align = style.get("align") or "left"
+    if align not in ALIGN:
+        raise WidgetError("style.align: left, center or right")
+    if align != "left":
+        out["align"] = align
+    return out
 
 
 def _entry(widget_id: str, spec: dict) -> dict:
@@ -237,7 +280,10 @@ def update(widget_id: str, changes: dict) -> dict:
     if widget_id not in widgets:
         raise WidgetError(f"no widget {widget_id!r} (widget_list has them)")
     current = widgets[widget_id]
-    merged = {**current, **{k: v for k, v in changes.items() if v is not None and k != "board"}}
+    merged = {**current, **{k: v for k, v in changes.items() if v is not None and k not in ("board", "style")}}
+    if changes.get("style") is not None:
+        # (only what is given changes; an empty value, the theme's again)
+        merged["style"] = {**current.get("style", {}), **changes["style"]}
     board = dict(current.get("board") or {})
     if changes.get("template") and changes["template"] != current.get("template"):
         # another template, other sizes: its default one
@@ -388,7 +434,8 @@ def from_json(data: bytes, source: dict, template: str) -> dict:
         return {"value": _str(pick(doc, source.get("value", ""))),
                 "caption": _str(pick(doc, source["caption"])) if source.get("caption") else ""}
     if template == "text":
-        return {"text": _str(pick(doc, source.get("text", "")))}
+        return {"text": _str(pick(doc, source.get("text", ""))),
+                "caption": _str(pick(doc, source["caption"])) if source.get("caption") else ""}
     raise WidgetError(f"a json source doesn't fill the {template} template")
 
 

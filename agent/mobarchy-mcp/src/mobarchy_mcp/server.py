@@ -686,7 +686,8 @@ def widget_list() -> dict:
 
 @tool(Risk.ACT, "Make a home widget")
 def widget_create(title: str, template: str, source: dict, icon: str = "", refresh_minutes: int = 30,
-                  cols: int = 0, rows: int = 0, screens: str = "all", widget_id: str = "") -> dict:
+                  cols: int = 0, rows: int = 0, screens: str = "all", widget_id: str = "",
+                  style: dict | None = None) -> dict:
     """Make a widget for the home board, e.g. "a news widget", "the price of bitcoin", "today's
     lunch menu". It is a description the shell draws, not code: a template filled from a
     source fetched now and every refresh_minutes (5 at the least). Returns its id and what was
@@ -699,7 +700,8 @@ def widget_create(title: str, template: str, source: dict, icon: str = "", refre
       {"type": "json", "url": ..., "items": "path.to.list",
        "fields": {"title": "path", "subtitle": "path", "url": "path", "image": "path"}}   a list
       {"type": "json", "url": ..., "value": "path", "caption": "path"}    a value
-      {"type": "json", "url": ..., "text": "path"}             a text
+      {"type": "json", "url": ..., "text": "path", "caption": "path"}   a text (and under it,
+                                                               who said it: a quote's author)
       {"type": "image", "url": image URL, "caption": "..."}     an image (a webcam's still)
       {"type": "static", "content": {"text": "..."} or {"value": "..", "caption": ".."} or
        {"items": [{"title", "subtitle", "url"}]}}               what you give, as it is
@@ -709,11 +711,14 @@ def widget_create(title: str, template: str, source: dict, icon: str = "", refre
     2x1, 2x2; text 4x2, 2x2, 4x4; image 2x2, 4x2, 4x4.
     screens: "all", "wide" (only on a wide screen: a fold's inner one, a tablet) or "narrow"
     (only on a phone-sized screen). It goes at the end of the board; the owner moves it by
-    holding it."""
+    holding it.
+    style (optional): the widget's own look for its text, e.g. a quote: {"font": an installed
+    family (widget_fonts), "size": 10-48 px (the theme's is 14), "italic": true, "align":
+    "left" | "center" | "right"}."""
     board = {"screens": screens, **({"cols": cols, "rows": rows} if cols and rows else {})}
     try:
         return widgets.create({"title": title, "icon": icon, "template": template, "source": source,
-                               "refresh_minutes": refresh_minutes, "board": board}, widget_id)
+                               "refresh_minutes": refresh_minutes, "board": board, "style": style}, widget_id)
     except widgets.WidgetError as e:
         raise ToolError(str(e)) from e
 
@@ -721,15 +726,25 @@ def widget_create(title: str, template: str, source: dict, icon: str = "", refre
 @tool(Risk.ACT, "Change a home widget")
 def widget_update(widget_id: str, title: str | None = None, template: str | None = None,
                   source: dict | None = None, icon: str | None = None, refresh_minutes: int | None = None,
-                  cols: int = 0, rows: int = 0, screens: str | None = None) -> dict:
+                  cols: int = 0, rows: int = 0, screens: str | None = None, style: dict | None = None) -> dict:
     """Change one of the owner's widgets (widget_list has them): only what is given changes,
-    as in widget_create. It is fetched again at once."""
+    as in widget_create. It is fetched again at once. style: only the keys given change; an
+    empty one ("font": "", "size": 0) goes back to the theme's."""
     board = {**({"screens": screens} if screens else {}), **({"cols": cols, "rows": rows} if cols and rows else {})}
     try:
         return widgets.update(widget_id, {"title": title, "template": template, "source": source, "icon": icon,
-                                          "refresh_minutes": refresh_minutes, "board": board or None})
+                                          "refresh_minutes": refresh_minutes, "board": board or None,
+                                          "style": style})
     except widgets.WidgetError as e:
         raise ToolError(str(e)) from e
+
+
+@tool(Risk.READ, "Fonts for a widget")
+def widget_fonts(query: str = "") -> dict:
+    """The font families installed on the phone, for a widget's style (e.g. "serif", "noto",
+    "mono"; empty: all of them)."""
+    q = query.strip().lower()
+    return {"fonts": sorted(f for f in widgets.installed_fonts() if q in f.lower())[:200]}
 
 
 @tool(Risk.ACT, "Remove a home widget")

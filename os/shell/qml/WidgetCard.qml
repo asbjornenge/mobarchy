@@ -18,6 +18,11 @@ BoardCard {
     property WidgetContents contents: null
 
     readonly property string template: spec.template || "list"
+    // its own look for its text, if it has one: {font, size, italic, align} (a quote)
+    readonly property var style: spec.style || ({})
+    readonly property string fontFamily: style.font || Theme.font
+    readonly property int textAlign: style.align === "center" ? Text.AlignHCenter
+                                   : style.align === "right" ? Text.AlignRight : Text.AlignLeft
     readonly property var items: fetched.items ? Array.from(fetched.items) : []
     readonly property bool empty: template === "list" ? items.length === 0
                                 : template === "value" ? !fetched.value
@@ -86,7 +91,7 @@ BoardCard {
                     wrapMode: Text.Wrap
                     maximumLineCount: card.cols >= 4 ? 2 : 3
                     elide: Text.ElideRight
-                    font { family: Theme.font; pixelSize: 14 }
+                    font { family: card.fontFamily; pixelSize: card.style.size || 14; italic: !!card.style.italic }
                 }
                 Text {
                     visible: row.modelData.subtitle !== "" && card.cols >= 4
@@ -119,7 +124,7 @@ BoardCard {
             color: Theme.fg
             fontSizeMode: Text.HorizontalFit
             minimumPixelSize: 18
-            font { family: Theme.font; pixelSize: 44; weight: Font.Light }
+            font { family: card.fontFamily; pixelSize: 44; weight: Font.Light; italic: !!card.style.italic }
         }
         Text {
             width: parent.width
@@ -134,23 +139,42 @@ BoardCard {
         }
     }
 
-    // --- a text --------------------------------------------------------------------------------
+    // --- a text (and under it, who said it) ----------------------------------------------------
     Flickable {
+        id: textFlick
         visible: card.template === "text" && !card.empty
         anchors.fill: parent
         clip: true
-        contentHeight: markdown.implicitHeight
+        contentHeight: textColumn.height
         interactive: contentHeight > height && !card.editing
         boundsBehavior: Flickable.StopAtBounds
-        Text {
-            id: markdown
+        Column {
+            id: textColumn
             width: parent.width
-            text: card.template === "text" && card.fetched.text && card.contents ? card.contents.markdown(card.fetched.text, font, Theme.accent) : ""
-            textFormat: Text.RichText
-            wrapMode: Text.Wrap
-            color: Theme.fg
-            font { family: Theme.font; pixelSize: 14 }
-            onLinkActivated: (url) => card.open(url)
+            // (centred, a short text sits in the middle of the card: a quote)
+            y: card.style.align === "center" ? Math.max(0, (textFlick.height - height) / 2) : 0
+            spacing: 8
+            Text {
+                id: markdown
+                width: parent.width
+                font { family: card.fontFamily; pixelSize: card.style.size || 14; italic: !!card.style.italic }
+                text: card.template === "text" && card.fetched.text && card.contents
+                      ? card.contents.markdown(card.fetched.text, font, Theme.accent) : ""
+                textFormat: Text.RichText
+                horizontalAlignment: card.textAlign
+                wrapMode: Text.Wrap
+                color: Theme.fg
+                onLinkActivated: (url) => card.open(url)
+            }
+            Text {
+                visible: !!card.fetched.caption
+                width: parent.width
+                horizontalAlignment: card.style.align === "center" ? Text.AlignHCenter : Text.AlignRight
+                text: "— " + (card.fetched.caption || "")
+                color: Theme.muted
+                elide: Text.ElideLeft
+                font { family: card.fontFamily; pixelSize: Math.max(12, Math.round((card.style.size || 14) * 0.7)) }
+            }
         }
     }
 
