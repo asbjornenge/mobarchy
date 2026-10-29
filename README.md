@@ -8,12 +8,12 @@ edges, and a phone you are willing to experiment on.
 
 | | | | |
 |:-:|:-:|:-:|:-:|
-| ![Lock screen](docs/screenshots/lock.png) | ![Home](docs/screenshots/home.png) | ![Notifications](docs/screenshots/notifications.png) | ![Apps](docs/screenshots/apps.png) |
-| Lock screen | Home: widgets | Notifications | Apps |
-| ![Quick settings](docs/screenshots/quick.png) | ![Weather forecast](docs/screenshots/forecast.png) | ![Themes](docs/screenshots/themes.png) | ![App switcher](docs/screenshots/switcher.png) |
-| Quick settings | Weather | Themes | App switcher |
+| ![Boot](docs/screenshots/boot.png) | ![Lock screen](docs/screenshots/lock.png) | ![Home](docs/screenshots/home.png) | ![Notifications](docs/screenshots/notifications.png) |
+| Boot | Lock screen | Home: widgets | Notifications |
+| ![Apps](docs/screenshots/apps.png) | ![Quick settings](docs/screenshots/quick.png) | ![Weather forecast](docs/screenshots/forecast.png) | ![Themes](docs/screenshots/themes.png) |
+| Apps | Quick settings | Weather | Themes |
 
-(Screenshots from the simulator, with made-up data.)
+(Screenshots from the simulator, with made-up data; the boot screen is the splash as the phone draws it.)
 
 ## Features
 
