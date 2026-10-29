@@ -1,0 +1,7 @@
+[Unit]
+Description=Fetch the content of the owner's home widgets (ADR 0046)
+ConditionPathExists=%h/.config/mobarchy/home.json
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mobarchy-widgets refresh

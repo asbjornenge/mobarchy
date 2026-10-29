@@ -48,6 +48,7 @@ qt_add_qml_module(mobarchy-shell
         src/maildata.cpp src/maildata.h
         src/locationagent.cpp src/locationagent.h
         src/homeconfig.cpp src/homeconfig.h
+        src/widgetcontents.cpp src/widgetcontents.h
         src/orientation.cpp src/orientation.h
         src/hinge.cpp src/hinge.h
         src/sleepgate.cpp src/sleepgate.h
@@ -137,6 +138,7 @@ qt_add_qml_module(mobarchy-shell
         qml/EventSheet.qml
         qml/FriggCard.qml
         qml/BoardCard.qml
+        qml/WidgetCard.qml
         qml/WeatherCard.qml
         qml/WeatherScene.qml
         qml/MediaCard.qml

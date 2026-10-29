@@ -7,9 +7,14 @@ import Mobarchy.Shell
 // wide one), each card 2 or 4 cells wide and 1, 2 or 4 high. Cards are placed in order, each in the
 // first gap it fits; a card with nothing to show is left out and the rest close up.
 //
-// Which cards, in what order and size: home.json's "board", [{kind, cols, rows}] (Mobarchy's
-// choice until the owner changes it). Holding a card edits the board: drag to move, resize,
-// remove, and add back from the cards not on it.
+// Which cards, in what order and size: home.json's "board", [{kind, cols, rows, screens}]
+// (Mobarchy's choice until the owner changes it, with the owner's own widgets after it). A
+// card for wide screens only ("screens": "wide", 8 across) or narrow ones ("narrow") is left
+// out on the others. Holding a card edits the board: drag to move, resize, remove, and add
+// back from the cards not on it.
+//
+// The owner's own widgets (home.json's "widgets", ADR 0046: made by the agent) are cards of
+// kind "widget:<id>".
 Flickable {
     id: board
 
@@ -43,17 +48,35 @@ Flickable {
     boundsBehavior: Theme.boundsBehavior
     rebound: Transition { NumberAnimation { properties: "x,y"; duration: Theme.reboundDuration; easing.type: Easing.OutCubic } }
 
+    // (as mobarchy_mcp.widgets.DEFAULT_BOARD: keep the two alike)
     readonly property var defaults: [
         { kind: "frigg", cols: 4, rows: 2 },
         { kind: "weather", cols: 2, rows: 1 }, { kind: "alarm", cols: 2, rows: 1 },
         { kind: "calendar", cols: 4, rows: 2 },
         { kind: "media", cols: 4, rows: 2 }, { kind: "recent", cols: 4, rows: 1 },
         { kind: "messages", cols: 4, rows: 2 }, { kind: "battery", cols: 2, rows: 1 }]
-    // the board as the owner has it: known kinds only
+    // the owner's widgets: id -> description
+    readonly property var widgets: config.config.widgets || ({})
+    readonly property var widgetIds: Object.keys(widgets)
+    readonly property WidgetContents widgetContents: WidgetContents {}
+    // the sizes a widget's card comes in, by its template (as mobarchy_mcp.widgets.TEMPLATES)
+    readonly property var templateSizes: ({ list: [[4, 2], [4, 4], [2, 2]], value: [[2, 1], [2, 2]],
+                                            text: [[4, 2], [2, 2], [4, 4]], image: [[2, 2], [4, 2], [4, 4]] })
+    // the board as the owner has it (the kinds with no card are passed over in laying it out)
     // (a list from home.json is a sequence, not an Array: Array.from)
-    readonly property var entries: (config.config.board ? Array.from(config.config.board) : defaults)
-                                   .filter(e => cards().some(c => c.kind === e.kind))
+    readonly property var entries: config.config.board ? Array.from(config.config.board).filter(e => e && e.kind)
+        : defaults.concat(widgetIds.map(id => {
+            const b = widgets[id].board || {}
+            const sizes = templateSizes[widgets[id].template] || [[4, 2]]
+            return { kind: "widget:" + id, cols: b.cols || sizes[0][0], rows: b.rows || sizes[0][1],
+                     screens: b.screens || "all" }
+        }))
     onEntriesChanged: Qt.callLater(grid.layout)
+    // for this screen: an entry for wide screens only, or narrow ones only, is not
+    function forScreen(e) {
+        return !e.screens || e.screens === "all" || (e.screens === "wide") === (columns >= 8)
+    }
+    onColumnsChanged: Qt.callLater(grid.layout)
     onEditingChanged: { adding = false; Qt.callLater(grid.layout) }
 
     function cards() {
@@ -65,7 +88,14 @@ Flickable {
     }
     function card(kind) { return cards().find(c => c.kind === kind) }
     readonly property bool anyDragged: cards().some(c => c.dragged)
-    function save(list) { config.set("board", list.map(e => ({ kind: e.kind, cols: e.cols, rows: e.rows }))) }
+    function save(list) {
+        config.set("board", list.map(e => {
+            const out = { kind: e.kind, cols: e.cols, rows: e.rows }
+            if (e.screens && e.screens !== "all")
+                out.screens = e.screens
+            return out
+        }))
+    }
 
     function remove(kind) { save(entries.filter(e => e.kind !== kind)) }
     function add(kind) {
@@ -80,7 +110,7 @@ Flickable {
                 return e
             const i = c.sizes.findIndex(s => s[0] === e.cols && s[1] === e.rows)
             const next = c.sizes[(i + 1) % c.sizes.length]
-            return { kind: kind, cols: next[0], rows: next[1] }
+            return Object.assign({}, e, { cols: next[0], rows: next[1] })
         }))
     }
     // a card let go: it goes where its middle is, before the first card whose middle is
@@ -91,6 +121,8 @@ Flickable {
         const rest = entries.filter(e => e.kind !== kind)
         let at = rest.findIndex(e => {
             const o = card(e.kind)
+            if (!o || !o.visible)
+                return false
             const ox = o.x + o.width / 2, oy = o.y + o.height / 2
             return cy < o.y || (cy < o.y + o.height && cx < ox)
         })
@@ -225,6 +257,8 @@ Flickable {
             const on = new Set()
             for (const e of board.entries) {
                 const card = board.card(e.kind)
+                if (!card || !board.forScreen(e))
+                    continue
                 on.add(card)
                 // editing, the cards with nothing to show now are there too: to be placed
                 if (!card.wanted && !board.editing) {
@@ -321,6 +355,24 @@ Flickable {
             kind: "messages"; name: qsTr("Messages and calls"); sizes: [[4, 2], [4, 4]]
             telephony: board.telephony; apps: board.apps
             Placed { card: messages }
+        }
+        // the owner's own
+        Repeater {
+            model: board.widgetIds
+            onItemAdded: Qt.callLater(grid.layout)
+            onItemRemoved: Qt.callLater(grid.layout)
+            delegate: WidgetCard {
+                id: widget
+                required property string modelData
+                kind: "widget:" + modelData
+                spec: board.widgets[modelData] || ({})
+                fetched: board.widgetContents.contents[modelData] || ({})
+                contents: board.widgetContents
+                name: spec.title || modelData
+                sizes: board.templateSizes[spec.template] || [[4, 2]]
+                visible: false
+                Placed { card: widget }
+            }
         }
         BatteryCard {
             id: battery

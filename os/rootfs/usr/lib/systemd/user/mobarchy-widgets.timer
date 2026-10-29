@@ -1,0 +1,10 @@
+[Unit]
+Description=Fetch the home widgets' content when each is due (ADR 0046)
+
+[Timer]
+OnStartupSec=1min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+
+[Install]
+WantedBy=timers.target

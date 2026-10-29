@@ -22,7 +22,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
 from . import compositor as comp
-from . import alarms, approval, bluetooth, browser, calendars, mail, themes, camera, clipboard, clock, contacts, keyboard, media, network, phone, photos, power, store, webapps
+from . import alarms, approval, bluetooth, browser, calendars, mail, themes, camera, clipboard, clock, contacts, keyboard, media, network, phone, photos, power, store, webapps, widgets
 from .device import load_device
 from .policy import Decision, Policy, Risk
 
@@ -670,6 +670,95 @@ def theme_delete(theme_id: str) -> dict:
     try:
         return themes.delete_theme(theme_id)
     except themes.ThemeError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.READ, "List the home widgets")
+def widget_list() -> dict:
+    """The owner's own widgets on the home board (made with widget_create): each one's
+    description, when it was last fetched and any error, and the board as it is (the order,
+    sizes and screens of every card, Mobarchy's own too)."""
+    try:
+        return widgets.list_widgets()
+    except widgets.WidgetError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Make a home widget")
+def widget_create(title: str, template: str, source: dict, icon: str = "", refresh_minutes: int = 30,
+                  cols: int = 0, rows: int = 0, screens: str = "all", widget_id: str = "") -> dict:
+    """Make a widget for the home board, e.g. "a news widget", "the price of bitcoin", "today's
+    lunch menu". It is a description the shell draws, not code: a template filled from a
+    source fetched now and every refresh_minutes (5 at the least). Returns its id and what was
+    fetched (or the error: fix the source and widget_update).
+
+    template: "list" (items: a title, a line under it, an image, a link a tap opens), "value"
+    (one big value and a caption), "text" (markdown) or "image".
+    source (an object, by "type"):
+      {"type": "feed", "url": RSS/Atom URL, "limit": 10}      a list (find the site's feed)
+      {"type": "json", "url": ..., "items": "path.to.list",
+       "fields": {"title": "path", "subtitle": "path", "url": "path", "image": "path"}}   a list
+      {"type": "json", "url": ..., "value": "path", "caption": "path"}    a value
+      {"type": "json", "url": ..., "text": "path"}             a text
+      {"type": "image", "url": image URL, "caption": "..."}     an image (a webcam's still)
+      {"type": "static", "content": {"text": "..."} or {"value": "..", "caption": ".."} or
+       {"items": [{"title", "subtitle", "url"}]}}               what you give, as it is
+    Paths are dotted ("data.children", "list.0.main.temp"); fetch the URL first to find them.
+    icon: a Nerd Font glyph for its title (e.g. "󰎕" news, "󰖐" weather, "" bitcoin).
+    cols x rows: its size on the board (0: the template's default): list 4x2, 4x4, 2x2; value
+    2x1, 2x2; text 4x2, 2x2, 4x4; image 2x2, 4x2, 4x4.
+    screens: "all", "wide" (only on a wide screen: a fold's inner one, a tablet) or "narrow"
+    (only on a phone-sized screen). It goes at the end of the board; the owner moves it by
+    holding it."""
+    board = {"screens": screens, **({"cols": cols, "rows": rows} if cols and rows else {})}
+    try:
+        return widgets.create({"title": title, "icon": icon, "template": template, "source": source,
+                               "refresh_minutes": refresh_minutes, "board": board}, widget_id)
+    except widgets.WidgetError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Change a home widget")
+def widget_update(widget_id: str, title: str | None = None, template: str | None = None,
+                  source: dict | None = None, icon: str | None = None, refresh_minutes: int | None = None,
+                  cols: int = 0, rows: int = 0, screens: str | None = None) -> dict:
+    """Change one of the owner's widgets (widget_list has them): only what is given changes,
+    as in widget_create. It is fetched again at once."""
+    board = {**({"screens": screens} if screens else {}), **({"cols": cols, "rows": rows} if cols and rows else {})}
+    try:
+        return widgets.update(widget_id, {"title": title, "template": template, "source": source, "icon": icon,
+                                          "refresh_minutes": refresh_minutes, "board": board or None})
+    except widgets.WidgetError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Remove a home widget")
+def widget_remove(widget_id: str) -> dict:
+    """Remove one of the owner's widgets, from the board and for good."""
+    try:
+        return widgets.remove(widget_id)
+    except widgets.WidgetError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Refresh home widgets")
+def widget_refresh(widget_id: str = "") -> dict:
+    """Fetch a widget's content now (all of them: no id), as its refresh would."""
+    try:
+        return widgets.refresh([widget_id] if widget_id else None, force=True)
+    except widgets.WidgetError as e:
+        raise ToolError(str(e)) from e
+
+
+@tool(Risk.ACT, "Arrange the home board")
+def home_board_set(entries: list[dict]) -> dict:
+    """Set the home board: every card in order, as widget_list's "board" has them,
+    [{"kind", "cols", "rows", "screens"}] (screens "all", "wide" or "narrow"; a card left out
+    is taken off the board, the owner can add it back). Use widget_list first and change only
+    what the owner asked for. An empty list goes back to Mobarchy's own board."""
+    try:
+        return widgets.set_board(entries)
+    except widgets.WidgetError as e:
         raise ToolError(str(e)) from e
 
 
