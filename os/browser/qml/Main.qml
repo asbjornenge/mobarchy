@@ -107,6 +107,8 @@ Window {
             settings.fullScreenSupportEnabled: true
             settings.touchIconsEnabled: true
             property real lastY: 0
+            // a picture of the page as it was last shown (the tabs' list shows it)
+            property var shot: null
             // Back (or forward) to where the page was scrolled: where each page was left is
             // kept, and gone back to, it is scrolled there again, again and again for a few
             // seconds while a page that fills in as it goes (a list of results) grows, until
@@ -258,6 +260,27 @@ Window {
             current.runJavaScript(fillScript + "(null, null, " + JSON.stringify(code) + ")")
     }
 
+    // The tabs' list, from the page in front: a picture of it first (its card shows it, and
+    // it shrinks into the card)
+    function showTabs() {
+        const tab = current
+        if (!tab || !tab.visible || tab.width <= 0) {
+            tabsView.open(false)
+            return
+        }
+        const asked = tab.grabToImage((result) => {
+            tab.shot = result
+            if (!tabsView.visible)
+                tabsView.open(true)
+        }, Qt.size(tab.width / 2, tab.height / 2))
+        // (no picture, or none in time: the list without it)
+        if (asked)
+            showTabsAnyway.restart()
+        else
+            tabsView.open(false)
+    }
+    Timer { id: showTabsAnyway; interval: 400; onTriggered: if (!tabsView.visible) tabsView.open(false) }
+
     // for the agent (org.mobarchy.Browser)
     function publish() {
         saveSession()
@@ -336,7 +359,7 @@ Window {
         onBack: if (win.current) win.current.goBack()
         onForward: if (win.current) win.current.goForward()
         onEditAddress: address.open()
-        onShowTabs: tabsView.visible = true
+        onShowTabs: win.showTabs()
         onShowMenu: menu.open()
     }
 
